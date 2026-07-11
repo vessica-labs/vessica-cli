@@ -7,6 +7,7 @@
 Turn a Git repository into a durable, inspectable workflow for planning, coding, validation, previews, pull requests, and evidence.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/vessica-labs/vessica-cli/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/vessica-labs/vessica-cli/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/vessica-labs/vessica-cli?style=flat-square&sort=semver)](https://github.com/vessica-labs/vessica-cli/releases/latest)
 [![Apache-2.0](https://img.shields.io/github/license/vessica-labs/vessica-cli?style=flat-square)](LICENSE)
 [![Go 1.25+](https://img.shields.io/badge/Go-1.25%2B-00ADD8?style=flat-square&logo=go&logoColor=white)](go.mod)
 [![Local first](https://img.shields.io/badge/architecture-local--first-2F855A?style=flat-square)](#how-vessica-works)
@@ -194,6 +195,22 @@ Run `ves doctor` inside a workspace to see which dependencies are ready.
 
 ## Installation
 
+### Release archives
+
+Download the archive for your operating system and architecture from [GitHub Releases](https://github.com/vessica-labs/vessica-cli/releases/latest). Each release includes Linux, macOS, and Windows builds plus a `checksums.txt` file.
+
+For example, on Apple Silicon macOS:
+
+```bash
+version=0.1.12
+curl -LO "https://github.com/vessica-labs/vessica-cli/releases/download/v${version}/vessica-cli_${version}_darwin_arm64.tar.gz"
+curl -LO "https://github.com/vessica-labs/vessica-cli/releases/download/v${version}/checksums.txt"
+shasum -a 256 --check checksums.txt --ignore-missing
+tar -xzf "vessica-cli_${version}_darwin_arm64.tar.gz"
+mkdir -p ~/.local/bin
+install "vessica-cli_${version}_darwin_arm64/ves" ~/.local/bin/ves
+```
+
 ### Go install
 
 ```bash
@@ -214,6 +231,17 @@ To install the local build into `~/.local/bin`:
 ```bash
 make install
 ```
+
+### Container package
+
+The hosted control-plane image is published to GitHub Container Registry for `linux/amd64` and `linux/arm64`:
+
+```bash
+docker pull ghcr.io/vessica-labs/vessica-cli:0.1.12
+docker run --rm ghcr.io/vessica-labs/vessica-cli:0.1.12 version
+```
+
+Use a version tag for reproducible deployments. The `latest` tag follows the newest published release.
 
 ### Shell completion
 
