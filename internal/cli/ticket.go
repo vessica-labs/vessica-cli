@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vessica-labs/vessica-cli/internal/state"
+	knowledge "github.com/vessica-labs/vessica-knowledge-server/knowledge"
 )
 
 func newTicketCmd(app *App) *cobra.Command {
@@ -88,6 +90,9 @@ func newTicketCmd(app *App) *cobra.Command {
 			}
 			if err := app.idempotencyStore(context.Background(), t); err != nil {
 				return err
+			}
+			if discoveredFrom != "" {
+				app.recordTicketKnowledge(cmd.Context(), t, "ticket.discovered", "Follow-up ticket discovered: "+t.Title, discoveredFrom)
 			}
 			return app.Printer.Success(t)
 		},
@@ -239,6 +244,7 @@ func newTicketCmd(app *App) *cobra.Command {
 			if err != nil {
 				return app.Printer.Fail("close_failed", err.Error(), "")
 			}
+			app.recordTicketKnowledge(cmd.Context(), t, "ticket.completed", "Ticket completed: "+t.Title, evidence)
 			return app.Printer.Success(t)
 		},
 	}
@@ -261,7 +267,10 @@ func newTicketCmd(app *App) *cobra.Command {
 			if err := app.DB.AddDependency(context.Background(), args[0], by); err != nil {
 				return err
 			}
-			_, _ = app.DB.UpdateTicket(context.Background(), args[0], "", "", "blocked", "")
+			ticket, _ := app.DB.UpdateTicket(context.Background(), args[0], "", "", "blocked", "")
+			if ticket != nil {
+				app.recordTicketKnowledge(cmd.Context(), ticket, "ticket.blocked", "Ticket blocked by "+by+": "+ticket.Title, by)
+			}
 			return app.Printer.Success(map[string]string{"blocked": args[0], "by": by})
 		},
 	}
@@ -291,6 +300,32 @@ func newTicketCmd(app *App) *cobra.Command {
 	cmd.AddCommand(unblock)
 
 	return cmd
+}
+
+func (app *App) recordTicketKnowledge(ctx context.Context, ticket *state.Ticket, eventType, summary, relatedID string) {
+	if ticket == nil {
+		return
+	}
+	g, scope, err := app.knowledgeAndScope(ctx)
+	if err != nil {
+		return
+	}
+	defer g.Close()
+	refs := []knowledge.ExternalRef{{System: "vessica.epic", ID: ticket.EpicID}, {System: "vessica.ticket", ID: ticket.ID}}
+	if ticket.ExternalID != "" {
+		refs = append(refs, knowledge.ExternalRef{System: "linear.issue", ID: ticket.ExternalID})
+	}
+	if ticket.EvidenceReceiptID != "" {
+		refs = append(refs, knowledge.ExternalRef{System: "vessica.receipt", ID: ticket.EvidenceReceiptID})
+	}
+	if ticket.DiscoveredFromRunID != "" {
+		refs = append(refs, knowledge.ExternalRef{System: "vessica.run", ID: ticket.DiscoveredFromRunID})
+	}
+	key := eventType + ":" + ticket.ID
+	if relatedID != "" {
+		key += ":" + relatedID
+	}
+	_, _ = g.Workflow(ctx, key, knowledge.WorkflowEvent{ID: key, RepositoryScopeID: scope.ID, Type: eventType, Summary: summary, OccurredAt: time.Now().UTC(), Actor: knowledge.Actor{ID: "ves-cli", Type: "user"}, References: refs})
 }
 
 func newWaveCmd(app *App) *cobra.Command {

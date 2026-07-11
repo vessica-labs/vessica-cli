@@ -958,6 +958,7 @@ func (e *Engine) phaseValidate(ctx context.Context, r *state.Run) error {
 			bug, _ := e.DB.CreateTicketWithMeta(ctx, r.EpicID, "bug", "Validation failed: "+step, lastErr.Error(), nil, r.ID, stepID)
 			if bug != nil {
 				e.emit(ctx, r.ID, "ticket.created", map[string]any{"ticket_id": bug.ID, "type": "bug", "test_step": stepID})
+				e.recordWorkflowKnowledge(ctx, r, "ticket.discovered", "Validation discovered follow-up: "+bug.Title, "ticket:"+bug.ID+":discovered", knowledge.ExternalRef{System: "vessica.ticket", ID: bug.ID})
 			}
 		}
 	}

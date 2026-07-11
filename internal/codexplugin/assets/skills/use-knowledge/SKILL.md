@@ -5,6 +5,8 @@ description: Retrieve, create, version, promote, or diagnose Vessica knowledge, 
 
 # Use Vessica Knowledge
 
+For setup, configuration, Railway promotion, command help, or troubleshooting, use the `operate-vessica` skill and its operator reference.
+
 Always call `ves`; never open the SQLite database or knowledge HTTP API directly. Begin with `ves knowledge status --json` and use `ves knowledge context --query "<task>" --token-budget <n> --json` or `ves prime --for codex --json` before work that benefits from repository history.
 
 Use these JSON-only workflows:

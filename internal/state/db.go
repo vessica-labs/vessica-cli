@@ -82,6 +82,14 @@ func (db *DB) Migrate(ctx context.Context) error {
 	if _, err := db.SQL.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
 	}
+	// Knowledge memories moved to the authoritative knowledge store. There are
+	// no compatibility obligations for the experimental legacy table.
+	if db.Dialect == "sqlite" {
+		_, _ = db.SQL.ExecContext(ctx, `DROP TABLE IF EXISTS memory_fts`)
+	}
+	if _, err := db.SQL.ExecContext(ctx, `DROP TABLE IF EXISTS memories`); err != nil {
+		return fmt.Errorf("remove legacy memory table: %w", err)
+	}
 	if db.Dialect == "sqlite" {
 		if _, err := db.SQL.ExecContext(ctx, SchemaFTSSQLite); err != nil {
 			return fmt.Errorf("migrate fts: %w", err)

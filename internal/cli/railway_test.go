@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +12,39 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/config"
 	"github.com/vessica-labs/vessica-cli/internal/tracker"
 )
+
+func TestRailwayUpDryRunDoesNotCallRailway(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "railway.log")
+	script := filepath.Join(bin, "railway")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$VES_TEST_COMMAND_LOG\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("VES_TEST_COMMAND_LOG", logPath)
+	runCLI(t, dir, "init", "--profile", "solo", "--runner", "codex", "--repo", "github", "--json")
+	raw := runCLI(t, dir, "railway", "up", "--name", "mvp-test", "--dry-run", "--json")
+	var envelope struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			DryRun bool   `json:"dry_run"`
+			Action string `json:"action"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
+		t.Fatalf("parse dry-run: %v\n%s", err, raw)
+	}
+	if !envelope.OK || !envelope.Data.DryRun || envelope.Data.Action != "railway.up" {
+		t.Fatalf("unexpected dry-run envelope: %s", raw)
+	}
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatalf("railway command unexpectedly executed: %v", err)
+	}
+}
 
 func TestResolveLinearConfigPrefersRequestedTeamAndStates(t *testing.T) {
 	discovery := &tracker.LinearDiscovery{

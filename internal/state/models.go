@@ -92,22 +92,6 @@ type Claim struct {
 	CreatedAt   string `json:"created_at"`
 }
 
-type Memory struct {
-	ID              string `json:"id"`
-	WorkspaceID     string `json:"workspace_id"`
-	Type            string `json:"type"`
-	Scope           string `json:"scope"`
-	Title           string `json:"title"`
-	Body            string `json:"body"`
-	FrontmatterJSON string `json:"frontmatter_json"`
-	Importance      string `json:"importance"`
-	Visibility      string `json:"visibility"`
-	PermissionsJSON string `json:"permissions_json"`
-	Source          string `json:"source,omitempty"`
-	CreatedAt       string `json:"created_at"`
-	UpdatedAt       string `json:"updated_at"`
-}
-
 type Run struct {
 	ID               string `json:"id"`
 	WorkspaceID      string `json:"workspace_id"`

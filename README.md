@@ -180,9 +180,11 @@ flowchart TB
 
 ### Durable knowledge
 
-`ves knowledge context` assembles active artifacts, instructions, entities, decisions, facts, and work episodes with provenance and score explanations. `ves entity`, `ves artifact`, and `ves memory` manage the underlying knowledge objects. `ves prime --for codex` includes the same context for coding agents.
+`ves knowledge context` assembles active artifacts, instructions, entities, decisions, facts, and work episodes with provenance and score explanations. Responses expose the ranking version, component weights, deterministic artifact policy, per-memory scores, and artifact selection reasons. `ves entity`, `ves artifact`, and `ves memory` manage the underlying knowledge objects. `ves prime --for codex` includes the same context for coding agents.
 
 Solo mode embeds the [Vessica Knowledge Server](https://github.com/vessica-labs/vessica-knowledge-server) core and writes `.vessica/state/knowledge.db`. Team mode uses the authenticated HTTP service with Postgres, pgvector, and asynchronous embeddings. `ves railway up --embedding-api-key-env EMBEDDING_API_KEY` provisions the service and promotes the local history only after counts, hashes, and the event watermark verify.
+
+See the [Vessica Operator Guide](docs/Vessica_Operator_Guide.md) for installation, command safety, knowledge, runs, Railway promotion, and troubleshooting. Deliberately deferred post-MVP work is recorded in [Knowledge Layer Follow-ups](docs/Knowledge_Layer_Followups.md).
 
 ## Requirements
 

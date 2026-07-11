@@ -154,23 +154,6 @@ CREATE TABLE IF NOT EXISTS claims (
   FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS memories (
-  id TEXT PRIMARY KEY,
-  workspace_id TEXT NOT NULL,
-  type TEXT NOT NULL DEFAULT 'insight',
-  scope TEXT NOT NULL DEFAULT 'repo',
-  title TEXT NOT NULL DEFAULT '',
-  body TEXT NOT NULL,
-  frontmatter_json TEXT NOT NULL DEFAULT '{}',
-  importance TEXT NOT NULL DEFAULT 'medium',
-  visibility TEXT NOT NULL DEFAULT 'private',
-  permissions_json TEXT NOT NULL DEFAULT '{}',
-  source TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL,
@@ -395,7 +378,6 @@ CREATE INDEX IF NOT EXISTS idx_epics_workspace ON epics(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
 CREATE INDEX IF NOT EXISTS idx_artifacts_epic ON artifacts(epic_id);
-CREATE INDEX IF NOT EXISTS idx_memories_workspace ON memories(workspace_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq);
 CREATE INDEX IF NOT EXISTS idx_run_evidence_run ON run_evidence(run_id);
 CREATE INDEX IF NOT EXISTS idx_runs_workspace ON runs(workspace_id);
@@ -407,12 +389,6 @@ CREATE INDEX IF NOT EXISTS idx_outbox_ready ON outbox_messages(status, available
 `
 
 const SchemaFTSSQLite = `
-CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
-  id UNINDEXED,
-  title,
-  body
-);
-
 CREATE VIRTUAL TABLE IF NOT EXISTS artifact_fts USING fts5(
   id UNINDEXED,
   title,

@@ -136,7 +136,7 @@ func TestRunScopedWavesDoNotIncludePriorRunTickets(t *testing.T) {
 	}
 }
 
-func TestIdempotencyMemoryFTSAndCascade(t *testing.T) {
+func TestIdempotencyAndCascade(t *testing.T) {
 	dir := t.TempDir()
 	db, err := Open("sqlite", filepath.Join(dir, "t.db"), dir)
 	if err != nil {
@@ -160,21 +160,6 @@ func TestIdempotencyMemoryFTSAndCascade(t *testing.T) {
 	}
 	if raw, ok, err := db.GetIdempotency(ctx, "k1"); err != nil || !ok || len(raw) == 0 {
 		t.Fatalf("idempotency raw=%s ok=%v err=%v", string(raw), ok, err)
-	}
-
-	mem, err := db.CreateMemory(ctx, "insight", "old title", "old body", "test", "medium")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.UpdateMemory(ctx, mem.ID, "new title", "new body"); err != nil {
-		t.Fatal(err)
-	}
-	found, err := db.SearchMemory(ctx, "new", 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(found) != 1 || found[0].ID != mem.ID {
-		t.Fatalf("expected updated memory once, got %#v", found)
 	}
 
 	if err := db.DeleteEpic(ctx, epic.ID); err != nil {

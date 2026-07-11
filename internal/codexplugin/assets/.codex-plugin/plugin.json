@@ -1,7 +1,7 @@
 {
   "name": "vessica",
-  "version": "0.2.0",
-  "description": "Plan, dispatch, monitor, review, and share durable Vessica knowledge through the ves CLI.",
+  "version": "0.3.0",
+  "description": "Install, operate, plan, dispatch, monitor, review, and share durable Vessica knowledge through the ves CLI.",
   "author": { "name": "Vessica Labs", "url": "https://github.com/vessica-labs" },
   "homepage": "https://github.com/vessica-labs/vessica-cli",
   "repository": "https://github.com/vessica-labs/vessica-cli",
@@ -11,7 +11,7 @@
   "interface": {
     "displayName": "Vessica",
     "shortDescription": "Drive local and cloud coding factories through ves.",
-    "longDescription": "Use the ves Go CLI to install engineering harnesses, create epics and tickets, dispatch cloud coding runs, retrieve shared knowledge, monitor execution, refine previews, and review evidence.",
+    "longDescription": "Use the ves Go CLI to install and diagnose Vessica, manage engineering harnesses, create epics and tickets, dispatch cloud coding runs, retrieve shared knowledge, promote to Railway, refine previews, and review evidence.",
     "developerName": "Vessica Labs",
     "category": "Productivity",
     "capabilities": ["Interactive", "Write"],
@@ -20,7 +20,8 @@
       "Set up Vessica in this repository.",
       "Turn this request into a Vessica epic.",
       "Show me the status of my Vessica runs.",
-      "What does Vessica remember about this repository?"
+      "What does Vessica remember about this repository?",
+      "Help me configure or troubleshoot Vessica."
     ],
     "brandColor": "#6B46C1"
   }

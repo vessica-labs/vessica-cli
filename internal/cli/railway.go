@@ -46,6 +46,23 @@ func newRailwayCmd(app *App) *cobra.Command {
 				return app.Printer.Fail("not_initialized", err.Error(), "run ves init first")
 			}
 			defer app.closeDB()
+			if app.Flags.DryRun {
+				return app.dryRun("railway.up", map[string]any{
+					"project_name":            opts.Name,
+					"workspace":               opts.Workspace,
+					"control_plane_source":    opts.Source,
+					"control_plane_image":     opts.Image,
+					"knowledge_image":         opts.KnowledgeImage,
+					"knowledge_source":        opts.KnowledgeSource,
+					"embedding_key_env":       opts.EmbeddingAPIKeyEnv,
+					"linear_team":             opts.Team,
+					"worker_checkpoint":       opts.WorkerCheckpoint,
+					"preserves_local_on_fail": true,
+				})
+			}
+			if err := app.requireYes("provision Railway infrastructure and promote knowledge"); err != nil {
+				return err
+			}
 			result, err := railwayUp(cmd.Context(), app, opts)
 			if err != nil {
 				return app.Printer.Fail("railway_up_failed", err.Error(), "run ves railway status and ves railway logs for details")
@@ -209,6 +226,33 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	railwayOAuth, _ := auth.MarshalOAuth("railway")
 	secrets, _ := loadRailwaySecrets(app.Root)
 	runtimeToken := firstNonEmpty(opts.RuntimeToken, os.Getenv("RAILWAY_TOKEN"), secrets.RuntimeToken)
+	embeddingKey := opts.EmbeddingAPIKey
+	if embeddingKey == "" && opts.EmbeddingAPIKeyEnv != "" {
+		embeddingKey = os.Getenv(opts.EmbeddingAPIKeyEnv)
+	}
+	var missing []string
+	if runtimeToken == "" && railwayOAuth == "" {
+		missing = append(missing, "Railway browser login")
+	}
+	if linearToken == "" && linearOAuth == "" {
+		missing = append(missing, "Linear browser login")
+	}
+	if githubToken == "" {
+		missing = append(missing, "GitHub token")
+	}
+	if openAIKey == "" && codexAuthB64 == "" {
+		missing = append(missing, "Codex browser login")
+	}
+	if embeddingKey == "" {
+		missing = append(missing, "embedding provider API key")
+	}
+	if len(missing) > 0 {
+		return map[string]any{
+			"status":  "awaiting_credentials",
+			"missing": missing,
+			"next":    "Authenticate the listed providers, set the embeddings credential in the environment named by --embedding-api-key-env, then rerun ves railway up.",
+		}, nil
+	}
 	cfg := app.Config
 	cfg.Hosted.Provider, cfg.Hosted.WorkerCheckpoint = "railway", opts.WorkerCheckpoint
 	workDir, err := os.MkdirTemp("", "ves-railway-up-*")
@@ -263,40 +307,6 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	secrets.RuntimeToken = runtimeToken
 	if err := saveRailwaySecrets(app.Root, secrets); err != nil {
 		return nil, err
-	}
-	var missing []string
-	if runtimeToken == "" && railwayOAuth == "" {
-		missing = append(missing, "Railway browser login")
-	}
-	if linearToken == "" && linearOAuth == "" {
-		missing = append(missing, "Linear browser login")
-	}
-	if githubToken == "" {
-		missing = append(missing, "GitHub token")
-	}
-	if openAIKey == "" && codexAuthB64 == "" {
-		missing = append(missing, "Codex browser login")
-	}
-	embeddingKey := opts.EmbeddingAPIKey
-	if embeddingKey == "" && opts.EmbeddingAPIKeyEnv != "" {
-		embeddingKey = os.Getenv(opts.EmbeddingAPIKeyEnv)
-	}
-	if embeddingKey == "" {
-		missing = append(missing, "embedding provider API key")
-	}
-	if len(missing) > 0 {
-		_, _ = app.DB.UpsertControlPlaneDeployment(ctx, &state.ControlPlaneDeployment{
-			Provider: "railway", ProjectID: cfg.Hosted.ProjectID, EnvironmentID: cfg.Hosted.EnvironmentID,
-			ServiceID: cfg.Hosted.ServiceID, PostgresServiceID: cfg.Hosted.PostgresServiceID,
-			Version: version.Version, Status: "awaiting_credentials",
-		})
-		return map[string]any{
-			"status": "awaiting_credentials", "project_id": cfg.Hosted.ProjectID,
-			"environment_id": cfg.Hosted.EnvironmentID, "service_id": cfg.Hosted.ServiceID,
-			"postgres_service_id": cfg.Hosted.PostgresServiceID, "missing": missing,
-			"project_url": "https://railway.com/project/" + cfg.Hosted.ProjectID,
-			"next":        "Run ves auth login railway, ves auth login linear, ves auth login github, and ves auth login codex; then rerun ves railway up.",
-		}, nil
 	}
 	if linearToken == "" {
 		linearToken, err = auth.Token("linear")
@@ -577,7 +587,7 @@ func ensureRailwayDomain(ctx context.Context, workDir string, cfg *config.Config
 	return nil
 }
 
-const knowledgeServerVersion = "0.1.4"
+const knowledgeServerVersion = "0.2.0"
 
 func ensureRailwayKnowledge(ctx context.Context, workDir string, app *App, cfg *config.Config, opts railwayUpOptions, token, adminToken, embeddingKey string) error {
 	image := opts.KnowledgeImage
