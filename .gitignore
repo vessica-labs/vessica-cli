@@ -1,8 +1,48 @@
-bin/
+# Build outputs
+/bin/
+/build/
+/dist/
+/ves
+*.exe
+*.test
+*.out
+*.cover
+coverage/
+coverage.*
+
+# Vessica runtime state (workspace config, harness, and pack.lock stay tracked)
 .vessica/cache/
 .vessica/state/
 .vessica/runs/
 .vessica/sandboxes/
 .vessica/secrets/
+
+# Local databases and logs
 *.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.log
+
+# Environment files and local credentials
+.env
+.env.*
+!.env.example
+.direnv/
+.railway/
+
+# Go and Node tooling
+node_modules/
+.pnpm-store/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Operating systems
 .DS_Store
+Thumbs.db

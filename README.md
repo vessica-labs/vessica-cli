@@ -1,366 +1,268 @@
-# Vessica CLI (`ves`)
+<div align="center">
 
-**Local-first harness engineering for agent-driven software development.**
+# Vessica CLI
 
-Vessica turns a repository into a durable operating layer for coding agents: harness docs, pinned agent packs, epics, planning artifacts, dependency-aware tickets, Docker sandboxes, live run streams, preview URLs, draft PRs, and receipts.
+### A local-first engineering control plane for coding agents
 
-The canonical interface is the `ves` CLI — the same commands humans and coding agents use.
+Turn a Git repository into a durable, inspectable workflow for planning, coding, validation, previews, pull requests, and evidence.
+
+[![CI](https://img.shields.io/github/actions/workflow/status/vessica-labs/vessica-cli/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/vessica-labs/vessica-cli/actions/workflows/ci.yml)
+[![Apache-2.0](https://img.shields.io/github/license/vessica-labs/vessica-cli?style=flat-square)](LICENSE)
+[![Go 1.25+](https://img.shields.io/badge/Go-1.25%2B-00ADD8?style=flat-square&logo=go&logoColor=white)](go.mod)
+[![Local first](https://img.shields.io/badge/architecture-local--first-2F855A?style=flat-square)](#how-vessica-works)
+[![Engineering harness](https://img.shields.io/badge/harness-forkable-6B46C1?style=flat-square)](https://github.com/vessica-labs/engineering-harness)
+
+[Quick start](#quick-start) · [How it works](#how-vessica-works) · [Harnesses](#engineering-harnesses) · [Command map](#command-map) · [Contributing](#contributing)
+
+</div>
+
+> [!IMPORTANT]
+> Vessica is pre-1.0 software. The local workflow is usable today, but command contracts, pack formats, and hosted behavior may evolve before the first stable release. Codex is the production runner in the current release.
+
+## What is Vessica?
+
+Coding agents are good at producing code. The harder problem is everything around the code: preserving context, turning an idea into an executable plan, coordinating parallel work, validating a coherent integration branch, giving a human something real to review, and recording what happened.
+
+Vessica provides that operating layer through one CLI, `ves`.
+
+| Without a harness | With Vessica |
+|---|---|
+| Context lives in chat history | Project guidance and memory live with the workspace |
+| Planning artifacts drift apart | PRDs, ADRs, designs, tests, and tickets share one run |
+| Parallel agents collide | Tickets have dependencies, leases, claims, and waves |
+| A final diff is the only evidence | Runs retain events, raw agent output, previews, PRs, and receipts |
+| Agent prompts are fixed by a tool vendor | The engineering harness is versioned, pinned, and forkable |
+
+Vessica orchestrates coding tools; it is not a model provider or a replacement for them. The current production execution path uses the [Codex CLI](https://github.com/openai/codex). Managed guidance is also available for Claude Code, Cursor, Pi, and MCP-oriented clients; those runners currently require simulation mode when used as execution backends.
+
+## Quick start
+
+This path initializes an existing Git repository, installs the default engineering harness, creates an epic, and runs it with Codex.
+
+### 1. Install `ves`
 
 ```bash
+go install github.com/vessica-labs/vessica-cli/cmd/ves@latest
+ves version
+```
+
+Make sure your Go bin directory is on `PATH`:
+
+```bash
+export PATH="$(go env GOPATH)/bin:$PATH"
+```
+
+### 2. Initialize your repository
+
+```bash
+cd your-repository
 ves init --profile solo --runner codex --repo github
 ves pack install @vessica/engineering-harness
 ves harness sync
-ves epic add --title "Add password reset" --body-file epic.md
-ves run epic <epic_id> --concurrency 3 --preview --pr draft --stream
-ves receipt view <rcpt_id>
+ves setup codex
 ```
 
----
+This creates a local SQLite state store, installs pinned agent definitions, detects the project stack, and materializes durable repository guidance.
 
-## Why Vessica
+### 3. Authenticate
 
-Modern coding agents can write useful code, but production use is limited by missing surrounding infrastructure:
+```bash
+ves auth login github
+ves auth login codex
+ves auth status
+ves doctor
+```
 
-- Agents forget product context between sessions
-- Repos lack explicit harnesses for architecture, design, deploy, and testing
-- Epics do not become PRDs, ADRs, test plans, and ticket graphs
-- Multiple agents cannot reliably claim and coordinate work
-- Humans lack a live, auditable view of what changed, what passed, and what it cost
+GitHub browser login delegates to the authenticated `gh` CLI. Codex login delegates to the installed `codex` CLI.
 
-Vessica is that operating layer. It orchestrates tools like Codex, Claude Code, Cursor, and Pi — it does not replace them.
+### 4. Create and run an epic
 
----
+```bash
+cat > epic.md <<'EOF'
+Add password reset using a short-lived token sent by email.
 
-## Features (v1)
+Acceptance criteria:
+- A user can request a reset link.
+- Tokens expire and cannot be reused.
+- The flow has automated tests.
+EOF
 
-| Area | What you get |
+EPIC_ID=$(ves epic add \
+  --title "Add password reset" \
+  --body-file epic.md \
+  --json | jq -r '.data.id')
+
+ves run epic "$EPIC_ID" \
+  --concurrency 3 \
+  --preview \
+  --pr draft \
+  --stream ui
+```
+
+When the preview and draft pull request look right:
+
+```bash
+ves run approve <run_id> --merge-method squash
+```
+
+<details>
+<summary><strong>Try the workflow without calling a model</strong></summary>
+
+Simulation mode exercises the deterministic workflow and is useful for evaluation, demos, and CI:
+
+```bash
+VES_RUNNER_MODE=stub ves run epic "$EPIC_ID" \
+  --concurrency 2 \
+  --preview \
+  --pr draft
+```
+
+The repository also includes an end-to-end smoke test:
+
+```bash
+./scripts/launch-smoke.sh
+```
+
+</details>
+
+## How Vessica works
+
+Every epic follows a phase-addressable workflow. You can run the whole graph, stop after planning, or resume from a selected phase.
+
+```mermaid
+flowchart LR
+    A["Epic"] --> B["Preflight"]
+    B --> C["Harness"]
+    C --> D["Plan"]
+    D --> E["Design"]
+    E --> F["Ticketize"]
+    F --> G["Parallel code"]
+    G --> H["Build"]
+    H --> I["Validate"]
+    I --> J["Live preview"]
+    J --> K["Pull request"]
+    K --> L["Receipt"]
+```
+
+The pieces remain local and composable:
+
+```mermaid
+flowchart TB
+    U["Human or coding agent"] --> CLI["ves CLI"]
+    CLI --> S["SQLite or Postgres state"]
+    CLI --> H["Pinned engineering harness"]
+    CLI --> R["Run engine"]
+    R --> A["Codex runner"]
+    R --> X["Docker or Railway sandbox"]
+    R --> G["Git branches and GitHub PRs"]
+    R --> P["Preview server"]
+    R --> O["Events, traces, and receipts"]
+    S --> T["Epics, artifacts, tickets, memory"]
+```
+
+### Core capabilities
+
+| Area | What Vessica provides |
 |---|---|
-| **Workspace** | `ves init` with SQLite (solo) or Postgres (team) |
-| **Harness** | `AGENTS.md`, architecture/design/deploy/testing/security docs, lint-arch rules |
-| **Agent packs** | Pinned `@vessica/engineering-harness` committed to the repo |
-| **Epics & artifacts** | PRD, ADR, DesignSpec, TestScenarios with versions and approval |
-| **Tickets & waves** | Dependency graph, topological waves, atomic claims + leases |
-| **Memory** | Durable markdown memory with search |
-| **Runs** | Phase-addressable software epic workflow with resume |
-| **Sandboxes** | Local Docker (falls back to local workdir when Docker is unavailable) |
-| **Streaming** | Codex-like human stream, expandable TUI, compact events, and persisted raw JSONL |
-| **Preview** | Preview URL from harness config |
-| **PRs** | GitHub draft PR with receipt summary |
-| **Receipts** | Cost/time/ticket/validation/PR/preview summary + ROI inputs |
-| **Agent UX** | `ves prime --json` and `--json` on agent-facing commands |
-| **Setup** | `ves setup codex\|claude\|cursor\|pi` managed guidance |
-
----
+| Workspace | Solo SQLite or shared Postgres state, repository discovery, config, diagnostics |
+| Engineering harness | Agent definitions, repository docs, templates, workflow definitions, architecture lint |
+| Planning | Epics transformed into PRDs, ADRs, designs, test scenarios, and dependency-aware tickets |
+| Coordination | Atomic ticket claims, leases, heartbeats, blockers, readiness, and execution waves |
+| Execution | Phase controls, concurrent coding workers, integration branches, resume, cancellation |
+| Sandboxes | Docker execution, live previews, retained environments, direct refinement prompts |
+| Observability | Human streams, interactive TUI, versioned JSONL, raw Codex logs, traces, receipts |
+| Integrations | GitHub authentication and PRs, best-effort Linear synchronization, Railway hosting |
+| Agent ergonomics | `ves prime`, stable JSON envelopes, idempotency keys, managed runner guidance |
 
 ## Requirements
 
-- **Go 1.25+** (to build from source)
-- **Git**
-- **Docker** (recommended for sandboxes; local fallback works without it)
-- **Node.js 24+ and pnpm 11** for Node projects
-- **GitHub token** (for remote clone + draft PRs)
-- Optional: **Codex** CLI (or another runner); **Postgres** for team mode
+The exact tools you need depend on the workflow you use.
 
----
+| Tool | Required for | Notes |
+|---|---|---|
+| Go 1.25+ | Installing or building `ves` | Uses the version declared in `go.mod` |
+| Git | Every workspace | The target repository should have an `origin` remote for sandbox cloning and PRs |
+| Codex CLI | Production agent runs | Install and authenticate it before a non-simulated run |
+| Docker | Local isolated runs and previews | The default sandbox backend |
+| GitHub CLI (`gh`) | Browser-based GitHub login | A token can be supplied for headless use |
+| Node.js 24+ and pnpm 11 | Node repositories | Used when the detected project and harness commands require them |
+| `jq` | README shell examples | The CLI itself does not require it |
+| Postgres | Team or hosted state | SQLite is the default for solo workspaces |
+| Railway CLI | Hosted control plane | Needed only for `ves railway ...` |
 
-## Install
+Run `ves doctor` inside a workspace to see which dependencies are ready.
+
+## Installation
+
+### Go install
+
+```bash
+go install github.com/vessica-labs/vessica-cli/cmd/ves@latest
+```
 
 ### Build from source
 
 ```bash
 git clone https://github.com/vessica-labs/vessica-cli.git
 cd vessica-cli
-make build          # produces ./bin/ves
-make install        # copies to ~/.local/bin/ves
-```
-
-Or:
-
-```bash
 go build -o bin/ves ./cmd/ves
+./bin/ves version
 ```
 
-Verify:
+To install the local build into `~/.local/bin`:
 
 ```bash
-ves version
-ves --help
+make install
 ```
 
----
-
-## Quick start
-
-### 1. Initialize a workspace
-
-From any Git repository:
+### Shell completion
 
 ```bash
-ves init --profile solo --runner codex --repo github
+# zsh
+mkdir -p ~/.zfunc
+ves completion zsh > ~/.zfunc/_ves
+
+# bash
+mkdir -p ~/.local/share/bash-completion/completions
+ves completion bash > ~/.local/share/bash-completion/completions/ves
+
+# fish
+mkdir -p ~/.config/fish/completions
+ves completion fish > ~/.config/fish/completions/ves.fish
 ```
 
-Team / shared state:
+## Workspace setup
+
+### Solo profile
+
+Solo mode stores durable state in an ignored SQLite database:
 
 ```bash
-ves init --profile team --state postgres-url --db-url "$DATABASE_URL" \
-  --sandbox docker --runner codex --tracker linear --repo github
+ves init --profile solo \
+  --state sqlite \
+  --sandbox docker \
+  --runner codex \
+  --repo github \
+  --tracker none
 ```
 
-### 2. Authenticate GitHub
+### Team profile
+
+Team mode uses Postgres so multiple users and agents can coordinate claims and run state:
 
 ```bash
-ves auth login github         # opens the GitHub CLI browser flow
-# CI fallback: ves auth login github --token "$GITHUB_TOKEN"
-ves auth status
+ves init --profile team \
+  --state postgres-url \
+  --db-url "$DATABASE_URL" \
+  --sandbox docker \
+  --runner codex \
+  --repo github \
+  --tracker linear
 ```
 
-OAuth credentials use macOS Keychain when available. File-based fallbacks are stored with mode `0600` under `~/.vessica/secrets/` and are never committed to the repo.
+### Files created in a target repository
 
-### 3. Install the software harness pack
-
-```bash
-ves pack install @vessica/engineering-harness
-ves harness sync
-ves doctor
-```
-
-The default pack comes from [vessica-labs/engineering-harness](https://github.com/vessica-labs/engineering-harness) and is pinned to its resolved commit. To use and evolve your own harness, fork that repository and install the fork:
-
-```bash
-ves pack pull https://github.com/your-org/engineering-harness.git#main
-```
-
-`ves pack sync` restores the locked commit, while `ves pack update` refreshes the configured tag or branch.
-
-### 4. Create an epic and run it
-
-```bash
-cat > epic.md <<'EOF'
-Add a password reset flow via emailed one-time token.
-EOF
-
-ves epic add --title "Add password reset" --body-file epic.md --json
-ves run epic <epic_id> --concurrency 3 --preview --pr draft --stream
-```
-
-### 5. Inspect outputs
-
-```bash
-ves run preview <run_id> --browser
-ves receipt view <rcpt_id>
-ves run logs <run_id>
-ves run logs <run_id> --agent-output
-ves prime --json
-```
-
-### Smoke test
-
-```bash
-./scripts/launch-smoke.sh
-```
-
----
-
-## Software epic workflow
-
-`ves run epic` executes a phase-addressable DAG:
-
-```text
-preflight → harness → plan → design → ticketize
-        → code → build → validate → preview → pr → receipt
-```
-
-Useful controls:
-
-```bash
-# Plan only (through ticket graph)
-ves epic plan <epic_id>
-# equivalent:
-ves run epic <epic_id> --stop-after ticketize
-
-# Resume a failed or partial run
-ves run resume <run_id>
-ves run resume <run_id> --from code
-
-# Start coding from approved artifacts
-ves run epic <epic_id> --start-at code --reuse-artifacts approved
-```
-
-### Run output
-
-Human runs default to a concise Codex-like stream. Prompts, command output, and file contents stay collapsed while agent messages and short activity summaries remain visible.
-
-```bash
-ves run epic <epic_id> --stream=pretty  # default, non-interactive
-ves run epic <epic_id> --stream=ui      # expandable terminal UI
-ves run epic <epic_id> --stream=events  # compact lifecycle events
-ves run epic <epic_id> --stream=jsonl   # versioned machine stream
-ves run epic <epic_id> --stream=raw     # raw Codex JSONL
-ves run epic <epic_id> --stream=off     # no live stream
-```
-
-Bare `--stream` remains an alias for `--stream=pretty`; `--events-only` and `--no-stream` remain compatibility aliases. The space form, such as `--stream ui`, is also accepted.
-
-Every runner invocation is persisted to `.vessica/runs/<run_id>/agent.jsonl`, independent of the selected live mode. Inspect it through the CLI:
-
-```bash
-ves run logs <run_id>                  # concise replay with event IDs
-ves run logs <run_id> --detail <evt_id>
-ves run logs <run_id> --raw
-ves run watch <run_id> --ui
-```
-
-The interactive UI fills the available terminal height and follows new events automatically. Moving up pauses following so earlier rows can be inspected; moving back to the bottom or pressing `End` resumes the live tail.
-
-Codex skills and other tool consumers should use `--stream=jsonl`. It writes only `vessica.stream/v1` JSONL records to stdout, keeps diagnostics on stderr, and ends with a `kind: "result"` record. A disconnected consumer can resume with `ves run watch <run_id> --jsonl --after-seq <seq>`. See [the streaming protocol](docs/Vessica_stream_v1.md).
-
-### Live preview
-
-Preview retention is explicit:
-
-```bash
-ves run epic <epic_id> --preview
-ves run epic <epic_id> --open-preview  # implies --preview and opens when ready
-ves run preview <run_id> --browser     # open or restart a run preview later
-```
-
-For preview-enabled runs, Vessica now starts the configured development server as soon as the integration sandbox enters the code phase. Vite runs with Docker-reachable host and port settings; plain Node entry points run in watch mode. The server watches the integration checkout and updates after each ticket branch is merged, so the preview represents the coherent integration branch. Vite provides browser HMR; plain Node servers restart automatically and reflect changes on the next browser request. If the base branch cannot start yet, Vessica emits `preview.deferred` and retries during validation/preview instead of blocking coding.
-
----
-
-## Hosted dark factory
-
-Start locally, then move the same repository to a persistent Railway control plane:
-
-    ves auth login railway
-    ves auth login linear
-    ves auth login codex
-    ves railway up
-    ves railway status
-    ves railway logs
-
-The railway up command creates a user-owned Railway project, Postgres service, persistent control plane, Linear webhook, dedicated SSH identity, and reusable Railway worker checkpoint. A Linear issue entering the configured Todo state becomes a Vessica epic; artifacts are posted as comments, implementation tickets become sub-issues, and the completed run publishes a hosted preview and draft PR.
-
-Railway and Linear use browser OAuth with PKCE and rotating refresh tokens. The hosted control plane encrypts those credentials in Postgres and resolves short-lived access tokens only when it calls Linear or starts a Railway sandbox. GitHub delegates browser login to `gh`; Codex delegates it to `codex login`. API keys and project tokens remain optional headless/CI fallbacks.
-
-See [Hosted Railway](docs/Hosted_Railway.md) for lifecycle and security details.
-
----
-
-## Commands
-
-| Command | Purpose |
-|---|---|
-| `ves init` | Create workspace config + state |
-| `ves status` / `ves doctor` | Workspace health |
-| `ves config …` | Get/set workspace config |
-| `ves auth …` | Provider login/logout/status |
-| `ves setup <runner>` | Install managed agent guidance |
-| `ves pack …` | Install/pin/update agent packs |
-| `ves harness …` | Create/audit/sync/lint/status |
-| `ves epic …` | Epic CRUD + plan |
-| `ves artifact …` | Planning artifacts |
-| `ves ticket …` / `ves wave …` | Tickets, claims, leases, waves |
-| `ves memory …` | Durable memory |
-| `ves prime` | Concise context for humans/agents |
-| `ves run …` | Execute, watch, resume, preview |
-| `ves sandbox …` | Inspect/destroy sandboxes |
-| `ves repo …` / `ves tracker …` | GitHub + Linear/Jira (best-efforts) |
-| `ves receipt …` / `ves trace …` | Receipts and traces |
-
-Global flags:
-
-```bash
---json                 # machine-safe JSON envelope {ok, data, error}
---cwd <path>           # operate on another workspace
---yes                  # skip destructive confirmations
---idempotency-key <k>  # safe retries for mutating commands
-```
-
----
-
-## Agent usage
-
-Coding agents should prefer `ves` over ad hoc TODO/plan/memory files.
-
-```bash
-ves prime --json
-ves ticket ready --json
-ves ticket claim --next --epic <epic_id> --agent <agent_id> --lease 45m --json
-ves memory add --stdin --json
-ves ticket close <ticket_id> --agent <agent_id> --evidence <receipt_id> --json
-```
-
-Install managed guidance into the repo:
-
-```bash
-ves setup codex
-ves setup claude
-ves setup cursor
-ves setup pi
-```
-
----
-
-## Configuration
-
-Precedence: **CLI flags → env → workspace `.vessica/config.yaml` → user config → defaults**.
-
-Example workspace config:
-
-```yaml
-state:
-  backend: sqlite          # sqlite | postgres-url
-  db_url: null
-sandbox:
-  backend: docker
-runner:
-  default: codex
-  model: gpt-5.6-terra
-  reasoning_effort: high
-repo:
-  provider: github
-  remote: git@github.com:org/repo.git
-tracker:
-  provider: none           # linear | jira | none
-  mode: best_efforts
-pack:
-  lockfile: .vessica/pack.lock
-```
-
-### Sandbox retention
-
-Successful preview sandboxes are retained for 24 hours. Failed-run sandboxes are retained for four hours. Opening a preview or tunnel refreshes the 24-hour lease, and a resumed run removes older sandboxes after its replacement is healthy.
-
-New Docker sandboxes carry Vessica ownership labels, run with Docker auto-remove enabled, and include an internal expiry watchdog. This lets Docker remove an expired container even when `ves` is not run again.
-
-```bash
-ves sandbox list
-ves sandbox gc --dry-run
-ves sandbox gc
-ves sandbox retain sbx_abc123 --for 7d
-ves sandbox destroy sbx_abc123 --yes
-ves sandbox destroy --run run_abc123 --yes
-```
-
-Explicit retention is capped at seven days. Vessica only garbage-collects sandboxes recorded in the current workspace; new Docker sandboxes are additionally labeled for ownership and recovery.
-
-Useful env vars:
-
-| Variable | Meaning |
-|---|---|
-| `VES_STATE_BACKEND` | `sqlite` / `postgres-url` |
-| `VES_DB_URL` | Postgres URL |
-| `VES_RUNNER` | Default runner |
-| `VES_REPO_REMOTE` | Git remote override |
-| `GITHUB_TOKEN` / `VES_GITHUB_TOKEN` | GitHub auth |
-| `VES_RUNNER_MODE=stub` / `VES_SIMULATION=1` | Run deterministic simulation mode for demos/smoke tests |
-
----
-
-## Repository layout after init
-
-**Committed**
+Commit the files that describe how agents should work:
 
 ```text
 AGENTS.md
@@ -372,14 +274,16 @@ SECURITY.md
 .vessica/
   config.yaml
   pack.lock
+  pack.yaml
   harness.yaml
   agents/
+  docs/
   templates/
   workflows/
   lint-arch.sh
 ```
 
-**Ignored**
+Keep machine-local and sensitive runtime data ignored:
 
 ```text
 .vessica/cache/
@@ -389,82 +293,507 @@ SECURITY.md
 .vessica/secrets/
 ```
 
----
+`ves init` updates the target repository's `.gitignore` with those runtime paths.
 
-## Architecture
+## Engineering harnesses
 
-```text
-Human / Coding Agent
-        │
-        ▼
-     ves CLI
-        │
-        ▼
-   Vessica Core
-   ┌────┼────────────┬─────────────┬──────────────┐
-   ▼    ▼            ▼             ▼              ▼
- State Harness    Run Engine    Sandbox      Integrations
- DB    + Packs    + Events      Docker       GitHub / trackers
-                     │
-                     ▼
-              Receipts + Preview + PR
-```
-
-Implemented in Go as a single binary. See [docs/Vessica_v1_ADR.md](docs/Vessica_v1_ADR.md) for decisions.
-
----
-
-## Development
+The default harness lives in the separate, forkable [vessica-labs/engineering-harness](https://github.com/vessica-labs/engineering-harness) repository. Vessica resolves the selected Git ref, installs the pack into `.vessica/`, and writes the exact commit SHA to `.vessica/pack.lock`.
 
 ```bash
-make build
-make test
+# Install the tagged default harness
+ves pack install @vessica/engineering-harness
+
+# Restore exactly the commit in pack.lock
+ves pack sync
+
+# Refresh the configured branch or tag
+ves pack update
+
+# Install and pin a specific tag or SHA
+ves pack pin v1.0.0
+```
+
+The CLI contains an embedded default snapshot for offline bootstrap. The Git repository remains the source of truth.
+
+### Use your own harness
+
+Fork the harness repository, edit its agent definitions and templates, then point Vessica at the fork:
+
+```bash
+ves pack pull https://github.com/your-org/engineering-harness.git#main
+ves pack origin get
+```
+
+A valid harness contains:
+
+```text
+pack.yaml
+harness.yaml
+agents/<role>/AGENTS.md
+docs/*.md
+templates/*.md
+workflows/*.yaml
+lint-arch.sh
+```
+
+This separation is intentional: teams can upgrade Vessica without giving up control of their engineering practice.
+
+## Running work
+
+### Plan before coding
+
+Generate planning artifacts and a ticket graph without entering the coding phase:
+
+```bash
+ves epic plan <epic_id>
+
+# Equivalent phase control
+ves run epic <epic_id> --stop-after ticketize
+```
+
+Inspect and approve the result:
+
+```bash
+ves artifact list --json
+ves artifact view <artifact_id>
+ves artifact diff <artifact_id>
+ves artifact approve <artifact_id>
+ves ticket list --json
+ves wave list --json
+```
+
+### Run the full workflow
+
+```bash
+ves run epic <epic_id> \
+  --runner codex \
+  --model gpt-5.6-terra \
+  --reasoning-effort high \
+  --concurrency 3 \
+  --preview \
+  --pr draft
+```
+
+Important controls:
+
+```bash
+ves run epic <epic_id> --start-at code --reuse-artifacts approved
+ves run epic <epic_id> --stop-after validate
+ves run resume <run_id>
+ves run resume <run_id> --from code
+ves run cancel <run_id>
+```
+
+Runs use an integration branch. Ticket work is coordinated independently, merged into that branch, validated as a coherent whole, and optionally published as a pull request.
+
+### Approve a completed run
+
+```bash
+ves run approve <run_id> --merge-method squash
+```
+
+Approval verifies the pull request head, marks a draft ready, merges it, and cleans up the integration branch and preview by default. Use `--keep-branch` or `--keep-preview` when you need to retain either one.
+
+## Streams and logs
+
+Vessica separates human presentation from its machine protocol.
+
+| Mode | Best for |
+|---|---|
+| `pretty` | Concise non-interactive terminal output; the default |
+| `ui` | Expandable, follow-mode terminal interface |
+| `events` | Compact lifecycle events |
+| `jsonl` | Stable `vessica.stream/v1` records for tools and agents |
+| `raw` | Raw Codex JSONL |
+| `off` | No live stream |
+
+```bash
+ves run epic <epic_id> --stream=pretty
+ves run epic <epic_id> --stream=ui
+ves run epic <epic_id> --stream=jsonl
+```
+
+Every runner invocation is persisted independently of the live mode:
+
+```bash
+ves run logs <run_id>
+ves run logs <run_id> --detail <event_id>
+ves run logs <run_id> --agent-output
+ves run logs <run_id> --jsonl
+ves run logs <run_id> --raw
+ves run watch <run_id> --ui
+ves run watch <run_id> --jsonl --after-seq <sequence>
+```
+
+See the [streaming protocol](docs/Vessica_stream_v1.md) for record types and resume semantics.
+
+## Sandboxes and previews
+
+The default local backend creates Docker sandboxes and an integration checkout. Preview-enabled runs start the detected development server during coding and keep it aligned with the integration branch.
+
+```bash
+ves run epic <epic_id> --preview
+ves run epic <epic_id> --open-preview
+ves run preview <run_id> --browser
+```
+
+Inspect and operate retained environments:
+
+```bash
+ves sandbox list
+ves sandbox view <sandbox_id>
+ves sandbox logs <sandbox_id>
+ves sandbox shell <sandbox_id>
+ves sandbox tunnel <sandbox_id> --browser
+```
+
+Ask Codex for a focused follow-up inside a live sandbox:
+
+```bash
+ves sandbox prompt <sandbox_id> \
+  "Tighten the empty state and rerun the relevant tests"
+```
+
+Successful preview sandboxes default to 24 hours; failed runs default to four hours. Explicit retention is capped at seven days.
+
+```bash
+ves sandbox retain <sandbox_id> --for 48h
+ves sandbox gc --dry-run
+ves sandbox gc
+ves sandbox destroy <sandbox_id> --yes
+```
+
+## Durable project coordination
+
+Vessica exposes its state model directly so humans and standalone agents can use the same primitives as the run engine.
+
+### Epics and artifacts
+
+```bash
+ves epic add --title "..." --body-file epic.md
+ves epic list
+ves epic status <epic_id>
+ves artifact list
+ves artifact approve <artifact_id>
+```
+
+### Tickets, leases, and waves
+
+```bash
+ves ticket ready --json
+ves ticket claim --next --epic <epic_id> --agent <agent_id> --lease 45m --json
+ves ticket heartbeat <ticket_id> --agent <agent_id>
+ves ticket block <ticket_id> --by <blocking_ticket_id>
+ves ticket close <ticket_id> --agent <agent_id> --evidence <receipt_id>
+ves wave status <wave_id>
+```
+
+### Memory and context
+
+```bash
+ves memory add --title "Decision" --stdin --json
+ves memory search "authentication"
+ves memory compact
+ves prime --for codex --epic <epic_id> --json
+```
+
+`ves prime` produces a compact view of workspace guidance, relevant artifacts, tickets, and memory for a human or agent starting work.
+
+Install managed guidance for supported clients:
+
+```bash
+ves setup codex
+ves setup claude
+ves setup cursor
+ves setup pi
+ves setup mcp
+```
+
+## Authentication and integrations
+
+### GitHub
+
+```bash
+ves auth login github
+ves repo status
+ves repo connect github
+```
+
+For non-interactive environments:
+
+```bash
+ves auth login github --token "$GITHUB_TOKEN"
+```
+
+The GitHub integration supports repository status, integration branches, draft pull requests, and approval/merge workflows.
+
+### Codex
+
+```bash
+ves auth login codex
+```
+
+This uses the official `codex login` flow. `OPENAI_API_KEY` remains available for hosted/headless operation.
+
+### Linear
+
+```bash
+ves auth login linear
+ves tracker connect linear
+ves tracker status
+ves tracker sync
+```
+
+Linear synchronization is best-effort in local mode. Vessica remains the local source of truth. The hosted Railway control plane adds webhook-driven issue intake and status updates.
+
+### Credential storage
+
+Railway and Linear use browser OAuth with PKCE. On macOS, supported credentials use Keychain; file fallbacks are stored with mode `0600` under `~/.vessica/secrets/`. Workspace secrets under `.vessica/secrets/` are ignored.
+
+## Hosted Railway control plane
+
+The same `ves` binary can run as a persistent Railway control plane backed by Postgres. It receives Linear webhooks, starts Railway sandboxes, executes the workflow, publishes previews and draft PRs, and waits for human approval.
+
+```mermaid
+sequenceDiagram
+    participant L as Linear
+    participant V as Vessica control plane
+    participant R as Railway sandbox
+    participant G as GitHub
+    L->>V: Matching issue enters Todo
+    V->>R: Start isolated worker
+    R->>R: Plan, code, build, validate
+    R-->>V: Preview and evidence
+    V->>G: Open draft pull request
+    V-->>L: Post artifacts and status
+    V->>G: Merge after approval
+```
+
+Provision from an initialized repository:
+
+```bash
+ves auth login github
+ves auth login railway
+ves auth login linear
+ves auth login codex
+
+ves railway up \
+  --workspace <railway-workspace> \
+  --linear-team <team> \
+  --trigger-label Vessica \
+  --source /path/to/vessica-cli
+```
+
+Operate the deployment:
+
+```bash
+ves railway status
+ves railway logs --lines 200
+ves railway approve <run_id>
+ves railway down --yes
+```
+
+Read [Hosted Railway](docs/Hosted_Railway.md) before provisioning. It covers OAuth application setup, scopes, webhook behavior, preview forwarding, credential encryption, and teardown.
+
+## Configuration
+
+Precedence is command flags, environment variables, `.vessica/config.yaml`, then built-in defaults.
+
+```yaml
+state:
+  backend: sqlite
+  db_url: ""
+sandbox:
+  backend: docker
+runner:
+  default: codex
+  model: gpt-5.6-terra
+  reasoning_effort: high
+repo:
+  provider: github
+  remote: git@github.com:your-org/your-repo.git
+tracker:
+  provider: none
+  mode: best_efforts
+pack:
+  lockfile: .vessica/pack.lock
+preview:
+  command: ""
+  port: 3000
+  healthcheck: ""
+```
+
+Manage values without editing YAML:
+
+```bash
+ves config list
+ves config get runner.default
+ves config set runner.default codex
+ves config set repo.remote git@github.com:your-org/your-repo.git
+ves config unset preview.command
+```
+
+Common environment overrides:
+
+| Variable | Purpose |
+|---|---|
+| `VES_STATE_BACKEND` | `sqlite` or `postgres-url` |
+| `VES_DB_URL` | Postgres connection URL |
+| `VES_RUNNER` | Default runner |
+| `VES_RUNNER_MODEL` | Default model ID |
+| `VES_RUNNER_REASONING_EFFORT` | `low`, `medium`, `high`, or `xhigh` |
+| `VES_SANDBOX` | Sandbox backend |
+| `VES_REPO_REMOTE` | Git clone/push remote |
+| `VES_TRACKER_PROVIDER` | Tracker provider |
+| `VES_RUNNER_MODE=stub` | Deterministic simulation mode |
+| `GITHUB_TOKEN` / `VES_GITHUB_TOKEN` | Headless GitHub authentication |
+
+## Command map
+
+| Command | Purpose |
+|---|---|
+| `ves init` | Initialize solo or team workspace state |
+| `ves status`, `ves doctor` | Inspect configuration and readiness |
+| `ves config` | Read and update workspace configuration |
+| `ves auth` | Login, logout, and inspect provider credentials |
+| `ves setup` | Install managed guidance for coding clients |
+| `ves pack` | Install, fork, pin, sync, and update engineering harnesses |
+| `ves harness` | Create, audit, sync, lint, and inspect repository guidance |
+| `ves epic` | Create and plan units of product work |
+| `ves artifact` | Version and approve planning artifacts |
+| `ves ticket`, `ves wave` | Coordinate dependency-aware execution |
+| `ves memory`, `ves prime` | Preserve and retrieve durable context |
+| `ves run` | Execute, resume, watch, preview, approve, and inspect runs |
+| `ves sandbox` | Operate retained local or Railway environments |
+| `ves repo` | Inspect repository and pull-request integration |
+| `ves tracker` | Connect and synchronize external trackers |
+| `ves receipt`, `ves trace` | Inspect evidence and diagnostics |
+| `ves railway` | Provision and operate the hosted control plane |
+
+Every command supports `--help`. Useful global flags include:
+
+```text
+--cwd <path>             operate on another workspace
+--json                   machine-safe JSON output
+--dry-run                describe an action without mutating
+--idempotency-key <key>  safely retry supported mutations
+--yes                    confirm destructive commands
+--quiet                  reduce human output
+--no-color               disable terminal color
+```
+
+## Automation contract
+
+Use `--json` when another program consumes command output. Regular commands return a stable envelope:
+
+```json
+{
+  "ok": true,
+  "data": {}
+}
+```
+
+Long-running consumers should use `--stream=jsonl` or `ves run watch --jsonl`. Diagnostics remain on stderr, records use the versioned `vessica.stream/v1` schema, and the stream ends with a result record.
+
+Use `--idempotency-key` for retryable mutations:
+
+```bash
+ves epic add \
+  --title "Add audit log" \
+  --body-file epic.md \
+  --idempotency-key epic-audit-log-v1 \
+  --json
+```
+
+## Security model
+
+- Repository runtime secrets and state are ignored by default.
+- Local token files use mode `0600`; supported macOS credentials use Keychain.
+- OAuth browser flows use PKCE and loopback callbacks.
+- Hosted OAuth credentials are encrypted with AES-256-GCM before Postgres persistence.
+- Coding sandboxes receive only the credentials needed for their work; hosted workers remove bootstrap and infrastructure secrets from the agent environment.
+- Pull-request approval checks the expected head SHA before merge.
+- Pack installs are pinned to an immutable Git commit in `.vessica/pack.lock`.
+
+Never commit `.vessica/secrets/`, local database files, OAuth payloads, API keys, or raw environment files. For sensitive vulnerability reports, contact the maintainers privately rather than opening a public issue.
+
+## Contributing
+
+Contributions and focused issue reports are welcome.
+
+```bash
+git clone https://github.com/vessica-labs/vessica-cli.git
+cd vessica-cli
+go test ./...
+go vet ./...
+go build -o bin/ves ./cmd/ves
+```
+
+Run the deterministic end-to-end check:
+
+```bash
 ./scripts/launch-smoke.sh
 ```
 
-Project layout:
+Useful optional integration tests:
 
-```text
-cmd/ves/                 # CLI entrypoint
-internal/
-  cli/                   # cobra commands
-  config/ state/ id/     # workspace + persistence
-  pack/ harness/         # packs + harness
-  ticket/ artifact/ memory/
-  run/ sandbox/ runner/  # execution
-  repo/ tracker/ auth/
-  receipt/ event/ redaction/ prime/
-internal/pack/software-harness/ # offline fallback snapshot
-testdata/sample-app/     # fixture for smoke tests
-docs/                    # PRD + ADR
+```bash
+VES_TEST_DOCKER_PREVIEW=1 go test ./internal/sandbox -run TestDockerNodePreviewReloads
+VES_TEST_DOCKER_TTL=1 go test ./internal/sandbox -run TestDockerSelfExpiry
 ```
 
----
+Repository layout:
 
-## v1 scope / non-goals
+```text
+cmd/ves/                         CLI entry point
+internal/cli/                    Cobra commands and output behavior
+internal/config/                 Workspace configuration
+internal/state/                  SQLite/Postgres persistence
+internal/pack/                   Git packs and embedded fallback harness
+internal/harness/                Stack detection and harness sync
+internal/run/                    Workflow engine and approval lifecycle
+internal/runner/                 Coding-agent runner integration
+internal/sandbox/                Docker and Railway sandboxes
+internal/controlplane/           Hosted API, jobs, previews, credentials
+internal/repo/                   Git and GitHub operations
+internal/tracker/                Tracker integrations
+internal/streaming/              Human and machine event protocols
+testdata/sample-app/             End-to-end fixture
+docs/                            Product and architecture documents
+```
 
-**In scope:** local-first CLI, SQLite/Postgres, Docker sandboxes, Codex-first runner, GitHub PRs, harness/packs, epics→tickets→runs→receipts.
+Please keep changes scoped, add tests for behavioral changes, preserve machine-readable output contracts, and avoid committing generated state.
 
-**Out of scope for v1:** hosted Vessica service, remote sandboxes, scheduler/cron, general arbitrary agent runtime, human inbox, custom hosted UIs, marketplace, enterprise RBAC/SSO, full MCP ecosystem.
+## Current status
 
-Roadmap notes live in [docs/Vessica_v2_PRD.md](docs/Vessica_v2_PRD.md).
+Vessica is actively developed and currently reports version `0.1.x`.
 
----
+Implemented today:
 
-## Documentation
+- Local solo and shared Postgres workspaces
+- Git-backed, forkable engineering harnesses with SHA pinning
+- Epics, planning artifacts, dependency tickets, waves, leases, and memory
+- Codex-driven runs with concurrency, resume, previews, draft PRs, and approval
+- Human, TUI, JSON, JSONL, and raw event views
+- Docker and Railway sandbox backends
+- GitHub, Linear, and Railway integration paths
+- Persistent hosted Railway control plane
 
-- [Vessica v1 PRD](docs/Vessica_v1_PRD.md) — product requirements and launch definition
-- [Vessica v1 ADR](docs/Vessica_v1_ADR.md) — architecture decisions
-- [Vessica v2 PRD](docs/Vessica_v2_PRD.md) — future hosted / general-agent direction
+Current boundaries:
 
----
+- Codex is the production execution runner; Claude, Cursor, and Pi execution adapters are not yet implemented outside simulation mode.
+- GitHub is the complete repository/PR provider; other provider settings are preparatory.
+- Local tracker pull is not supported; Vessica is the source of truth and pushes/syncs outward.
+- There are no stable 1.0 compatibility guarantees yet.
+
+## Further reading
+
+- [Vessica v1 architecture decision record](docs/Vessica_v1_ADR.md)
+- [Vessica v1 product requirements](docs/Vessica_v1_PRD.md)
+- [Streaming protocol](docs/Vessica_stream_v1.md)
+- [Hosted Railway control plane](docs/Hosted_Railway.md)
+- [Default engineering harness](https://github.com/vessica-labs/engineering-harness)
 
 ## License
 
-License TBD — this repository is under active early development.
-
----
-
-## Status
-
-**v0.1.0** — build-ready v1 implementation matching the local-first launch loop in the v1 PRD. APIs and pack formats may still evolve before a stable 1.0 tag.
+Licensed under the [Apache License 2.0](LICENSE).
