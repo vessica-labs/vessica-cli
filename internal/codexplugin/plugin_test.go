@@ -20,6 +20,9 @@ func TestInstallWritesPluginAndMarketplaceEntry(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(result.Path, ".codex-plugin", "plugin.json")); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Stat(filepath.Join(result.Path, "skills", "use-knowledge", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
 	raw, err := os.ReadFile(result.Marketplace)
 	if err != nil {
 		t.Fatal(err)

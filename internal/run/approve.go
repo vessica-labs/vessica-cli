@@ -208,5 +208,7 @@ func (e *Engine) finishApproval(ctx context.Context, runRecord *state.Run, sandb
 		"sandbox_destroyed": result.SandboxDestroyed,
 	})
 	e.emit(ctx, runRecord.ID, "run.approved", map[string]any{"pr_url": runRecord.PRURL, "merge_commit_sha": result.MergeCommitSHA, "approved_at": result.ApprovedAt})
+	e.recordWorkflowKnowledge(ctx, runRecord, "run.approved", "Run approved and pull request merged", "run:"+runRecord.ID+":approved")
+	e.recordWorkflowKnowledge(ctx, runRecord, "epic.completed", "Epic completed after approved merge", "epic:"+runRecord.EpicID+":completed")
 	return result, nil
 }

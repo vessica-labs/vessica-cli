@@ -25,10 +25,13 @@ func newCapabilitiesCmd(app *App) *cobra.Command {
 					"ticket add", "ticket list", "ticket update", "ticket block", "ticket unblock",
 					"run epic", "run view", "run list", "run watch", "run cancel", "run resume", "run prompt", "run approve", "run rollback",
 					"receipt view",
+					"knowledge status", "knowledge context", "knowledge promote", "knowledge export", "knowledge import",
+					"entity create", "entity resolve", "entity search", "artifact create", "artifact get", "artifact list", "artifact activate", "artifact supersede",
+					"memory add", "memory get", "memory list", "memory search", "memory supersede", "memory archive",
 				},
 				"contract":       map[string]any{"json": true, "jsonl": true, "dry_run": true, "idempotency_keys": true, "structured_confirmation": true},
 				"tools":          map[string]bool{"ves": true, "codex": commandAvailable("codex"), "git": commandAvailable("git"), "docker": commandAvailable("docker")},
-				"authentication": auth.StatusAll([]string{"github", "linear", "railway", "codex"}),
+				"authentication": auth.StatusAll([]string{"github", "linear", "railway", "codex", "knowledge"}),
 				"workspace":      map[string]any{"initialized": false, "root": app.Root},
 			}
 			if root, err := config.FindRoot(app.Root); err == nil {
@@ -38,6 +41,7 @@ func newCapabilitiesCmd(app *App) *cobra.Command {
 						"initialized": true, "root": root, "state": cfg.State.Backend, "sandbox": cfg.Sandbox.Backend,
 						"runner": cfg.Runner.Default, "tracker": cfg.Tracker.Provider, "repo": cfg.Repo.Provider,
 						"hosted": cfg.Hosted.ControlPlaneURL != "", "control_plane_url_configured": cfg.Hosted.ControlPlaneURL != "",
+						"knowledge_mode": cfg.Knowledge.Mode, "knowledge_endpoint_configured": cfg.Knowledge.Endpoint != "",
 						"harness_installed": fileExists(filepath.Join(root, cfg.Pack.Lockfile)),
 					}
 					if db, openErr := openState(root, cfg); openErr == nil {

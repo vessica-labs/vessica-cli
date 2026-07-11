@@ -2,9 +2,11 @@ package cli
 
 import (
 	"context"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/vessica-labs/vessica-cli/internal/prime"
+	knowledge "github.com/vessica-labs/vessica-knowledge-server/knowledge"
 )
 
 func newPrimeCmd(app *App) *cobra.Command {
@@ -26,6 +28,24 @@ func newPrimeCmd(app *App) *cobra.Command {
 			})
 			if err != nil {
 				return err
+			}
+			if gateway, scope, knowledgeErr := app.knowledgeAndScope(cmd.Context()); knowledgeErr == nil {
+				parts := []string{"current repository work context"}
+				if resp.Epic != nil {
+					parts = append(parts, resp.Epic.Title, resp.Epic.Body)
+				}
+				if resp.Ticket != nil {
+					parts = append(parts, resp.Ticket.Title, resp.Ticket.Body)
+				}
+				budget := 4000
+				if minimal {
+					budget = 1500
+				}
+				contextResult, contextErr := gateway.Context(cmd.Context(), knowledge.ContextRequest{Query: strings.Join(parts, "\n"), ScopeIDs: []string{scope.ID}, ArtifactSelectors: []knowledge.ArtifactSelector{{Status: "active"}}, TokenBudget: budget})
+				gateway.Close()
+				if contextErr == nil {
+					resp.Knowledge = contextResult
+				}
 			}
 			if app.Flags.JSON {
 				return app.Printer.Success(resp)

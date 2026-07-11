@@ -28,7 +28,7 @@ Vessica provides that operating layer through one CLI, `ves`.
 
 | Without a harness | With Vessica |
 |---|---|
-| Context lives in chat history | Project guidance and memory live with the workspace |
+| Context lives in chat history | Versioned artifacts and durable knowledge live with the workspace |
 | Planning artifacts drift apart | PRDs, ADRs, designs, tests, and tickets share one run |
 | Parallel agents collide | Tickets have dependencies, leases, claims, and waves |
 | A final diff is the only evidence | Runs retain events, raw agent output, previews, PRs, and receipts |
@@ -63,7 +63,7 @@ ves harness sync
 ves setup codex
 ```
 
-This creates a local SQLite state store, installs pinned agent definitions, detects the project stack, and materializes durable repository guidance.
+This creates local SQLite workplan and knowledge stores, installs pinned agent definitions, detects the project stack, and materializes durable repository guidance. Solo knowledge retrieval uses FTS5/BM25 and requires no API key.
 
 ### 3. Authenticate
 
@@ -150,7 +150,8 @@ The pieces remain local and composable:
 ```mermaid
 flowchart TB
     U["Human or coding agent"] --> CLI["ves CLI"]
-    CLI --> S["SQLite or Postgres state"]
+    CLI --> S["Workplan state"]
+    CLI --> K["Embedded or hosted knowledge"]
     CLI --> H["Pinned engineering harness"]
     CLI --> R["Run engine"]
     R --> A["Codex runner"]
@@ -158,7 +159,8 @@ flowchart TB
     R --> G["Git branches and GitHub PRs"]
     R --> P["Preview server"]
     R --> O["Events, traces, and receipts"]
-    S --> T["Epics, artifacts, tickets, memory"]
+    S --> T["Epics, tickets, runs, receipts"]
+    K --> N["Entities, artifacts, memories, relationships"]
 ```
 
 ### Core capabilities
@@ -174,6 +176,13 @@ flowchart TB
 | Observability | Human streams, interactive TUI, versioned JSONL, raw Codex logs, traces, receipts |
 | Integrations | GitHub authentication and PRs, best-effort Linear synchronization, Railway hosting |
 | Agent ergonomics | `ves prime`, stable JSON envelopes, idempotency keys, managed runner guidance |
+| Knowledge | Zero-key local retrieval, shared hosted semantic retrieval, immutable versions, workflow episodes, verified promotion |
+
+### Durable knowledge
+
+`ves knowledge context` assembles active artifacts, instructions, entities, decisions, facts, and work episodes with provenance and score explanations. `ves entity`, `ves artifact`, and `ves memory` manage the underlying knowledge objects. `ves prime --for codex` includes the same context for coding agents.
+
+Solo mode embeds the [Vessica Knowledge Server](https://github.com/vessica-labs/vessica-knowledge-server) core and writes `.vessica/state/knowledge.db`. Team mode uses the authenticated HTTP service with Postgres, pgvector, and asynchronous embeddings. `ves railway up --embedding-api-key-env EMBEDDING_API_KEY` provisions the service and promotes the local history only after counts, hashes, and the event watermark verify.
 
 ## Requirements
 
@@ -502,7 +511,8 @@ ves epic add --title "..." --body-file epic.md
 ves epic list
 ves epic status <epic_id>
 ves artifact list
-ves artifact approve <artifact_id>
+ves artifact create --type adr --title "..." --body-file ADR.md --yes --idempotency-key <key>
+ves artifact activate <artifact_id> --yes --idempotency-key <key>
 ```
 
 ### Tickets, leases, and waves
@@ -521,11 +531,11 @@ ves wave status <wave_id>
 ```bash
 ves memory add --title "Decision" --stdin --json
 ves memory search "authentication"
-ves memory compact
+ves knowledge context --query "authentication" --token-budget 4000 --json
 ves prime --for codex --epic <epic_id> --json
 ```
 
-`ves prime` produces a compact view of workspace guidance, relevant artifacts, tickets, and memory for a human or agent starting work.
+`ves prime` produces a compact view of workspace guidance, tickets, and ranked knowledge for a human or agent starting work.
 
 Install managed guidance for supported clients:
 
@@ -634,6 +644,7 @@ ves railway up \
   --workspace <railway-workspace> \
   --linear-team <team> \
   --trigger-label Vessica \
+  --embedding-api-key-env EMBEDDING_API_KEY \
   --source /path/to/vessica-cli
 ```
 
@@ -668,6 +679,9 @@ repo:
 tracker:
   provider: none
   mode: best_efforts
+knowledge:
+  mode: local
+  local_path: .vessica/state/knowledge.db
 pack:
   lockfile: .vessica/pack.lock
 preview:

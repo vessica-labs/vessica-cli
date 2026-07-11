@@ -19,9 +19,11 @@ import (
 
 	"github.com/vessica-labs/vessica-cli/internal/config"
 	"github.com/vessica-labs/vessica-cli/internal/id"
+	"github.com/vessica-labs/vessica-cli/internal/knowledgegateway"
 	"github.com/vessica-labs/vessica-cli/internal/retention"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 	"github.com/vessica-labs/vessica-cli/internal/tracker"
+	knowledge "github.com/vessica-labs/vessica-knowledge-server/knowledge"
 )
 
 type RunLauncher interface {
@@ -469,6 +471,29 @@ func (s *Server) outboxLoop(ctx context.Context) {
 }
 
 func (s *Server) processOutbox(ctx context.Context, message *state.OutboxMessage) error {
+	if message.Operation == "knowledge.workflow_event" || message.Operation == "knowledge.artifact" {
+		gateway, err := knowledgegateway.Open(".", s.Config, message.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		defer gateway.Close()
+		switch message.Operation {
+		case "knowledge.workflow_event":
+			var v knowledge.WorkflowEvent
+			if err := json.Unmarshal([]byte(message.PayloadJSON), &v); err != nil {
+				return err
+			}
+			_, err = gateway.Workflow(ctx, message.IdempotencyKey, v)
+			return err
+		case "knowledge.artifact":
+			var v knowledge.Artifact
+			if err := json.Unmarshal([]byte(message.PayloadJSON), &v); err != nil {
+				return err
+			}
+			_, err = gateway.CreateArtifact(ctx, message.IdempotencyKey, v)
+			return err
+		}
+	}
 	if s.Linear == nil {
 		return fmt.Errorf("Linear client is not configured")
 	}

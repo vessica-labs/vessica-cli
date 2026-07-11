@@ -510,11 +510,11 @@ func newRunCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
-			if err := app.requireYes("cancel run"); err != nil {
-				return err
-			}
 			if app.Flags.DryRun {
 				return app.dryRun("run.cancel", map[string]any{"id": args[0]})
+			}
+			if err := app.requireYes("cancel run"); err != nil {
+				return err
 			}
 			r, err := app.DB.GetRun(context.Background(), args[0])
 			if err != nil {
@@ -528,6 +528,8 @@ func newRunCmd(app *App) *cobra.Command {
 					_ = retention.Destroy(context.Background(), app.DB, app.Root, &sandboxes[i], "cancelled")
 				}
 			}
+			eng := &run.Engine{DB: app.DB, Root: app.Root, Config: app.Config}
+			eng.RecordRunKnowledge(cmd.Context(), r, "run.cancelled", "Run was cancelled", "run:"+r.ID+":cancelled")
 			return app.Printer.Success(r)
 		},
 	})

@@ -153,6 +153,7 @@ User request:
 		"pushed":      pushed,
 		"preview_url": sandboxRecord.PreviewURL,
 	})
+	e.recordWorkflowKnowledge(ctx, runRecord, "run.refined", "Human refinement applied to retained sandbox", "run:"+runRecord.ID+":refinement:"+commit)
 	return &PromptResult{
 		RunID:        runRecord.ID,
 		SandboxID:    sandboxID,

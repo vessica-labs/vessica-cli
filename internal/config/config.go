@@ -18,14 +18,15 @@ const (
 
 // Config is workspace configuration.
 type Config struct {
-	State   StateConfig   `yaml:"state" json:"state"`
-	Sandbox SandboxConfig `yaml:"sandbox" json:"sandbox"`
-	Runner  RunnerConfig  `yaml:"runner" json:"runner"`
-	Repo    RepoConfig    `yaml:"repo" json:"repo"`
-	Tracker TrackerConfig `yaml:"tracker" json:"tracker"`
-	Hosted  HostedConfig  `yaml:"hosted,omitempty" json:"hosted,omitempty"`
-	Pack    PackConfig    `yaml:"pack" json:"pack"`
-	Preview PreviewConfig `yaml:"preview" json:"preview"`
+	State     StateConfig     `yaml:"state" json:"state"`
+	Sandbox   SandboxConfig   `yaml:"sandbox" json:"sandbox"`
+	Runner    RunnerConfig    `yaml:"runner" json:"runner"`
+	Repo      RepoConfig      `yaml:"repo" json:"repo"`
+	Tracker   TrackerConfig   `yaml:"tracker" json:"tracker"`
+	Hosted    HostedConfig    `yaml:"hosted,omitempty" json:"hosted,omitempty"`
+	Knowledge KnowledgeConfig `yaml:"knowledge" json:"knowledge"`
+	Pack      PackConfig      `yaml:"pack" json:"pack"`
+	Preview   PreviewConfig   `yaml:"preview" json:"preview"`
 }
 
 type StateConfig struct {
@@ -71,6 +72,18 @@ type HostedConfig struct {
 	WorkerCheckpoint  string `yaml:"worker_checkpoint,omitempty" json:"worker_checkpoint,omitempty"`
 }
 
+type KnowledgeConfig struct {
+	Mode                string `yaml:"mode" json:"mode"`
+	WorkspaceID         string `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+	Endpoint            string `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
+	LocalPath           string `yaml:"local_path,omitempty" json:"local_path,omitempty"`
+	ServiceID           string `yaml:"service_id,omitempty" json:"service_id,omitempty"`
+	PostgresServiceID   string `yaml:"postgres_service_id,omitempty" json:"postgres_service_id,omitempty"`
+	PostgresServiceName string `yaml:"postgres_service_name,omitempty" json:"postgres_service_name,omitempty"`
+	Version             string `yaml:"version,omitempty" json:"version,omitempty"`
+	Image               string `yaml:"image,omitempty" json:"image,omitempty"`
+}
+
 type PackConfig struct {
 	Lockfile string `yaml:"lockfile" json:"lockfile"`
 }
@@ -84,13 +97,14 @@ type PreviewConfig struct {
 // Defaults returns solo-profile defaults.
 func Defaults() Config {
 	return Config{
-		State:   StateConfig{Backend: "sqlite"},
-		Sandbox: SandboxConfig{Backend: "docker"},
-		Runner:  RunnerConfig{Default: "codex", Model: "gpt-5.6-terra", ReasoningEffort: "high"},
-		Repo:    RepoConfig{Provider: "github"},
-		Tracker: TrackerConfig{Provider: "none", Mode: "best_efforts"},
-		Pack:    PackConfig{Lockfile: filepath.Join(DirName, PackLockFile)},
-		Preview: PreviewConfig{Port: 3000},
+		State:     StateConfig{Backend: "sqlite"},
+		Sandbox:   SandboxConfig{Backend: "docker"},
+		Runner:    RunnerConfig{Default: "codex", Model: "gpt-5.6-terra", ReasoningEffort: "high"},
+		Repo:      RepoConfig{Provider: "github"},
+		Tracker:   TrackerConfig{Provider: "none", Mode: "best_efforts"},
+		Knowledge: KnowledgeConfig{Mode: "local", LocalPath: filepath.Join(DirName, "state", "knowledge.db")},
+		Pack:      PackConfig{Lockfile: filepath.Join(DirName, PackLockFile)},
+		Preview:   PreviewConfig{Port: 3000},
 	}
 }
 
@@ -215,6 +229,24 @@ func Set(c *Config, key, value string) error {
 		c.Hosted.ControlPlaneImage = value
 	case "hosted.worker_checkpoint":
 		c.Hosted.WorkerCheckpoint = value
+	case "knowledge.mode":
+		c.Knowledge.Mode = value
+	case "knowledge.workspace_id":
+		c.Knowledge.WorkspaceID = value
+	case "knowledge.endpoint":
+		c.Knowledge.Endpoint = value
+	case "knowledge.local_path":
+		c.Knowledge.LocalPath = value
+	case "knowledge.service_id":
+		c.Knowledge.ServiceID = value
+	case "knowledge.postgres_service_id":
+		c.Knowledge.PostgresServiceID = value
+	case "knowledge.postgres_service_name":
+		c.Knowledge.PostgresServiceName = value
+	case "knowledge.version":
+		c.Knowledge.Version = value
+	case "knowledge.image":
+		c.Knowledge.Image = value
 	case "pack.lockfile":
 		c.Pack.Lockfile = value
 	case "preview.command":
@@ -257,33 +289,42 @@ func Flatten(c Config) map[string]string {
 
 func flatten(c Config) map[string]string {
 	return map[string]string{
-		"state.backend":              c.State.Backend,
-		"state.db_url":               c.State.DBURL,
-		"sandbox.backend":            c.Sandbox.Backend,
-		"runner.default":             c.Runner.Default,
-		"repo.provider":              c.Repo.Provider,
-		"repo.remote":                c.Repo.Remote,
-		"tracker.provider":           c.Tracker.Provider,
-		"tracker.mode":               c.Tracker.Mode,
-		"tracker.team_id":            c.Tracker.TeamID,
-		"tracker.todo_state_id":      c.Tracker.TodoStateID,
-		"tracker.wip_state_id":       c.Tracker.WIPStateID,
-		"tracker.done_state_id":      c.Tracker.DoneStateID,
-		"tracker.blocked_state_id":   c.Tracker.BlockedStateID,
-		"tracker.trigger_label":      c.Tracker.TriggerLabel,
-		"hosted.provider":            c.Hosted.Provider,
-		"hosted.workspace_id":        c.Hosted.WorkspaceID,
-		"hosted.project_id":          c.Hosted.ProjectID,
-		"hosted.environment_id":      c.Hosted.EnvironmentID,
-		"hosted.service_id":          c.Hosted.ServiceID,
-		"hosted.postgres_service_id": c.Hosted.PostgresServiceID,
-		"hosted.control_plane_url":   c.Hosted.ControlPlaneURL,
-		"hosted.control_plane_image": c.Hosted.ControlPlaneImage,
-		"hosted.worker_checkpoint":   c.Hosted.WorkerCheckpoint,
-		"pack.lockfile":              c.Pack.Lockfile,
-		"preview.command":            c.Preview.Command,
-		"preview.port":               fmt.Sprintf("%d", c.Preview.Port),
-		"preview.healthcheck":        c.Preview.Healthcheck,
+		"state.backend":                   c.State.Backend,
+		"state.db_url":                    c.State.DBURL,
+		"sandbox.backend":                 c.Sandbox.Backend,
+		"runner.default":                  c.Runner.Default,
+		"repo.provider":                   c.Repo.Provider,
+		"repo.remote":                     c.Repo.Remote,
+		"tracker.provider":                c.Tracker.Provider,
+		"tracker.mode":                    c.Tracker.Mode,
+		"tracker.team_id":                 c.Tracker.TeamID,
+		"tracker.todo_state_id":           c.Tracker.TodoStateID,
+		"tracker.wip_state_id":            c.Tracker.WIPStateID,
+		"tracker.done_state_id":           c.Tracker.DoneStateID,
+		"tracker.blocked_state_id":        c.Tracker.BlockedStateID,
+		"tracker.trigger_label":           c.Tracker.TriggerLabel,
+		"hosted.provider":                 c.Hosted.Provider,
+		"hosted.workspace_id":             c.Hosted.WorkspaceID,
+		"hosted.project_id":               c.Hosted.ProjectID,
+		"hosted.environment_id":           c.Hosted.EnvironmentID,
+		"hosted.service_id":               c.Hosted.ServiceID,
+		"hosted.postgres_service_id":      c.Hosted.PostgresServiceID,
+		"hosted.control_plane_url":        c.Hosted.ControlPlaneURL,
+		"hosted.control_plane_image":      c.Hosted.ControlPlaneImage,
+		"hosted.worker_checkpoint":        c.Hosted.WorkerCheckpoint,
+		"knowledge.mode":                  c.Knowledge.Mode,
+		"knowledge.workspace_id":          c.Knowledge.WorkspaceID,
+		"knowledge.endpoint":              c.Knowledge.Endpoint,
+		"knowledge.local_path":            c.Knowledge.LocalPath,
+		"knowledge.service_id":            c.Knowledge.ServiceID,
+		"knowledge.postgres_service_id":   c.Knowledge.PostgresServiceID,
+		"knowledge.postgres_service_name": c.Knowledge.PostgresServiceName,
+		"knowledge.version":               c.Knowledge.Version,
+		"knowledge.image":                 c.Knowledge.Image,
+		"pack.lockfile":                   c.Pack.Lockfile,
+		"preview.command":                 c.Preview.Command,
+		"preview.port":                    fmt.Sprintf("%d", c.Preview.Port),
+		"preview.healthcheck":             c.Preview.Healthcheck,
 	}
 }
 
@@ -364,6 +405,15 @@ func ApplyEnv(c *Config) {
 	}
 	if v := os.Getenv("VES_CONTROL_PLANE_URL"); v != "" {
 		c.Hosted.ControlPlaneURL = v
+	}
+	if v := os.Getenv("VES_KNOWLEDGE_MODE"); v != "" {
+		c.Knowledge.Mode = v
+	}
+	if v := os.Getenv("VES_KNOWLEDGE_WORKSPACE_ID"); v != "" {
+		c.Knowledge.WorkspaceID = v
+	}
+	if v := os.Getenv("VES_KNOWLEDGE_ENDPOINT"); v != "" {
+		c.Knowledge.Endpoint = v
 	}
 }
 

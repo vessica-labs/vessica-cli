@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vessica-labs/vessica-cli/internal/run"
 	"github.com/vessica-labs/vessica-cli/internal/state"
+	ks "github.com/vessica-labs/vessica-knowledge-server/knowledge"
 )
 
 func newEpicCmd(app *App) *cobra.Command {
@@ -51,6 +53,7 @@ func newEpicCmd(app *App) *cobra.Command {
 					}
 					data["hosted"] = published
 				}
+				app.recordEpicKnowledge(cmd.Context(), created.Epic, created.Tickets)
 				if err := app.idempotencyStore(context.Background(), data); err != nil {
 					return err
 				}
@@ -84,6 +87,7 @@ func newEpicCmd(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			app.recordEpicKnowledge(cmd.Context(), e, nil)
 			if err := app.idempotencyStore(context.Background(), e); err != nil {
 				return err
 			}
@@ -262,6 +266,31 @@ func newEpicCmd(app *App) *cobra.Command {
 	})
 	_ = strings.TrimSpace
 	return cmd
+}
+
+func (app *App) recordEpicKnowledge(ctx context.Context, epic *state.Epic, tickets []*state.Ticket) {
+	if epic == nil {
+		return
+	}
+	g, scope, err := app.knowledgeAndScope(ctx)
+	if err != nil {
+		return
+	}
+	defer g.Close()
+	refs := []ks.ExternalRef{{System: "vessica.epic", ID: epic.ID}}
+	if epic.ExternalID != "" {
+		refs = append(refs, ks.ExternalRef{System: "linear.issue", ID: epic.ExternalID})
+	}
+	for _, ticket := range tickets {
+		if ticket == nil {
+			continue
+		}
+		refs = append(refs, ks.ExternalRef{System: "vessica.ticket", ID: ticket.ID})
+		if ticket.ExternalID != "" {
+			refs = append(refs, ks.ExternalRef{System: "linear.issue", ID: ticket.ExternalID})
+		}
+	}
+	_, _ = g.Workflow(ctx, "epic:"+epic.ID+":accepted", ks.WorkflowEvent{ID: "epic:" + epic.ID + ":accepted", RepositoryScopeID: scope.ID, Type: "epic.accepted", Summary: "Epic accepted: " + epic.Title, OccurredAt: time.Now().UTC(), Actor: ks.Actor{ID: "ves-cli", Type: "user"}, References: refs})
 }
 
 func readEpicSpec(root, path string) (state.EpicSpec, error) {

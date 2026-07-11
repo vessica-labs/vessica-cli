@@ -10,3 +10,4 @@ description: Set up or diagnose Vessica and its engineering harness in the curre
 3. Inspect `ves doctor --json`. Never place credentials in command arguments; use `ves auth login <provider>` or documented environment references.
 4. Preview harness installation with `ves harness install --dry-run --json`. After confirmation run it with `--yes --idempotency-key setup-<unique> --json`, then `ves harness audit --json`.
 5. Report failed checks and exact recovery commands. Do not edit Vessica state files directly.
+6. Run `ves knowledge status --json` and a small `ves knowledge context --query "repository setup" --token-budget 1000 --json`. Lexical mode without an embedding key is healthy for a solo workspace.

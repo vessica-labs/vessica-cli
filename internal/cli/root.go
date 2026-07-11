@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vessica-labs/vessica-cli/internal/config"
+	"github.com/vessica-labs/vessica-cli/internal/knowledgegateway"
 	"github.com/vessica-labs/vessica-cli/internal/output"
 	"github.com/vessica-labs/vessica-cli/internal/retention"
 	"github.com/vessica-labs/vessica-cli/internal/state"
@@ -28,6 +29,14 @@ type GlobalFlags struct {
 	Yes            bool
 	DryRun         bool
 	IdempotencyKey string
+}
+
+func (a *App) openKnowledge(ctx context.Context) (*knowledgegateway.Gateway, error) {
+	ws, err := a.DB.GetWorkspace(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return knowledgegateway.Open(a.Root, a.Config, ws.ID)
 }
 
 // App is the CLI application context.
@@ -95,6 +104,8 @@ func NewRoot() *cobra.Command {
 	root.AddCommand(newRepoCmd(app))
 	root.AddCommand(newTrackerCmd(app))
 	root.AddCommand(newMemoryCmd(app))
+	root.AddCommand(newKnowledgeCmd(app))
+	root.AddCommand(newEntityCmd(app))
 	root.AddCommand(newPrimeCmd(app))
 	root.AddCommand(newReceiptCmd(app))
 	root.AddCommand(newTraceCmd(app))

@@ -27,9 +27,9 @@ type Response struct {
 	ReadyTickets []state.Ticket `json:"ready_tickets,omitempty"`
 	Epic         *state.Epic    `json:"epic,omitempty"`
 	Ticket       *state.Ticket  `json:"ticket,omitempty"`
-	Memories     []state.Memory `json:"memory_highlights,omitempty"`
 	Rules        []string       `json:"rules"`
 	Text         string         `json:"text,omitempty"`
+	Knowledge    any            `json:"knowledge,omitempty"`
 }
 
 func Build(ctx context.Context, db *state.DB, root string, req Request) (*Response, error) {
@@ -72,11 +72,6 @@ func Build(ctx context.Context, db *state.DB, root string, req Request) (*Respon
 		resp.Ticket = t
 	}
 	if !req.Minimal {
-		mems, _ := db.ListMemories(ctx)
-		if len(mems) > 5 {
-			mems = mems[:5]
-		}
-		resp.Memories = mems
 		if b, err := os.ReadFile(filepath.Join(root, "AGENTS.md")); err == nil {
 			resp.Text = truncate(string(b), 1500)
 		}

@@ -54,6 +54,7 @@ func (e *Engine) RollbackRun(ctx context.Context, runID string) (*RollbackResult
 		result.SandboxDestroyed = true
 	}
 	e.emit(ctx, runID, "run.rolled_back", map[string]any{"pr_url": r.PRURL})
+	e.recordWorkflowKnowledge(ctx, r, "run.rolled_back", "Run was rolled back and its pull request closed", "run:"+runID+":rolled_back")
 	result.RolledBack = true
 	return result, nil
 }

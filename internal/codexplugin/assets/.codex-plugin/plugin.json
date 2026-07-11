@@ -1,17 +1,17 @@
 {
   "name": "vessica",
-  "version": "0.1.0",
-  "description": "Plan, dispatch, monitor, refine, and review Vessica coding work through the ves CLI.",
+  "version": "0.2.0",
+  "description": "Plan, dispatch, monitor, review, and share durable Vessica knowledge through the ves CLI.",
   "author": { "name": "Vessica Labs", "url": "https://github.com/vessica-labs" },
   "homepage": "https://github.com/vessica-labs/vessica-cli",
   "repository": "https://github.com/vessica-labs/vessica-cli",
   "license": "Apache-2.0",
-  "keywords": ["coding-agents", "cli", "dark-factory", "linear"],
+  "keywords": ["coding-agents", "cli", "dark-factory", "linear", "knowledge"],
   "skills": "./skills/",
   "interface": {
     "displayName": "Vessica",
     "shortDescription": "Drive local and cloud coding factories through ves.",
-    "longDescription": "Use the ves Go CLI to install engineering harnesses, create epics and tickets, dispatch cloud coding runs, monitor execution, refine previews, and review evidence.",
+    "longDescription": "Use the ves Go CLI to install engineering harnesses, create epics and tickets, dispatch cloud coding runs, retrieve shared knowledge, monitor execution, refine previews, and review evidence.",
     "developerName": "Vessica Labs",
     "category": "Productivity",
     "capabilities": ["Interactive", "Write"],
@@ -19,7 +19,8 @@
     "defaultPrompt": [
       "Set up Vessica in this repository.",
       "Turn this request into a Vessica epic.",
-      "Show me the status of my Vessica runs."
+      "Show me the status of my Vessica runs.",
+      "What does Vessica remember about this repository?"
     ],
     "brandColor": "#6B46C1"
   }

@@ -19,18 +19,21 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vessica-labs/vessica-cli/internal/auth"
 	"github.com/vessica-labs/vessica-cli/internal/config"
+	"github.com/vessica-labs/vessica-cli/internal/knowledgegateway"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 	"github.com/vessica-labs/vessica-cli/internal/tracker"
 	"github.com/vessica-labs/vessica-cli/internal/version"
+	ks "github.com/vessica-labs/vessica-knowledge-server/knowledge"
 )
 
 type railwaySecrets struct {
-	RuntimeToken, APIToken, WorkerToken, WebhookSecret, WebhookID, CredentialKey string
+	RuntimeToken, APIToken, WorkerToken, WebhookSecret, WebhookID, CredentialKey, KnowledgeToken, KnowledgeAdminToken string
 }
 
 type railwayUpOptions struct {
 	Name, Workspace, Source, Image, RuntimeToken, LinearToken, GitHubToken, OpenAIKey  string
 	Team, TodoState, WIPState, DoneState, BlockedState, TriggerLabel, WorkerCheckpoint string
+	KnowledgeImage, KnowledgeSource, EmbeddingAPIKey, EmbeddingAPIKeyEnv               string
 }
 
 func newRailwayCmd(app *App) *cobra.Command {
@@ -65,6 +68,10 @@ func newRailwayCmd(app *App) *cobra.Command {
 	up.Flags().StringVar(&opts.BlockedState, "blocked-state", "", "optional Linear blocked state id or name")
 	up.Flags().StringVar(&opts.TriggerLabel, "trigger-label", "", "only process issues with this label")
 	up.Flags().StringVar(&opts.WorkerCheckpoint, "worker-checkpoint", "", "Railway sandbox checkpoint with worker prerequisites")
+	up.Flags().StringVar(&opts.KnowledgeImage, "knowledge-image", "", "knowledge-server OCI image override (resolved to an immutable digest)")
+	up.Flags().StringVar(&opts.KnowledgeSource, "knowledge-source", "", "development-only knowledge-server source directory")
+	up.Flags().StringVar(&opts.EmbeddingAPIKey, "embedding-api-key", "", "embedding provider key required by hosted knowledge")
+	up.Flags().StringVar(&opts.EmbeddingAPIKeyEnv, "embedding-api-key-env", "EMBEDDING_API_KEY", "environment variable containing the hosted embedding provider key")
 	cmd.AddCommand(up, newRailwayStatusCmd(app), newRailwayLogsCmd(app), newRailwayApproveCmd(app), newRailwayDownCmd(app))
 	return cmd
 }
@@ -91,6 +98,13 @@ func newRailwayStatusCmd(app *App) *cobra.Command {
 				var deployments any
 				_ = json.Unmarshal(raw, &deployments)
 				result["deployments"] = deployments
+			}
+			if cfg.Knowledge.ServiceID != "" {
+				if raw, err := runRailway(cmd.Context(), "", nil, "deployment", "list", "-p", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Knowledge.ServiceID, "--limit", "5", "--json"); err == nil {
+					var deployments any
+					_ = json.Unmarshal(raw, &deployments)
+					result["knowledge_deployments"] = deployments
+				}
 			}
 		}
 		return app.Printer.Success(result)
@@ -240,6 +254,12 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	if secrets.CredentialKey == "" {
 		secrets.CredentialKey = base64.RawStdEncoding.EncodeToString(randomBytes(32))
 	}
+	if secrets.KnowledgeToken == "" {
+		secrets.KnowledgeToken = randomSecret(32)
+	}
+	if secrets.KnowledgeAdminToken == "" {
+		secrets.KnowledgeAdminToken = randomSecret(32)
+	}
 	secrets.RuntimeToken = runtimeToken
 	if err := saveRailwaySecrets(app.Root, secrets); err != nil {
 		return nil, err
@@ -256,6 +276,13 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	}
 	if openAIKey == "" && codexAuthB64 == "" {
 		missing = append(missing, "Codex browser login")
+	}
+	embeddingKey := opts.EmbeddingAPIKey
+	if embeddingKey == "" && opts.EmbeddingAPIKeyEnv != "" {
+		embeddingKey = os.Getenv(opts.EmbeddingAPIKeyEnv)
+	}
+	if embeddingKey == "" {
+		missing = append(missing, "embedding provider API key")
 	}
 	if len(missing) > 0 {
 		_, _ = app.DB.UpsertControlPlaneDeployment(ctx, &state.ControlPlaneDeployment{
@@ -296,6 +323,9 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		}
 	}
 	if err := ensureRailwayDomain(ctx, workDir, &cfg); err != nil {
+		return nil, err
+	}
+	if err := ensureRailwayKnowledge(ctx, workDir, app, &cfg, opts, secrets.KnowledgeToken, secrets.KnowledgeAdminToken, embeddingKey); err != nil {
 		return nil, err
 	}
 	if err := config.Save(app.Root, cfg); err != nil {
@@ -358,6 +388,7 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	return map[string]any{"status": "running", "project_id": cfg.Hosted.ProjectID, "environment_id": cfg.Hosted.EnvironmentID,
 		"service_id": cfg.Hosted.ServiceID, "postgres_service_id": cfg.Hosted.PostgresServiceID,
 		"control_plane_url": cfg.Hosted.ControlPlaneURL, "webhook_id": secrets.WebhookID,
+		"knowledge_endpoint": cfg.Knowledge.Endpoint, "knowledge_service_id": cfg.Knowledge.ServiceID,
 		"linear_team": team.Name, "todo_state_id": cfg.Tracker.TodoStateID}, nil
 }
 
@@ -431,11 +462,19 @@ func reconcileRailwayResourceIDs(ctx context.Context, cfg *config.Config) error 
 		}
 	}
 	for _, edge := range project.Services.Edges {
+		if edge.Node.ID == cfg.Knowledge.PostgresServiceID {
+			cfg.Knowledge.PostgresServiceName = edge.Node.Name
+		}
 		switch strings.ToLower(edge.Node.Name) {
 		case "control-plane":
 			cfg.Hosted.ServiceID = edge.Node.ID
 		case "postgres":
 			cfg.Hosted.PostgresServiceID = edge.Node.ID
+		case "knowledge-server":
+			cfg.Knowledge.ServiceID = edge.Node.ID
+		case "knowledge-postgres":
+			cfg.Knowledge.PostgresServiceID = edge.Node.ID
+			cfg.Knowledge.PostgresServiceName = edge.Node.Name
 		}
 	}
 	if cfg.Hosted.EnvironmentID == "" || cfg.Hosted.ServiceID == "" || cfg.Hosted.PostgresServiceID == "" {
@@ -538,6 +577,221 @@ func ensureRailwayDomain(ctx context.Context, workDir string, cfg *config.Config
 	return nil
 }
 
+const knowledgeServerVersion = "0.1.4"
+
+func ensureRailwayKnowledge(ctx context.Context, workDir string, app *App, cfg *config.Config, opts railwayUpOptions, token, adminToken, embeddingKey string) error {
+	image := opts.KnowledgeImage
+	if image == "" && opts.KnowledgeSource == "" {
+		image = "ghcr.io/vessica-labs/vessica-knowledge-server:v" + knowledgeServerVersion
+		var err error
+		image, err = resolveGHCRDigest(ctx, image)
+		if err != nil {
+			return fmt.Errorf("resolve knowledge-server release image: %w", err)
+		}
+	}
+	if cfg.Knowledge.ServiceID == "" {
+		args := []string{"add", "--service", "knowledge-server", "--json"}
+		if image != "" {
+			args = []string{"add", "--image", image, "--service", "knowledge-server", "--json"}
+		}
+		raw, err := runRailway(ctx, workDir, nil, args...)
+		if err != nil {
+			return err
+		}
+		cfg.Knowledge.ServiceID, err = objectID(raw)
+		if err != nil {
+			return err
+		}
+		if err := config.Save(app.Root, *cfg); err != nil {
+			return err
+		}
+	}
+	if cfg.Knowledge.PostgresServiceID == "" {
+		raw, err := runRailway(ctx, workDir, nil, "add", "--database", "postgres", "--json")
+		if err != nil {
+			return err
+		}
+		cfg.Knowledge.PostgresServiceID, err = objectID(raw)
+		if err != nil {
+			return err
+		}
+		cfg.Knowledge.PostgresServiceName, err = objectString(raw, "name")
+		if err != nil {
+			return err
+		}
+	}
+	if cfg.Knowledge.PostgresServiceName == "" {
+		return fmt.Errorf("knowledge Postgres service name is unavailable")
+	}
+	if err := config.Save(app.Root, *cfg); err != nil {
+		return err
+	}
+	if cfg.Knowledge.Endpoint == "" {
+		raw, err := runRailway(ctx, workDir, nil, "domain", "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Knowledge.ServiceID, "-p", "8080", "--json")
+		if err != nil {
+			return err
+		}
+		domain, err := objectString(raw, "domain")
+		if err != nil {
+			return err
+		}
+		cfg.Knowledge.Endpoint = "https://" + strings.TrimPrefix(strings.TrimPrefix(domain, "https://"), "http://")
+	}
+	ws, err := app.DB.GetWorkspace(ctx)
+	if err != nil {
+		return err
+	}
+	if cfg.Knowledge.WorkspaceID == "" {
+		cfg.Knowledge.WorkspaceID = ws.ID
+	}
+	variables := map[string]string{
+		"DATABASE_URL":           "$" + "{{" + cfg.Knowledge.PostgresServiceName + ".DATABASE_URL}}",
+		"KNOWLEDGE_API_TOKEN":    token,
+		"KNOWLEDGE_EXPORT_TOKEN": adminToken,
+		"KNOWLEDGE_WORKSPACE_ID": cfg.Knowledge.WorkspaceID,
+		"EMBEDDING_API_KEY":      embeddingKey,
+		"EMBEDDING_MODEL":        "text-embedding-3-small",
+	}
+	for key, value := range variables {
+		if err := setRailwayVariableForService(ctx, *cfg, cfg.Knowledge.ServiceID, key, value); err != nil {
+			return err
+		}
+	}
+	previous := ""
+	if latest, err := latestRailwayDeploymentForService(ctx, *cfg, cfg.Knowledge.ServiceID); err == nil {
+		previous = latest.ID
+	}
+	if opts.KnowledgeSource != "" {
+		if _, err := runRailway(ctx, opts.KnowledgeSource, nil, "up", "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Knowledge.ServiceID, "--detach", "--json", "--message", "Vessica knowledge dev"); err != nil {
+			return err
+		}
+	} else {
+		if _, err := runRailway(ctx, "", nil, "redeploy", "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Knowledge.ServiceID, "--yes"); err != nil {
+			return err
+		}
+	}
+	if err := waitForRailwayDeploymentForService(ctx, *cfg, cfg.Knowledge.ServiceID, previous, 8*time.Minute); err != nil {
+		return err
+	}
+	if err := waitForHostedHealth(ctx, strings.TrimRight(cfg.Knowledge.Endpoint, "/")+"/readyz", 8*time.Minute); err != nil {
+		return err
+	}
+	cfg.Knowledge.Version = knowledgeServerVersion
+	cfg.Knowledge.Image = image
+	if cfg.Knowledge.Mode != "hosted" {
+		if err := promoteKnowledgeAuthority(ctx, app, cfg, token, adminToken); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func promoteKnowledgeAuthority(ctx context.Context, app *App, cfg *config.Config, token, adminToken string) error {
+	lockPath := filepath.Join(app.Root, ".vessica", "state", "knowledge.promote.lock")
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("another knowledge promotion is active")
+	}
+	_ = lock.Close()
+	defer os.Remove(lockPath)
+	ws, err := app.DB.GetWorkspace(ctx)
+	if err != nil {
+		return err
+	}
+	local, err := knowledgegateway.OpenForPromotion(app.Root, app.Config, ws.ID)
+	if err != nil {
+		return err
+	}
+	snap, err := local.Export(ctx)
+	_ = local.Close()
+	if err != nil {
+		return err
+	}
+	if err := auth.Login("knowledge", token, "Railway hosted knowledge"); err != nil {
+		return err
+	}
+	if err := auth.Login("knowledge-export", adminToken, "Railway hosted knowledge export"); err != nil {
+		return err
+	}
+	next := *cfg
+	next.Knowledge.Mode = "hosted"
+	remote, err := knowledgegateway.Open(app.Root, next, snap.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	defer remote.Close()
+	if err := remote.Import(ctx, snap); err != nil {
+		return err
+	}
+	check, err := remote.Export(ctx)
+	if err != nil {
+		return err
+	}
+	if err := verifyKnowledgePromotion(snap, check); err != nil {
+		return err
+	}
+	if _, err := remote.Context(ctx, ks.ContextRequest{Query: "workspace knowledge", ArtifactSelectors: []ks.ArtifactSelector{{Status: "active"}}, TokenBudget: 1000}); err != nil {
+		return err
+	}
+	localPath := cfg.Knowledge.LocalPath
+	if localPath == "" {
+		localPath = filepath.Join(".vessica", "state", "knowledge.db")
+	}
+	if !filepath.IsAbs(localPath) {
+		localPath = filepath.Join(app.Root, localPath)
+	}
+	backup := filepath.Join(app.Root, ".vessica", "state", "knowledge-"+snap.HighWatermark+".readonly.db")
+	if err := copyReadOnly(localPath, backup); err != nil {
+		return err
+	}
+	cfg.Knowledge.Mode = "hosted"
+	return nil
+}
+
+func resolveGHCRDigest(ctx context.Context, image string) (string, error) {
+	if strings.Contains(image, "@sha256:") {
+		return image, nil
+	}
+	const prefix = "ghcr.io/"
+	if !strings.HasPrefix(image, prefix) {
+		return "", fmt.Errorf("production image must be ghcr.io or already digest-pinned")
+	}
+	nameTag := strings.TrimPrefix(image, prefix)
+	name, tag, ok := strings.Cut(nameTag, ":")
+	if !ok {
+		tag = "latest"
+	}
+	tokenURL := "https://ghcr.io/token?scope=repository:" + name + ":pull"
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, tokenURL, nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var authResp struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
+		return "", err
+	}
+	req, _ = http.NewRequestWithContext(ctx, http.MethodHead, "https://ghcr.io/v2/"+name+"/manifests/"+tag, nil)
+	req.Header.Set("Authorization", "Bearer "+authResp.Token)
+	req.Header.Set("Accept", "application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return "", fmt.Errorf("registry returned HTTP %d", resp.StatusCode)
+	}
+	digest := resp.Header.Get("Docker-Content-Digest")
+	if digest == "" {
+		return "", fmt.Errorf("registry response omitted image digest")
+	}
+	return prefix + name + "@" + digest, nil
+}
+
 func configureRailwayService(ctx context.Context, root string, cfg config.Config, secrets railwaySecrets, linearToken, linearOAuth, railwayOAuth, githubToken, openAIKey, codexAuthB64 string) error {
 	reference := "$" + "{{Postgres.DATABASE_URL}}"
 	privateKey, err := os.ReadFile(railwaySSHPrivateKeyPath(root))
@@ -559,6 +813,8 @@ func configureRailwayService(ctx context.Context, root string, cfg config.Config
 		"VES_LINEAR_OAUTH_JSON": linearOAuth, "VES_RAILWAY_OAUTH_JSON": railwayOAuth,
 		"VES_CREDENTIAL_ENCRYPTION_KEY": secrets.CredentialKey, "VES_CODEX_AUTH_B64": codexAuthB64,
 		"VES_RAILWAY_SSH_PRIVATE_KEY": string(privateKey),
+		"VES_KNOWLEDGE_MODE":          "hosted", "VES_KNOWLEDGE_WORKSPACE_ID": cfg.Knowledge.WorkspaceID,
+		"VES_KNOWLEDGE_ENDPOINT": cfg.Knowledge.Endpoint, "VES_KNOWLEDGE_TOKEN": secrets.KnowledgeToken,
 	}
 	for key, value := range variables {
 		if err := setRailwayVariable(ctx, cfg, key, value); err != nil {
@@ -673,14 +929,18 @@ func runRailwaySSHKeys(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 func setRailwayVariable(ctx context.Context, cfg config.Config, key, value string) error {
+	return setRailwayVariableForService(ctx, cfg, cfg.Hosted.ServiceID, key, value)
+}
+
+func setRailwayVariableForService(ctx context.Context, cfg config.Config, serviceID, key, value string) error {
 	if value == "" {
-		_, err := runRailway(ctx, "", nil, "variable", "delete", key, "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Hosted.ServiceID, "--json")
+		_, err := runRailway(ctx, "", nil, "variable", "delete", key, "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", serviceID, "--json")
 		if err == nil || strings.Contains(strings.ToLower(err.Error()), "not found") {
 			return nil
 		}
 		return fmt.Errorf("delete empty Railway variable %s: %w", key, err)
 	}
-	_, err := runRailway(ctx, "", strings.NewReader(value), "variable", "set", key, "--stdin", "--skip-deploys", "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Hosted.ServiceID, "--json")
+	_, err := runRailway(ctx, "", strings.NewReader(value), "variable", "set", key, "--stdin", "--skip-deploys", "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", serviceID, "--json")
 	if err != nil {
 		return fmt.Errorf("set Railway variable %s: %w", key, err)
 	}
@@ -752,7 +1012,11 @@ type railwayDeploymentStatus struct {
 }
 
 func latestRailwayDeployment(ctx context.Context, cfg config.Config) (railwayDeploymentStatus, error) {
-	raw, err := runRailway(ctx, "", nil, "deployment", "list", "-p", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Hosted.ServiceID, "--limit", "1", "--json")
+	return latestRailwayDeploymentForService(ctx, cfg, cfg.Hosted.ServiceID)
+}
+
+func latestRailwayDeploymentForService(ctx context.Context, cfg config.Config, serviceID string) (railwayDeploymentStatus, error) {
+	raw, err := runRailway(ctx, "", nil, "deployment", "list", "-p", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", serviceID, "--limit", "1", "--json")
 	if err != nil {
 		return railwayDeploymentStatus{}, err
 	}
@@ -771,10 +1035,14 @@ func parseLatestRailwayDeployment(raw []byte) (railwayDeploymentStatus, error) {
 }
 
 func waitForRailwayDeployment(ctx context.Context, cfg config.Config, previousID string, timeout time.Duration) error {
+	return waitForRailwayDeploymentForService(ctx, cfg, cfg.Hosted.ServiceID, previousID, timeout)
+}
+
+func waitForRailwayDeploymentForService(ctx context.Context, cfg config.Config, serviceID, previousID string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	var latest railwayDeploymentStatus
 	for time.Now().Before(deadline) {
-		deployment, err := latestRailwayDeployment(ctx, cfg)
+		deployment, err := latestRailwayDeploymentForService(ctx, cfg, serviceID)
 		if err == nil {
 			latest = deployment
 			if deployment.ID != previousID {

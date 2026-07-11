@@ -26,6 +26,7 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/sandbox"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 	"github.com/vessica-labs/vessica-cli/internal/streaming"
+	knowledge "github.com/vessica-labs/vessica-knowledge-server/knowledge"
 )
 
 type Engine struct {
@@ -343,10 +344,14 @@ func (e *Engine) execute(ctx context.Context, r *state.Run, opts Options) (*stat
 				_ = retention.MarkFailed(ctx, e.DB, sbRec)
 			}
 			runErr = err
+			e.recordWorkflowKnowledge(ctx, r, "run.failed", "Run failed during "+phase+": "+redaction.Redact(err.Error()), "run:"+r.ID+":failed")
 			break
 		}
 		_ = e.DB.SetPhaseStatus(ctx, r.ID, phase, "completed", "")
 		e.emit(ctx, r.ID, "run.phase.completed", map[string]any{"phase": phase})
+		if phase == "ticketize" {
+			e.recordWorkflowKnowledge(ctx, r, "epic.planned", "Epic planning and ticket graph completed", "epic:"+r.EpicID+":planned")
+		}
 	}
 
 	if runErr == nil {
@@ -360,6 +365,9 @@ func (e *Engine) execute(ctx context.Context, r *state.Run, opts Options) (*stat
 		}
 		_ = e.DB.UpdateRun(ctx, r)
 		e.emit(ctx, r.ID, "run.completed", map[string]any{"status": r.Status})
+		if r.Status == "completed" {
+			e.recordWorkflowKnowledge(ctx, r, "run.completed", "Run completed successfully", "run:"+r.ID+":completed")
+		}
 	}
 	result, err := e.DB.GetRun(ctx, r.ID)
 	if err != nil {
@@ -504,6 +512,9 @@ func (e *Engine) phasePlan(ctx context.Context, r *state.Run) error {
 	design, err := e.DB.CreateArtifact(ctx, "design-spec", "Design: "+epic.Title, bundle.DesignSpecMarkdown, epic.ID, r.ID)
 	if err != nil {
 		return err
+	}
+	for _, artifact := range []*state.Artifact{prd, adr, ts, design} {
+		e.mirrorArtifactKnowledge(ctx, r, artifact)
 	}
 	_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "plan", "planning_bundle", "", "passed", map[string]any{"complexity": bundle.Complexity, "rationale": bundle.Rationale})
 	e.emit(ctx, r.ID, "agent.progress", map[string]any{"message": "plan artifacts created", "artifacts": []string{prd.ID, adr.ID, ts.ID, design.ID}, "complexity": bundle.Complexity})
@@ -727,8 +738,11 @@ func (e *Engine) mergeAndCloseTicketResults(ctx context.Context, r *state.Run, w
 		if _, err := e.DB.CloseTicket(ctx, result.ticket.ID, result.agentID, rcpt.ID); err != nil {
 			return err
 		}
-		_, _ = e.DB.CreateMemory(ctx, "insight", "Completed "+result.ticket.Title, "Closed "+result.ticket.ID+" with evidence "+rcpt.ID, "run", "medium")
 		e.emit(ctx, r.ID, "ticket.closed", map[string]any{"ticket_id": result.ticket.ID, "evidence": rcpt.ID, "branch": result.branch, "commit": result.commit})
+		e.recordWorkflowKnowledge(ctx, r, "ticket.completed", "Completed ticket: "+result.ticket.Title, "ticket:"+result.ticket.ID+":completed",
+			knowledge.ExternalRef{System: "vessica.ticket", ID: result.ticket.ID},
+			knowledge.ExternalRef{System: "vessica.receipt", ID: rcpt.ID},
+			knowledge.ExternalRef{System: "git.commit", ID: result.commit})
 	}
 	return nil
 }

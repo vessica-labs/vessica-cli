@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vessica-labs/vessica-cli/internal/config"
+	"github.com/vessica-labs/vessica-cli/internal/knowledgegateway"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 )
 
@@ -191,6 +192,18 @@ func newDoctorCmd(app *App) *cobra.Command {
 					add("state", false, err.Error())
 				} else {
 					add("state", true, app.Config.State.Backend)
+				}
+				if ws, wsErr := db.GetWorkspace(context.Background()); wsErr == nil {
+					if gateway, knowledgeErr := knowledgegateway.Open(root, app.Config, ws.ID); knowledgeErr != nil {
+						add("knowledge", false, knowledgeErr.Error())
+					} else {
+						defer gateway.Close()
+						if _, exportErr := gateway.Export(context.Background()); exportErr != nil {
+							add("knowledge", false, exportErr.Error())
+						} else {
+							add("knowledge", true, gateway.Mode())
+						}
+					}
 				}
 			}
 
