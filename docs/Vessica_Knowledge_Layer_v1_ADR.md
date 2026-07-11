@@ -142,6 +142,14 @@ Automatic workflow processing may create episodes. Facts and decisions require e
 
 The public interface remains `ves`; no `agent-memory` CLI is introduced. The Codex plugin teaches `ves knowledge`, `ves entity`, `ves artifact`, `ves memory`, and `ves prime` workflows. It contains no storage, API, embedding, or Railway business logic.
 
+### Decision 8 — Distribute hosted releases as pinned OCI images
+
+The `vessica-knowledge-server` GitHub repository uses CI to build versioned OCI images published at `ghcr.io/vessica-labs/vessica-knowledge-server`. Normal `ves railway up` installation creates or updates a Railway service from a compatible release image rather than cloning or building the GitHub repository.
+
+The CLI resolves the release tag to an immutable digest before deployment and records both semantic version and digest in workspace configuration. It provisions the service variables, secrets, Postgres/pgvector access, embedding credential, migrations, and health checks; waits for Railway deployment `SUCCESS`; verifies readiness; and only then begins knowledge promotion.
+
+The normal release image is publicly pullable so users do not need GitHub source access or private-registry credentials. Explicit `--knowledge-image` and `--knowledge-source` overrides support development and pre-release testing. Source upload is never an implicit production fallback.
+
 ---
 
 ## 6. Rejected Alternatives
@@ -174,6 +182,10 @@ Rejected because partial failures create divergent histories, require conflict r
 
 Rejected because they are mutable workflow coordination objects. Their durable meaning is represented through authoritative planning artifacts, episode memories, source references, and relationships.
 
+### Build the production service directly from GitHub source
+
+Rejected as the default because it makes deployment depend on GitHub authorization, source availability, mutable build inputs, and Railway build behavior. A CI-built, digest-pinned image provides a deterministic artifact, faster provisioning, explicit CLI/server compatibility, and reliable rollback. Source deployment remains an explicit development override.
+
 ---
 
 ## 7. Consequences
@@ -194,6 +206,7 @@ Rejected because they are mutable workflow coordination objects. Their durable m
 - `vessica-cli` must pin and coordinate releases with another Go module.
 - SQLite and Postgres adapters require parity tests.
 - Railway provisioning manages another service and schema.
+- Vessica must operate a container-image release pipeline and compatibility matrix.
 - Solo and hosted ranking quality differ because solo has no semantic vectors.
 - Promotion requires a temporary local write lock.
 - Hosted operation requires an embedding provider credential.
@@ -201,6 +214,7 @@ Rejected because they are mutable workflow coordination objects. Their durable m
 ### Mitigations
 
 - Publish versioned API and Go modules together from the knowledge repository.
+- Publish a signed or otherwise verifiable OCI image for each compatible server release and test digest-based rollback.
 - Maintain adapter conformance and context golden tests.
 - Report retrieval mode and score explanations in every context response.
 - Keep lexical/entity retrieval active in hosted mode when embeddings are pending or failed.
@@ -219,6 +233,7 @@ Rejected because they are mutable workflow coordination objects. Their durable m
 7. Workflow memory creation is driven by durable events, not best-effort prompt instructions.
 8. `ves prime` becomes a knowledge-context client.
 9. The current Vessica artifact and memory tables are replaced or migrated during development rather than supported indefinitely.
+10. Production Railway provisioning uses a compatible OCI release pinned by immutable digest; source deployment requires an explicit development override.
 
 ---
 

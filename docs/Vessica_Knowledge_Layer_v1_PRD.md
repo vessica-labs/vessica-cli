@@ -177,6 +177,47 @@ The knowledge service is workspace-level, not repository-level. Multiple reposit
 
 Additional team members join through a scoped invitation or workspace connection flow. Endpoint identifiers may be committed; bearer credentials remain in Keychain or the Vessica user credential store.
 
+### 6.5 Hosted deployment artifact
+
+Production releases of `vessica-knowledge-server` are distributed as versioned OCI container images built from the GitHub repository by CI and published to the Vessica container registry. The default image location is:
+
+```text
+ghcr.io/vessica-labs/vessica-knowledge-server:<version>
+```
+
+Normal hosted installation does not clone or build the GitHub repository. `ves railway up` must:
+
+1. Resolve the knowledge-server version compatible with the installed `ves` CLI.
+2. Resolve the release tag to an immutable image digest.
+3. Locate the workspace-level knowledge service or create a Railway service from that image.
+4. Provision or reuse Postgres, enable pgvector, and configure isolated database credentials.
+5. Configure workspace/service authentication, the embedding provider credential, migrations, and health checks as Railway secrets and variables.
+6. Deploy the pinned image and wait for Railway deployment `SUCCESS` and knowledge-service readiness.
+7. Perform the verified SQLite-to-Postgres promotion described below.
+
+The installed configuration records the semantic version and immutable digest:
+
+```yaml
+knowledge:
+  mode: hosted
+  workspace_id: kwsp_...
+  service_id: ...
+  endpoint: https://...
+  version: 0.1.0
+  image: ghcr.io/vessica-labs/vessica-knowledge-server@sha256:...
+```
+
+The release image should be publicly pullable for the normal open-source installation path so developers do not need to grant Railway access to GitHub source or private registry credentials.
+
+Development and pre-release testing may override the artifact explicitly:
+
+```bash
+ves railway up --knowledge-image ghcr.io/vessica-labs/vessica-knowledge-server:dev
+ves railway up --knowledge-source /path/to/vessica-knowledge-server
+```
+
+Source upload is a development-only path. It must never be selected implicitly for production provisioning.
+
 ---
 
 ## 7. Core Objects
@@ -453,7 +494,7 @@ The Codex plugin teaches these workflows and always executes `ves`. It does not 
 `ves railway up` provisions or locates the workspace-level knowledge service and performs a one-way promotion:
 
 1. Acquire an exclusive local knowledge write lock.
-2. Provision the service, Postgres schema, pgvector, credentials, and embedding provider configuration.
+2. Resolve and deploy the compatible, digest-pinned knowledge-server release image; provision the Postgres schema, pgvector, credentials, and embedding provider configuration.
 3. Export a versioned snapshot with object counts, content hashes, relationship counts, event high-watermark, and checksums.
 4. Import idempotently while preserving IDs and versions.
 5. Validate counts, hashes, event watermark, and representative context requests.
