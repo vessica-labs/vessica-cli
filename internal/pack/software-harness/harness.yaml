@@ -1,0 +1,11 @@
+preview:
+  command: pnpm run dev
+  port: 3000
+  healthcheck: http://localhost:3000/
+build:
+  command: pnpm run build
+test:
+  command: pnpm test
+lint:
+  command: pnpm run lint
+  arch: .vessica/lint-arch.sh

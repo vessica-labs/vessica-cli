@@ -1,0 +1,12 @@
+{
+  "name": "vessica-sample-app",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "dev": "node server.js",
+    "build": "node -e \"console.log('build ok')\"",
+    "test": "node -e \"console.log('test ok')\"",
+    "lint": "node -e \"console.log('lint ok')\""
+  }
+}

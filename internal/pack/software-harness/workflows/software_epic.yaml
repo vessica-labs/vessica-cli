@@ -1,0 +1,17 @@
+name: software_epic
+phases:
+  - preflight
+  - harness
+  - plan
+  - design
+  - ticketize
+  - code
+  - build
+  - validate
+  - preview
+  - pr
+  - receipt
+defaults:
+  concurrency: 3
+  runner: codex
+  sandbox: docker

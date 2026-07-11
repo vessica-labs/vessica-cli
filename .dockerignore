@@ -1,0 +1,7 @@
+.git
+.vessica
+bin
+coverage*
+*.db
+*.log
+.DS_Store

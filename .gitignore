@@ -1,0 +1,8 @@
+bin/
+.vessica/cache/
+.vessica/state/
+.vessica/runs/
+.vessica/sandboxes/
+.vessica/secrets/
+*.db
+.DS_Store
