@@ -31,8 +31,8 @@ func TestEpicJSONLStreamContractAndReconnect(t *testing.T) {
 	dir := t.TempDir()
 	runCLI(t, dir, "init", "--profile", "solo", "--runner", "codex", "--repo", "github", "--json")
 	runCLI(t, dir, "pack", "install", "--json")
-	runCLI(t, dir, "harness", "sync", "--json")
-	created := runCLI(t, dir, "epic", "add", "--title", "Machine stream", "--body", "Verify JSONL", "--json")
+	runCLI(t, dir, "harness", "sync", "--yes", "--json")
+	created := runCLI(t, dir, "epic", "add", "--title", "Machine stream", "--body", "Verify JSONL", "--yes", "--json")
 	var envelope struct {
 		Data struct {
 			ID string `json:"id"`
@@ -42,7 +42,7 @@ func TestEpicJSONLStreamContractAndReconnect(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("VES_RUNNER_MODE", "stub")
-	stream := runCLI(t, dir, "run", "epic", envelope.Data.ID, "--stream=jsonl", "--stop-after", "ticketize", "--idempotency-key", "stream-contract", "--json")
+	stream := runCLI(t, dir, "run", "epic", envelope.Data.ID, "--stream=jsonl", "--stop-after", "ticketize", "--idempotency-key", "stream-contract", "--yes", "--json")
 	records := decodeProtocolRecords(t, stream)
 	if len(records) < 2 || records[0].Kind != "event" || records[len(records)-1].Kind != "result" {
 		t.Fatalf("records=%#v", records)
@@ -57,7 +57,7 @@ func TestEpicJSONLStreamContractAndReconnect(t *testing.T) {
 	if len(watchedRecords) != 1 || watchedRecords[0].Kind != "result" {
 		t.Fatalf("watch records=%#v", watchedRecords)
 	}
-	replayed := runCLI(t, dir, "run", "epic", envelope.Data.ID, "--stream=jsonl", "--idempotency-key", "stream-contract")
+	replayed := runCLI(t, dir, "run", "epic", envelope.Data.ID, "--stream=jsonl", "--idempotency-key", "stream-contract", "--yes")
 	replayRecords := decodeProtocolRecords(t, replayed)
 	if len(replayRecords) != 1 || replayRecords[0].Kind != "result" || replayRecords[0].RunID != result.RunID {
 		t.Fatalf("replay records=%#v", replayRecords)

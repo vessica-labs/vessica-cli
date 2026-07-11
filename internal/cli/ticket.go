@@ -76,6 +76,9 @@ func newTicketCmd(app *App) *cobra.Command {
 			if app.Flags.DryRun {
 				return app.dryRun("ticket.add", map[string]any{"epic": epicID, "type": typ, "title": title, "body": body})
 			}
+			if app.Flags.JSON && !app.Flags.Yes {
+				return app.requireYes("create the ticket")
+			}
 			if replayed, err := app.idempotencyReplay(context.Background()); err != nil || replayed {
 				return err
 			}
@@ -103,8 +106,20 @@ func newTicketCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
+			if app.Flags.DryRun {
+				return app.dryRun("ticket.update", map[string]any{"id": args[0], "title": title, "body": body, "type": typ})
+			}
+			if app.Flags.JSON && !app.Flags.Yes {
+				return app.requireYes("update the ticket")
+			}
+			if replayed, replayErr := app.idempotencyReplay(context.Background()); replayErr != nil || replayed {
+				return replayErr
+			}
 			t, err := app.DB.UpdateTicket(context.Background(), args[0], title, body, "", typ)
 			if err != nil {
+				return err
+			}
+			if err := app.idempotencyStore(context.Background(), t); err != nil {
 				return err
 			}
 			return app.Printer.Success(t)
@@ -121,11 +136,11 @@ func newTicketCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
-			if err := app.requireYes("delete ticket"); err != nil {
-				return err
-			}
 			if app.Flags.DryRun {
 				return app.dryRun("ticket.delete", map[string]any{"id": args[0]})
+			}
+			if err := app.requireYes("delete ticket"); err != nil {
+				return err
 			}
 			if err := app.DB.DeleteTicket(context.Background(), args[0]); err != nil {
 				return err
@@ -237,6 +252,12 @@ func newTicketCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
+			if app.Flags.DryRun {
+				return app.dryRun("ticket.block", map[string]any{"id": args[0], "by": by})
+			}
+			if app.Flags.JSON && !app.Flags.Yes {
+				return app.requireYes("block the ticket")
+			}
 			if err := app.DB.AddDependency(context.Background(), args[0], by); err != nil {
 				return err
 			}
@@ -253,6 +274,12 @@ func newTicketCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
+			if app.Flags.DryRun {
+				return app.dryRun("ticket.unblock", map[string]any{"id": args[0], "by": by})
+			}
+			if app.Flags.JSON && !app.Flags.Yes {
+				return app.requireYes("unblock the ticket")
+			}
 			if err := app.DB.RemoveDependency(context.Background(), args[0], by); err != nil {
 				return err
 			}

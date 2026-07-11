@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/vessica-labs/vessica-cli/internal/codexplugin"
 )
 
 const managedBegin = "<!-- VESSICA:BEGIN -->"
@@ -16,10 +17,17 @@ func newSetupCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "setup", Short: "Install managed guidance for coding agents"}
 	for _, runner := range []string{"codex", "claude", "cursor", "pi", "mcp"} {
 		r := runner
-		cmd.AddCommand(&cobra.Command{
+		var installPlugin, check bool
+		setupCmd := &cobra.Command{
 			Use:   r,
 			Short: "Setup " + r,
 			RunE: func(cmd *cobra.Command, args []string) error {
+				if r == "codex" && check {
+					status := codexplugin.Status()
+					status["codex_available"] = commandAvailable("codex")
+					status["ves_available"] = commandAvailable("ves")
+					return app.Printer.Success(status)
+				}
 				if err := app.loadWorkspace(); err != nil {
 					return err
 				}
@@ -32,9 +40,23 @@ func newSetupCmd(app *App) *cobra.Command {
 				if err := upsertManagedSection(path, guidance); err != nil {
 					return err
 				}
-				return app.Printer.Success(map[string]any{"runner": r, "file": path, "updated": true})
+				result := map[string]any{"runner": r, "file": path, "updated": true}
+				if r == "codex" && installPlugin {
+					installed, err := codexplugin.Install()
+					if err != nil {
+						return err
+					}
+					result["plugin"] = installed
+				}
+				result["next_actions"] = []string{"ves capabilities --json", "ves doctor --json"}
+				return app.Printer.Success(result)
 			},
-		})
+		}
+		if r == "codex" {
+			setupCmd.Flags().BoolVar(&installPlugin, "plugin", false, "install or update the Vessica Codex plugin")
+			setupCmd.Flags().BoolVar(&check, "check", false, "check Codex and plugin installation without writing")
+		}
+		cmd.AddCommand(setupCmd)
 	}
 	return cmd
 }

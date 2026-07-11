@@ -80,6 +80,7 @@ func NewRoot() *cobra.Command {
 	root.AddCommand(newInitCmd(app))
 	root.AddCommand(newStatusCmd(app))
 	root.AddCommand(newDoctorCmd(app))
+	root.AddCommand(newCapabilitiesCmd(app))
 	root.AddCommand(newConfigCmd(app))
 	root.AddCommand(newAuthCmd(app))
 	root.AddCommand(newSetupCmd(app))
@@ -149,6 +150,9 @@ func (a *App) closeDB() {
 func (a *App) requireYes(action string) error {
 	if a.Flags.Yes {
 		return nil
+	}
+	if a.Flags.JSON {
+		return a.Printer.Fail("confirmation_required", "confirmation required to "+action, "review the action, then repeat with --yes")
 	}
 	return fmt.Errorf("refusing to %s without --yes", action)
 }

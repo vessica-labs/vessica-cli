@@ -20,7 +20,7 @@ func TestFailPrintsStructuredErrorOnce(t *testing.T) {
 		t.Fatalf("expected empty stderr, got %q", errOut.String())
 	}
 	got := strings.TrimSpace(out.String())
-	want := `{"ok":false,"error":{"code":"missing","message":"thing missing","hint":"try again"}}`
+	want := `{"schema":"vessica.cli/v1","ok":false,"error":{"code":"missing","message":"thing missing","hint":"try again"}}`
 	if got != want {
 		t.Fatalf("got %s want %s", got, want)
 	}

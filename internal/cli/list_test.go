@@ -13,7 +13,7 @@ func TestEpicListShowsAllItems(t *testing.T) {
 	dir := t.TempDir()
 	runCLI(t, dir, "init", "--profile", "solo", "--runner", "codex", "--repo", "github", "--json")
 	for _, title := range []string{"One", "Two", "Three"} {
-		runCLI(t, dir, "epic", "add", "--title", title, "--body", strings.ToLower(title), "--json")
+		runCLI(t, dir, "epic", "add", "--title", title, "--body", strings.ToLower(title), "--yes", "--json")
 	}
 
 	human := runCLI(t, dir, "epic", "list")

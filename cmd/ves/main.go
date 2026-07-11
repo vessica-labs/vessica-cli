@@ -12,7 +12,7 @@ func main() {
 	root := cli.NewRoot()
 	if err := root.Execute(); err != nil {
 		if output.IsPrinted(err) {
-			os.Exit(1)
+			os.Exit(output.ExitCode(err))
 		}
 		jsonMode := false
 		if f := root.PersistentFlags().Lookup("json"); f != nil && f.Value.String() == "true" {
@@ -23,6 +23,6 @@ func main() {
 		} else {
 			fmt.Fprintln(os.Stderr, err.Error())
 		}
-		os.Exit(1)
+		os.Exit(output.ExitCode(err))
 	}
 }

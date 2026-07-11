@@ -71,6 +71,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/runs", s.requireAPIAuth(s.handleRuns))
 	mux.HandleFunc("GET /api/v1/runs/{run_id}", s.requireAPIAuth(s.handleRun))
 	mux.HandleFunc("GET /api/v1/runs/{run_id}/events", s.requireAPIAuth(s.handleRunEvents))
+	mux.HandleFunc("POST /api/v1/epics", s.requireAPIAuth(s.handlePublishEpic))
+	mux.HandleFunc("POST /api/v1/epics/{epic_id}/runs", s.requireAPIAuth(s.handleStartEpicRun))
 	mux.HandleFunc("POST /api/v1/runs/{run_id}/approve", s.requireAPIAuth(s.handleApproveRun))
 	mux.HandleFunc("GET /review/runs/{run_id}", s.handleReviewPage)
 	mux.HandleFunc("GET /review/runs/{run_id}/panel", s.handleReviewPage)

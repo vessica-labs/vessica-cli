@@ -234,6 +234,30 @@ func (c *LinearClient) CreateSubIssue(ctx context.Context, parent *LinearIssue, 
 	return &data.IssueCreate.Issue, nil
 }
 
+func (c *LinearClient) CreateIssue(ctx context.Context, teamID, title, description, stateID string, labelIDs []string) (*LinearIssue, error) {
+	var data struct {
+		IssueCreate struct {
+			Success bool        `json:"success"`
+			Issue   LinearIssue `json:"issue"`
+		} `json:"issueCreate"`
+	}
+	input := map[string]any{"teamId": teamID, "title": title, "description": description}
+	if stateID != "" {
+		input["stateId"] = stateID
+	}
+	if len(labelIDs) > 0 {
+		input["labelIds"] = labelIDs
+	}
+	query := `mutation VessicaIssue($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id identifier title description url state { id name type } team { id name key } } } }`
+	if err := c.graphql(ctx, query, map[string]any{"input": input}, &data); err != nil {
+		return nil, err
+	}
+	if !data.IssueCreate.Success || data.IssueCreate.Issue.ID == "" {
+		return nil, fmt.Errorf("Linear issue creation was not successful")
+	}
+	return &data.IssueCreate.Issue, nil
+}
+
 func (c *LinearClient) CreateWebhook(ctx context.Context, teamID, callbackURL, secret string) (*LinearWebhook, error) {
 	var data struct {
 		WebhookCreate struct {

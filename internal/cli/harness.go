@@ -3,10 +3,37 @@ package cli
 import (
 	"github.com/spf13/cobra"
 	"github.com/vessica-labs/vessica-cli/internal/harness"
+	"github.com/vessica-labs/vessica-cli/internal/pack"
 )
 
 func newHarnessCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "harness", Short: "Manage repo harness"}
+	cmd.AddCommand(&cobra.Command{
+		Use: "install", Short: "Install the default pinned engineering harness",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := app.loadWorkspace(); err != nil {
+				return err
+			}
+			defer app.closeDB()
+			if app.Flags.DryRun {
+				return app.dryRun("harness.install", map[string]any{"ref": pack.DefaultRef})
+			}
+			if err := app.requireYes("install the repository harness"); err != nil {
+				return err
+			}
+			if replayed, replayErr := app.idempotencyReplay(cmd.Context()); replayErr != nil || replayed {
+				return replayErr
+			}
+			result, err := pack.Install(app.Root, pack.DefaultRef)
+			if err != nil {
+				return err
+			}
+			if err := app.idempotencyStore(cmd.Context(), result); err != nil {
+				return err
+			}
+			return app.Printer.Success(result)
+		},
+	})
 	cmd.AddCommand(&cobra.Command{
 		Use: "create", Short: "Create initial harness",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -42,6 +69,12 @@ func newHarnessCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
+			if app.Flags.DryRun {
+				return app.dryRun("harness.sync", map[string]any{"root": app.Root})
+			}
+			if app.Flags.JSON && !app.Flags.Yes {
+				return app.requireYes("synchronize the repository harness")
+			}
 			st, err := harness.Sync(app.Root)
 			if err != nil {
 				return err

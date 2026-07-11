@@ -10,11 +10,14 @@ import (
 	"strings"
 )
 
+const EnvelopeSchema = "vessica.cli/v1"
+
 // Envelope is the machine-safe JSON response shape.
 type Envelope struct {
-	OK    bool       `json:"ok"`
-	Data  any        `json:"data,omitempty"`
-	Error *ErrorBody `json:"error,omitempty"`
+	Schema string     `json:"schema"`
+	OK     bool       `json:"ok"`
+	Data   any        `json:"data,omitempty"`
+	Error  *ErrorBody `json:"error,omitempty"`
 }
 
 // ErrorBody is a structured CLI error.
@@ -46,11 +49,32 @@ func IsPrinted(err error) bool {
 	return false
 }
 
+// ExitCode maps stable agent-facing error categories to process exit codes.
+func ExitCode(err error) int {
+	e, ok := err.(*Error)
+	if !ok {
+		return 6
+	}
+	code := e.Body.Code
+	switch {
+	case code == "confirmation_required", strings.HasPrefix(code, "missing_"), strings.HasPrefix(code, "invalid_"), code == "unknown_key", code == "not_initialized":
+		return 2
+	case strings.Contains(code, "auth"), strings.Contains(code, "login"), code == "unauthorized":
+		return 3
+	case strings.Contains(code, "conflict"), strings.Contains(code, "claim_failed"):
+		return 4
+	case strings.Contains(code, "unavailable"), strings.Contains(code, "connection"):
+		return 5
+	default:
+		return 6
+	}
+}
+
 // PrintError writes a single structured error envelope.
 func PrintError(w io.Writer, code, message, hint string) error {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
-	return enc.Encode(Envelope{OK: false, Error: &ErrorBody{Code: code, Message: message, Hint: hint}})
+	return enc.Encode(Envelope{Schema: EnvelopeSchema, OK: false, Error: &ErrorBody{Code: code, Message: message, Hint: hint}})
 }
 
 // Printer writes human or JSON output.
@@ -78,7 +102,7 @@ func (p *Printer) Success(data any) error {
 		if data == nil {
 			data = map[string]any{}
 		}
-		return p.writeJSON(Envelope{OK: true, Data: data})
+		return p.writeJSON(Envelope{Schema: EnvelopeSchema, OK: true, Data: data})
 	}
 	if p.Quiet {
 		return nil
@@ -101,7 +125,7 @@ func (p *Printer) Success(data any) error {
 func (p *Printer) Fail(code, message, hint string) error {
 	body := ErrorBody{Code: code, Message: message, Hint: hint}
 	if p.JSON {
-		_ = p.writeJSON(Envelope{OK: false, Error: &body})
+		_ = p.writeJSON(Envelope{Schema: EnvelopeSchema, OK: false, Error: &body})
 		return &Error{Body: body, Printed: true}
 	}
 	msg := fmt.Sprintf("error: %s", message)

@@ -796,6 +796,10 @@ func waitForRailwayDeployment(ctx context.Context, cfg config.Config, previousID
 }
 
 func hostedRequest(ctx context.Context, method, endpoint, token string, body any, target any) error {
+	return hostedRequestWithKey(ctx, method, endpoint, token, "", body, target)
+}
+
+func hostedRequestWithKey(ctx context.Context, method, endpoint, token, idempotencyKey string, body any, target any) error {
 	var reader io.Reader
 	if body != nil {
 		data, _ := json.Marshal(body)
@@ -807,6 +811,9 @@ func hostedRequest(ctx context.Context, method, endpoint, token string, body any
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
+	if idempotencyKey != "" {
+		req.Header.Set("Idempotency-Key", idempotencyKey)
+	}
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		return err

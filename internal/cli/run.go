@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -27,6 +28,8 @@ func newRunCmd(app *App) *cobra.Command {
 		preview, openPreview, eventsOnly, noStream, browser                                bool
 		approveKeepPreview, approveKeepBranch                                              bool
 		jsonl, logsAgentOnly, logsJSONL, logsRaw, watchUI                                  bool
+		promptFile, promptModel, promptReasoning                                           string
+		promptNoPush                                                                       bool
 	)
 
 	epicCmd := &cobra.Command{
@@ -38,6 +41,27 @@ func newRunCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
+			if app.Config.Hosted.ControlPlaneURL != "" {
+				hostedID := ""
+				if mapping, mapErr := app.DB.GetExternalMapping(cmd.Context(), "vessica-hosted", "epic", args[0]); mapErr == nil {
+					hostedID = mapping.ExternalID
+				} else if _, localErr := app.DB.GetEpic(cmd.Context(), args[0]); localErr != nil {
+					hostedID = args[0]
+				}
+				if hostedID != "" {
+					if app.Flags.DryRun {
+						return app.dryRun("run.epic.hosted", map[string]any{"local_epic_id": args[0], "hosted_epic_id": hostedID, "sandbox": "railway"})
+					}
+					if err := app.requireYes("start the hosted epic run"); err != nil {
+						return err
+					}
+					result, err := app.startHostedEpicRun(cmd.Context(), hostedID)
+					if err != nil {
+						return err
+					}
+					return app.Printer.Success(result)
+				}
+			}
 			mode, err := resolveStreamMode(streamMode, noStream, eventsOnly, app.Flags.JSON)
 			if err != nil {
 				return err
@@ -64,6 +88,16 @@ func newRunCmd(app *App) *cobra.Command {
 					return streaming.WriteRecord(os.Stdout, streaming.ResultRecord("", map[string]any{"dry_run": true, "action": "run.epic", "would": opts}, nil))
 				}
 				return app.dryRun("run.epic", opts)
+			}
+			if app.Flags.JSON && mode != streaming.ModeJSONL && !app.Flags.Yes {
+				return app.requireYes("start the epic run")
+			}
+			if mode == streaming.ModeJSONL && !app.Flags.Yes {
+				err := &output.Error{Body: output.ErrorBody{Code: "confirmation_required", Message: "confirmation required to start the epic run", Hint: "review the action, then repeat with --yes"}, Printed: true}
+				record := streaming.ResultRecord("", nil, err)
+				record.Error.Code = "confirmation_required"
+				_ = streaming.WriteRecord(os.Stdout, record)
+				return err
 			}
 			if mode == streaming.ModeJSONL {
 				data, replayed, replayErr := app.idempotencyLookup(context.Background())
@@ -317,6 +351,12 @@ func newRunCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
+			if app.Flags.DryRun {
+				return app.dryRun("run.resume", map[string]any{"run_id": args[0], "from": fromPhase})
+			}
+			if err := app.requireYes("resume the run"); err != nil {
+				return err
+			}
 			mode, err := resolveStreamMode(streamMode, noStream, eventsOnly, app.Flags.JSON)
 			if err != nil {
 				return err
@@ -363,9 +403,18 @@ func newRunCmd(app *App) *cobra.Command {
 			if app.Flags.DryRun {
 				return app.dryRun("run.approve", map[string]any{"run_id": args[0], "merge_method": approveMethod, "keep_preview": approveKeepPreview, "keep_branch": approveKeepBranch})
 			}
+			if err := app.requireYes("approve and merge the run pull request"); err != nil {
+				return err
+			}
+			if replayed, replayErr := app.idempotencyReplay(context.Background()); replayErr != nil || replayed {
+				return replayErr
+			}
 			eng := &run.Engine{DB: app.DB, Root: app.Root, Config: app.Config}
 			result, err := eng.ApproveRun(context.Background(), args[0], opts)
 			if err != nil {
+				return err
+			}
+			if err := app.idempotencyStore(context.Background(), result); err != nil {
 				return err
 			}
 			return app.Printer.Success(result)
@@ -375,6 +424,85 @@ func newRunCmd(app *App) *cobra.Command {
 	approve.Flags().BoolVar(&approveKeepPreview, "keep-preview", false, "keep the preview sandbox running after merge")
 	approve.Flags().BoolVar(&approveKeepBranch, "keep-branch", false, "keep the remote integration branch after merge")
 	cmd.AddCommand(approve)
+
+	promptCmd := &cobra.Command{
+		Use: "prompt <run_id> [prompt]", Short: "Refine the retained sandbox attached to a run", Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := app.loadWorkspace(); err != nil {
+				return err
+			}
+			defer app.closeDB()
+			prompt := strings.TrimSpace(strings.Join(args[1:], " "))
+			if promptFile != "" {
+				if prompt != "" {
+					return fmt.Errorf("provide a positional prompt or --file, not both")
+				}
+				body, err := os.ReadFile(promptFile)
+				if err != nil {
+					return err
+				}
+				prompt = strings.TrimSpace(string(body))
+			}
+			if prompt == "" {
+				return app.Printer.Fail("missing_prompt", "prompt is required", "provide text or --file")
+			}
+			sandboxRecord, err := app.DB.GetSandboxForRun(context.Background(), args[0])
+			if err != nil {
+				return err
+			}
+			opts := run.PromptOptions{Prompt: prompt, Model: promptModel, ReasoningEffort: promptReasoning, Push: !promptNoPush}
+			if app.Flags.DryRun {
+				return app.dryRun("run.prompt", map[string]any{"run_id": args[0], "sandbox_id": sandboxRecord.ID, "model": promptModel, "push": !promptNoPush})
+			}
+			if app.Flags.JSON && !app.Flags.Yes {
+				return app.requireYes("refine the retained run sandbox")
+			}
+			if replayed, replayErr := app.idempotencyReplay(context.Background()); replayErr != nil || replayed {
+				return replayErr
+			}
+			result, err := (&run.Engine{DB: app.DB, Root: app.Root, Config: app.Config}).PromptSandbox(context.Background(), sandboxRecord.ID, opts)
+			if err != nil {
+				return err
+			}
+			if err := app.idempotencyStore(context.Background(), result); err != nil {
+				return err
+			}
+			return app.Printer.Success(result)
+		},
+	}
+	promptCmd.Flags().StringVar(&promptFile, "file", "", "read prompt from file")
+	promptCmd.Flags().StringVar(&promptModel, "model", "", "Codex model ID")
+	promptCmd.Flags().StringVar(&promptReasoning, "reasoning-effort", "", "Codex reasoning effort")
+	promptCmd.Flags().BoolVar(&promptNoPush, "no-push", false, "commit without pushing")
+	cmd.AddCommand(promptCmd)
+
+	rollback := &cobra.Command{
+		Use: "rollback <run_id>", Short: "Close the run pull request and destroy its preview", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := app.loadWorkspace(); err != nil {
+				return err
+			}
+			defer app.closeDB()
+			if app.Flags.DryRun {
+				return app.dryRun("run.rollback", map[string]any{"run_id": args[0]})
+			}
+			if err := app.requireYes("roll back the run"); err != nil {
+				return err
+			}
+			if replayed, replayErr := app.idempotencyReplay(context.Background()); replayErr != nil || replayed {
+				return replayErr
+			}
+			result, err := (&run.Engine{DB: app.DB, Root: app.Root, Config: app.Config}).RollbackRun(context.Background(), args[0])
+			if err != nil {
+				return err
+			}
+			if err := app.idempotencyStore(context.Background(), result); err != nil {
+				return err
+			}
+			return app.Printer.Success(result)
+		},
+	}
+	cmd.AddCommand(rollback)
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "cancel <run_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
@@ -472,6 +600,23 @@ func newRunCmd(app *App) *cobra.Command {
 		},
 	})
 	return cmd
+}
+
+func (a *App) startHostedEpicRun(ctx context.Context, hostedEpicID string) (map[string]any, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	key := a.Flags.IdempotencyKey
+	if key == "" {
+		key = "run-" + hostedEpicID
+	}
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/epics/" + hostedEpicID + "/runs"
+	var result map[string]any
+	if err := hostedRequestWithKey(ctx, http.MethodPost, endpoint, secrets.APIToken, key, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func optionalStreamModeArgs(mode *string) cobra.PositionalArgs {

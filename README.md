@@ -537,6 +537,31 @@ ves setup pi
 ves setup mcp
 ```
 
+### Codex plugin and agent-safe CLI
+
+Install the first-party Codex plugin and managed repository guidance:
+
+```bash
+ves setup codex --plugin
+ves setup codex --check --json
+ves capabilities --json
+```
+
+The plugin drives the `ves` Go CLI through shell commands; it does not add an MCP runtime or bypass Vessica state. Agent-facing JSON responses use the versioned `vessica.cli/v1` envelope, while run streams use `vessica.stream/v1` JSONL. Mutating JSON workflows return `confirmation_required` until repeated with `--yes`; use `--idempotency-key` for retryable writes.
+
+Conversational epic specifications can be validated before they are persisted:
+
+```bash
+ves epic draft --spec-file epic.json --json
+ves epic add --spec-file epic.json --yes --idempotency-key epic-<unique> --json
+```
+
+When a hosted control plane is configured, spec creation also publishes the canonical graph to hosted Vessica and creates the corresponding Linear parent issue and subissues. Existing local epics can be promoted explicitly:
+
+```bash
+ves epic publish <local_epic_id> --yes --idempotency-key publish-<unique> --json
+```
+
 ## Authentication and integrations
 
 ### GitHub
