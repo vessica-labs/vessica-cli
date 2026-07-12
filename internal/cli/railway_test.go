@@ -46,6 +46,78 @@ func TestRailwayUpDryRunDoesNotCallRailway(t *testing.T) {
 	}
 }
 
+func TestLinkRailwayWorkDirUsesExistingProjectAndEnvironment(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	workDir := filepath.Join(home, "provision")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(home, "commands.log")
+	script := filepath.Join(bin, "railway")
+	content := "#!/bin/sh\nprintf '%s|%s\\n' \"$PWD\" \"$*\" >> \"$VES_TEST_COMMAND_LOG\"\nprintf '{}'\n"
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("VES_TEST_COMMAND_LOG", logPath)
+	t.Setenv("RAILWAY_TOKEN", "test-token")
+	cfg := config.Config{Hosted: config.HostedConfig{ProjectID: "project-1", EnvironmentID: "environment-1"}}
+	if err := linkRailwayWorkDir(context.Background(), workDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	commands, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedWorkDir, err := filepath.EvalSymlinks(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := resolvedWorkDir + "|link --project project-1 --environment environment-1 --json\n"
+	if string(commands) != want {
+		t.Fatalf("command=%q want=%q", commands, want)
+	}
+}
+
+func TestRecoverKnowledgePostgresAdoptsSingleUnassignedDatabase(t *testing.T) {
+	cfg := config.Config{Hosted: config.HostedConfig{ServiceID: "control", PostgresServiceID: "primary"}, Knowledge: config.KnowledgeConfig{ServiceID: "knowledge"}}
+	services := []railwayServiceRef{
+		{ID: "control", Name: "control-plane"},
+		{ID: "primary", Name: "Postgres"},
+		{ID: "knowledge", Name: "knowledge-server"},
+		{ID: "knowledge-db", Name: "Postgres-_CWk"},
+	}
+	got, ok := recoverKnowledgePostgres(services, cfg)
+	if !ok || got.ID != "knowledge-db" || got.Name != "Postgres-_CWk" {
+		t.Fatalf("candidate=%#v ok=%v", got, ok)
+	}
+}
+
+func TestNewlyAddedRailwayServiceUsesServiceListDiff(t *testing.T) {
+	before := []railwayServiceRef{{ID: "existing", Name: "Postgres"}}
+	after := append(before, railwayServiceRef{ID: "new-db", Name: "Postgres-random"})
+	got, err := newlyAddedRailwayService(before, after)
+	if err != nil || got.ID != "new-db" {
+		t.Fatalf("service=%#v err=%v", got, err)
+	}
+}
+
+func TestResolvedTriggerLabelPreservesConfigurationAndDefaults(t *testing.T) {
+	if got := resolvedTriggerLabel("", "Existing"); got != "Existing" {
+		t.Fatalf("preserved label=%q", got)
+	}
+	if got := resolvedTriggerLabel("Requested", "Existing"); got != "Requested" {
+		t.Fatalf("requested label=%q", got)
+	}
+	if got := resolvedTriggerLabel("", ""); got != "Vessica" {
+		t.Fatalf("default label=%q", got)
+	}
+}
+
 func TestResolveLinearConfigPrefersRequestedTeamAndStates(t *testing.T) {
 	discovery := &tracker.LinearDiscovery{
 		Teams: []tracker.LinearTeam{{ID: "one", Name: "One", Key: "ONE"}, {ID: "two", Name: "Product", Key: "PROD"}},

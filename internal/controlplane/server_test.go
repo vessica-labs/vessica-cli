@@ -87,3 +87,14 @@ func TestControlPlaneAPIRequiresBearerToken(t *testing.T) {
 		t.Fatalf("authenticated status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestRunTerminalStatus(t *testing.T) {
+	for _, status := range []string{"completed", "failed", "cancelled", "stopped"} {
+		if !runTerminalStatus(status) {
+			t.Fatalf("%s should be terminal", status)
+		}
+	}
+	if runTerminalStatus("running") || runTerminalStatus("pending") {
+		t.Fatal("active run status reported terminal")
+	}
+}

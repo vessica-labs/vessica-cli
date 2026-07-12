@@ -3,6 +3,8 @@ package controlplane
 import (
 	"strings"
 	"testing"
+
+	"github.com/vessica-labs/vessica-cli/internal/config"
 )
 
 func TestRailwayWorkerBootstrapUsesOuterSandbox(t *testing.T) {
@@ -29,6 +31,16 @@ func TestRailwayPromptBootstrapEncodesPrompt(t *testing.T) {
 	for _, required := range []string{"control-plane prompt-worker", "--run-id 'run_test'", "--prompt-b64"} {
 		if !strings.Contains(script, required) {
 			t.Fatalf("prompt bootstrap missing %q:\n%s", required, script)
+		}
+	}
+}
+
+func TestRailwayWorkerEnvironmentIncludesHostedKnowledgeAuthority(t *testing.T) {
+	launcher := &RailwayLauncher{Config: config.Config{Hosted: config.HostedConfig{WorkerCheckpoint: "checkpoint"}}}
+	env := launcher.workerEnvironment("run_test")
+	for _, key := range []string{"VES_KNOWLEDGE_MODE", "VES_KNOWLEDGE_ENDPOINT", "VES_KNOWLEDGE_TOKEN", "VES_KNOWLEDGE_WORKSPACE_ID"} {
+		if env[key] != "control-plane."+key {
+			t.Fatalf("%s=%q", key, env[key])
 		}
 	}
 }

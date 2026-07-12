@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/vessica-labs/vessica-cli/internal/config"
@@ -32,7 +34,19 @@ func newReceiptCmd(app *App) *cobra.Command {
 			defer app.closeDB()
 			rcpt, err := app.DB.GetReceipt(context.Background(), args[0])
 			if err != nil {
-				return err
+				if app.Config.Hosted.ControlPlaneURL == "" {
+					return err
+				}
+				secrets, secretErr := loadRailwaySecrets(app.Root)
+				if secretErr != nil {
+					return secretErr
+				}
+				var view any
+				endpoint := strings.TrimRight(app.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/receipts/" + args[0]
+				if requestErr := hostedRequest(cmd.Context(), http.MethodGet, endpoint, secrets.APIToken, nil, &view); requestErr != nil {
+					return requestErr
+				}
+				return app.Printer.Success(view)
 			}
 			view, err := receipt.ViewJSON(rcpt)
 			if err != nil {

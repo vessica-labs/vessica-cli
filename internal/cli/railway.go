@@ -272,6 +272,9 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	if err := reconcileRailwayResourceIDs(ctx, &cfg); err != nil {
 		return nil, err
 	}
+	if err := linkRailwayWorkDir(ctx, workDir, cfg); err != nil {
+		return nil, err
+	}
 	if err := ensureRailwaySSHIdentity(ctx, app.Root, cfg); err != nil {
 		return nil, err
 	}
@@ -326,7 +329,8 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	cfg.Tracker.Provider = "linear"
 	cfg.Tracker.TeamID, cfg.Tracker.TodoStateID = team.ID, states["todo"]
 	cfg.Tracker.WIPStateID, cfg.Tracker.DoneStateID = states["wip"], states["done"]
-	cfg.Tracker.BlockedStateID, cfg.Tracker.TriggerLabel = states["blocked"], opts.TriggerLabel
+	cfg.Tracker.BlockedStateID = states["blocked"]
+	cfg.Tracker.TriggerLabel = resolvedTriggerLabel(opts.TriggerLabel, cfg.Tracker.TriggerLabel)
 	if cfg.Tracker.TriggerLabel != "" {
 		if _, err := linear.EnsureIssueLabel(ctx, team.ID, cfg.Tracker.TriggerLabel); err != nil {
 			return nil, fmt.Errorf("ensure Linear trigger label: %w", err)
@@ -493,6 +497,16 @@ func reconcileRailwayResourceIDs(ctx context.Context, cfg *config.Config) error 
 	return nil
 }
 
+func linkRailwayWorkDir(ctx context.Context, workDir string, cfg config.Config) error {
+	if cfg.Hosted.ProjectID == "" || cfg.Hosted.EnvironmentID == "" {
+		return fmt.Errorf("Railway project and environment ids are required before linking the provisioning workspace")
+	}
+	if _, err := runRailway(ctx, workDir, nil, "link", "--project", cfg.Hosted.ProjectID, "--environment", cfg.Hosted.EnvironmentID, "--json"); err != nil {
+		return fmt.Errorf("link Railway provisioning workspace: %w", err)
+	}
+	return nil
+}
+
 func ensureRailwaySSHIdentity(ctx context.Context, root string, cfg config.Config) error {
 	workspacePath := railwaySSHPrivateKeyPath(root)
 	userPath, err := railwaySSHUserKeyPath(cfg)
@@ -617,17 +631,27 @@ func ensureRailwayKnowledge(ctx context.Context, workDir string, app *App, cfg *
 		}
 	}
 	if cfg.Knowledge.PostgresServiceID == "" {
-		raw, err := runRailway(ctx, workDir, nil, "add", "--database", "postgres", "--json")
+		before, err := listRailwayServices(ctx, *cfg)
 		if err != nil {
 			return err
 		}
-		cfg.Knowledge.PostgresServiceID, err = objectID(raw)
-		if err != nil {
-			return err
-		}
-		cfg.Knowledge.PostgresServiceName, err = objectString(raw, "name")
-		if err != nil {
-			return err
+		if candidate, ok := recoverKnowledgePostgres(before, *cfg); ok {
+			cfg.Knowledge.PostgresServiceID = candidate.ID
+			cfg.Knowledge.PostgresServiceName = candidate.Name
+		} else {
+			if _, err := runRailway(ctx, workDir, nil, "add", "--database", "postgres", "--json"); err != nil {
+				return err
+			}
+			after, err := listRailwayServices(ctx, *cfg)
+			if err != nil {
+				return err
+			}
+			candidate, err := newlyAddedRailwayService(before, after)
+			if err != nil {
+				return fmt.Errorf("identify knowledge Postgres service: %w", err)
+			}
+			cfg.Knowledge.PostgresServiceID = candidate.ID
+			cfg.Knowledge.PostgresServiceName = candidate.Name
 		}
 	}
 	if cfg.Knowledge.PostgresServiceName == "" {
@@ -834,6 +858,16 @@ func configureRailwayService(ctx context.Context, root string, cfg config.Config
 	return nil
 }
 
+func resolvedTriggerLabel(requested, existing string) string {
+	if requested = strings.TrimSpace(requested); requested != "" {
+		return requested
+	}
+	if existing = strings.TrimSpace(existing); existing != "" {
+		return existing
+	}
+	return "Vessica"
+}
+
 func resolveLinearConfig(discovery *tracker.LinearDiscovery, opts railwayUpOptions) (tracker.LinearTeam, map[string]string, error) {
 	if discovery == nil || len(discovery.Teams) == 0 {
 		return tracker.LinearTeam{}, nil, fmt.Errorf("Linear workspace has no teams")
@@ -958,6 +992,56 @@ func setRailwayVariableForService(ctx context.Context, cfg config.Config, servic
 }
 
 func objectID(raw []byte) (string, error) { return objectString(raw, "id") }
+
+type railwayServiceRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+func listRailwayServices(ctx context.Context, cfg config.Config) ([]railwayServiceRef, error) {
+	raw, err := runRailway(ctx, "", nil, "service", "list", "--project", cfg.Hosted.ProjectID, "--environment", cfg.Hosted.EnvironmentID, "--json")
+	if err != nil {
+		return nil, err
+	}
+	var services []railwayServiceRef
+	if err := json.Unmarshal(raw, &services); err != nil {
+		return nil, fmt.Errorf("parse Railway service list: %w", err)
+	}
+	return services, nil
+}
+
+func recoverKnowledgePostgres(services []railwayServiceRef, cfg config.Config) (railwayServiceRef, bool) {
+	var candidates []railwayServiceRef
+	for _, service := range services {
+		if service.ID == cfg.Hosted.ServiceID || service.ID == cfg.Hosted.PostgresServiceID || service.ID == cfg.Knowledge.ServiceID {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(service.Name), "postgres-") || strings.EqualFold(service.Name, "knowledge-postgres") {
+			candidates = append(candidates, service)
+		}
+	}
+	if len(candidates) == 1 {
+		return candidates[0], true
+	}
+	return railwayServiceRef{}, false
+}
+
+func newlyAddedRailwayService(before, after []railwayServiceRef) (railwayServiceRef, error) {
+	known := make(map[string]bool, len(before))
+	for _, service := range before {
+		known[service.ID] = true
+	}
+	var added []railwayServiceRef
+	for _, service := range after {
+		if !known[service.ID] {
+			added = append(added, service)
+		}
+	}
+	if len(added) != 1 {
+		return railwayServiceRef{}, fmt.Errorf("expected one new service, found %d", len(added))
+	}
+	return added[0], nil
+}
 
 func objectString(raw []byte, wanted string) (string, error) {
 	var value any

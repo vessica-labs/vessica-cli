@@ -20,6 +20,7 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/config"
 	"github.com/vessica-labs/vessica-cli/internal/id"
 	"github.com/vessica-labs/vessica-cli/internal/knowledgegateway"
+	"github.com/vessica-labs/vessica-cli/internal/receipt"
 	"github.com/vessica-labs/vessica-cli/internal/retention"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 	"github.com/vessica-labs/vessica-cli/internal/tracker"
@@ -73,6 +74,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/runs", s.requireAPIAuth(s.handleRuns))
 	mux.HandleFunc("GET /api/v1/runs/{run_id}", s.requireAPIAuth(s.handleRun))
 	mux.HandleFunc("GET /api/v1/runs/{run_id}/events", s.requireAPIAuth(s.handleRunEvents))
+	mux.HandleFunc("GET /api/v1/receipts/{receipt_id}", s.requireAPIAuth(s.handleReceipt))
 	mux.HandleFunc("POST /api/v1/epics", s.requireAPIAuth(s.handlePublishEpic))
 	mux.HandleFunc("POST /api/v1/epics/{epic_id}/runs", s.requireAPIAuth(s.handleStartEpicRun))
 	mux.HandleFunc("POST /api/v1/runs/{run_id}/approve", s.requireAPIAuth(s.handleApproveRun))
@@ -190,6 +192,20 @@ func (s *Server) handleRunEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, events)
+}
+
+func (s *Server) handleReceipt(w http.ResponseWriter, r *http.Request) {
+	record, err := s.DB.GetReceipt(r.Context(), r.PathValue("receipt_id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+		return
+	}
+	view, err := receipt.ViewJSON(record)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
 }
 
 func (s *Server) handleLinearWebhook(w http.ResponseWriter, r *http.Request) {
@@ -446,7 +462,60 @@ func (s *Server) SyncRunToLinear(ctx context.Context, runID string) error {
 		}
 		_, _ = s.DB.EnqueueOutbox(ctx, integration.ID, "linear.comment", "linear:run:completed:v2:"+runID, map[string]any{"issue_id": epicMapping.ExternalID, "entity_type": "run_comment", "local_id": runID, "body": body})
 	}
+	if runTerminalStatus(runRecord.Status) {
+		return s.recordTerminalRunKnowledge(ctx, runRecord, epicMapping.ExternalID)
+	}
 	return nil
+}
+
+func (s *Server) recordTerminalRunKnowledge(ctx context.Context, runRecord *state.Run, linearIssueID string) error {
+	if s.Config.Knowledge.Mode != "hosted" || s.Config.Knowledge.Endpoint == "" {
+		return nil
+	}
+	localKey := runRecord.ID + ":" + runRecord.Status
+	if _, err := s.DB.GetExternalMapping(ctx, "knowledge", "run_episode", localKey); err == nil {
+		return nil
+	}
+	gateway, err := knowledgegateway.Open(".", s.Config, s.Config.Knowledge.WorkspaceID)
+	if err != nil {
+		return err
+	}
+	defer gateway.Close()
+	scope, err := gateway.EnsureRepositoryScope(ctx, knowledgegateway.CanonicalRepository(s.Config.Repo.Remote, "."), s.Config.Repo.Remote)
+	if err != nil {
+		return err
+	}
+	eventType := "run." + runRecord.Status
+	summary := "Run " + runRecord.Status
+	if epic, epicErr := s.DB.GetEpic(ctx, runRecord.EpicID); epicErr == nil && epic.Title != "" {
+		summary += ": " + epic.Title
+	}
+	refs := []knowledge.ExternalRef{{System: "vessica.epic", ID: runRecord.EpicID}, {System: "vessica.run", ID: runRecord.ID}}
+	if linearIssueID != "" {
+		refs = append(refs, knowledge.ExternalRef{System: "linear.issue", ID: linearIssueID})
+	}
+	if runRecord.ReceiptID != "" {
+		refs = append(refs, knowledge.ExternalRef{System: "vessica.receipt", ID: runRecord.ReceiptID})
+	}
+	if runRecord.PRURL != "" {
+		refs = append(refs, knowledge.ExternalRef{System: "github.pull_request", ID: runRecord.PRURL, URL: runRecord.PRURL})
+	}
+	event := knowledge.WorkflowEvent{ID: "run:" + runRecord.ID + ":" + runRecord.Status, RepositoryScopeID: scope.ID, Type: eventType, Summary: summary, OccurredAt: time.Now().UTC(), Actor: knowledge.Actor{ID: "vessica-control-plane", Type: "service"}, References: refs, Metadata: map[string]any{"run_status": runRecord.Status, "phase": runRecord.CurrentPhase}}
+	memory, err := gateway.Workflow(ctx, event.ID, event)
+	if err != nil {
+		return err
+	}
+	_, err = s.DB.UpsertExternalMapping(ctx, "knowledge", "run_episode", localKey, memory.ID, map[string]any{"workflow_event_id": event.ID}, "synced")
+	return err
+}
+
+func runTerminalStatus(status string) bool {
+	switch status {
+	case "completed", "failed", "cancelled", "stopped":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) outboxLoop(ctx context.Context) {

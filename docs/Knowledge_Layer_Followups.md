@@ -21,3 +21,7 @@ Hosted retrieval uses semantic candidates plus a lexical fallback. PostgreSQL fu
 ## Broader operations
 
 Persistent distributed rate limiting, production metrics dashboards, scheduled backup orchestration, restore drills, and a web administration UI remain future operations work.
+
+## Hosted worker checkpoint reuse
+
+The live MVP acceptance completed successfully, but its first Railway sandbox downloaded Playwright, Chromium, and browser system packages during bootstrap despite a configured worker checkpoint. Align checkpoint version selection with the bootstrap toolchain and verify browser executables are present before release so warm runs avoid this startup cost.

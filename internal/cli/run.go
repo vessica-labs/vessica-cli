@@ -199,6 +199,13 @@ func newRunCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
+			if app.Config.Hosted.ControlPlaneURL != "" {
+				list, err := app.listHostedRuns(cmd.Context())
+				if err != nil {
+					return err
+				}
+				return app.Printer.Success(list)
+			}
 			list, err := app.DB.ListRuns(context.Background())
 			if err != nil {
 				return err
@@ -212,6 +219,13 @@ func newRunCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
+			if _, localErr := app.DB.GetRun(cmd.Context(), args[0]); localErr != nil && app.Config.Hosted.ControlPlaneURL != "" {
+				runRecord, err := app.getHostedRun(cmd.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				return app.Printer.Success(map[string]any{"run": runRecord, "hosted": true})
+			}
 			r, err := app.DB.GetRun(context.Background(), args[0])
 			if err != nil {
 				return err
@@ -277,6 +291,9 @@ func newRunCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
+			if _, localErr := app.DB.GetRun(cmd.Context(), args[0]); localErr != nil && app.Config.Hosted.ControlPlaneURL != "" {
+				return app.watchHostedRun(cmd.Context(), args[0], watchAfter, jsonl)
+			}
 			if watchUI && isTTYOutput() {
 				eng := &run.Engine{}
 				_, err := executeWithUI("Vessica run "+args[0], app.Root, eng, func() (*state.Run, error) {
@@ -619,6 +636,91 @@ func (a *App) startHostedEpicRun(ctx context.Context, hostedEpicID string) (map[
 		return nil, err
 	}
 	return result, nil
+}
+
+func (a *App) listHostedRuns(ctx context.Context) ([]*state.Run, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var runs []*state.Run
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/runs"
+	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &runs); err != nil {
+		return nil, err
+	}
+	return runs, nil
+}
+
+func (a *App) getHostedRun(ctx context.Context, runID string) (*state.Run, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var runRecord state.Run
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/runs/" + runID
+	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &runRecord); err != nil {
+		return nil, err
+	}
+	return &runRecord, nil
+}
+
+func (a *App) listHostedRunEvents(ctx context.Context, runID string, after int64) ([]state.Event, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var events []state.Event
+	endpoint := fmt.Sprintf("%s/api/v1/runs/%s/events?after=%d", strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/"), runID, after)
+	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &events); err != nil {
+		return nil, err
+	}
+	return events, nil
+}
+
+func (a *App) watchHostedRun(ctx context.Context, runID string, after int64, jsonl bool) error {
+	started := map[string]bool{}
+	for {
+		events, err := a.listHostedRunEvents(ctx, runID, after)
+		if err != nil {
+			return err
+		}
+		for _, event := range events {
+			after = event.Seq
+			if jsonl {
+				if err := streaming.WriteEvent(os.Stdout, &event); err != nil {
+					return err
+				}
+			} else if a.Flags.JSON {
+				_ = output.PrintJSONL(os.Stdout, event)
+			} else if line := formatEventLine(event, false, started); line != "" {
+				a.Printer.Info("%s", line)
+			}
+		}
+		runRecord, err := a.getHostedRun(ctx, runID)
+		if err != nil {
+			return err
+		}
+		if runTerminal(runRecord.Status) {
+			if jsonl {
+				return writeTerminalRunRecord(runRecord)
+			}
+			return a.Printer.Success(map[string]any{"status": runRecord.Status, "last_seq": after, "hosted": true, "run": runRecord})
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+}
+
+func runTerminal(status string) bool {
+	switch status {
+	case "completed", "failed", "cancelled", "stopped":
+		return true
+	default:
+		return false
+	}
 }
 
 func optionalStreamModeArgs(mode *string) cobra.PositionalArgs {
