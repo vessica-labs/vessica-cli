@@ -109,7 +109,11 @@ func (s *Server) handleReviewPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cookie, err := r.Cookie(previewCookie)
-		if err != nil || cookie.Value != runID {
+		resolved, valid := "", false
+		if err == nil && s.PreviewBroker != nil {
+			resolved, valid = s.PreviewBroker.ResolveCapability(cookie.Value)
+		}
+		if err != nil || !valid || resolved != runID {
 			http.Error(w, "preview review session unavailable", http.StatusUnauthorized)
 			return
 		}

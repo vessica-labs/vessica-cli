@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vessica-labs/vessica-cli/internal/auth"
 	"github.com/vessica-labs/vessica-cli/internal/config"
+	"github.com/vessica-labs/vessica-cli/internal/dashboard"
 	"github.com/vessica-labs/vessica-cli/internal/knowledgegateway"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 	"github.com/vessica-labs/vessica-cli/internal/tracker"
@@ -31,9 +33,9 @@ type railwaySecrets struct {
 }
 
 type railwayUpOptions struct {
-	Name, Workspace, Source, Image, RuntimeToken, LinearToken, GitHubToken, OpenAIKey  string
-	Team, TodoState, WIPState, DoneState, BlockedState, TriggerLabel, WorkerCheckpoint string
-	KnowledgeImage, KnowledgeSource, EmbeddingAPIKey, EmbeddingAPIKeyEnv               string
+	Name, Workspace, Source, Image, RuntimeToken, LinearToken, GitHubToken, OpenAIKey, PreviewOrigin string
+	Team, TodoState, WIPState, DoneState, BlockedState, TriggerLabel, WorkerCheckpoint               string
+	KnowledgeImage, KnowledgeSource, EmbeddingAPIKey, EmbeddingAPIKeyEnv                             string
 }
 
 func newRailwayCmd(app *App) *cobra.Command {
@@ -85,6 +87,7 @@ func newRailwayCmd(app *App) *cobra.Command {
 	up.Flags().StringVar(&opts.BlockedState, "blocked-state", "", "optional Linear blocked state id or name")
 	up.Flags().StringVar(&opts.TriggerLabel, "trigger-label", "", "only process issues with this label")
 	up.Flags().StringVar(&opts.WorkerCheckpoint, "worker-checkpoint", "", "Railway sandbox checkpoint with worker prerequisites")
+	up.Flags().StringVar(&opts.PreviewOrigin, "preview-origin", "", "separate HTTPS origin for hosted previews")
 	up.Flags().StringVar(&opts.KnowledgeImage, "knowledge-image", "", "knowledge-server OCI image override (resolved to an immutable digest)")
 	up.Flags().StringVar(&opts.KnowledgeSource, "knowledge-source", "", "development-only knowledge-server source directory")
 	up.Flags().StringVar(&opts.EmbeddingAPIKey, "embedding-api-key", "", "embedding provider key required by hosted knowledge")
@@ -339,6 +342,11 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	if err := ensureRailwayDomain(ctx, workDir, &cfg); err != nil {
 		return nil, err
 	}
+	if opts.PreviewOrigin != "" {
+		if err := ensureRailwayPreviewDomain(ctx, workDir, cfg, opts.PreviewOrigin); err != nil {
+			return nil, err
+		}
+	}
 	if err := ensureRailwayKnowledge(ctx, workDir, app, &cfg, opts, secrets.KnowledgeToken, secrets.KnowledgeAdminToken, embeddingKey); err != nil {
 		return nil, err
 	}
@@ -349,7 +357,7 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	if linearOAuth != "" {
 		hostedLinearToken = ""
 	}
-	if err := configureRailwayService(ctx, app.Root, cfg, secrets, hostedLinearToken, linearOAuth, railwayOAuth, githubToken, openAIKey, codexAuthB64); err != nil {
+	if err := configureRailwayService(ctx, app.Root, cfg, secrets, hostedLinearToken, linearOAuth, railwayOAuth, githubToken, openAIKey, codexAuthB64, opts.PreviewOrigin); err != nil {
 		return nil, err
 	}
 	source := opts.Source
@@ -601,7 +609,21 @@ func ensureRailwayDomain(ctx context.Context, workDir string, cfg *config.Config
 	return nil
 }
 
-const knowledgeServerVersion = "0.2.0"
+func ensureRailwayPreviewDomain(ctx context.Context, workDir string, cfg config.Config, origin string) error {
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" {
+		return fmt.Errorf("preview origin must be an HTTPS URL")
+	}
+	host := parsed.Hostname()
+	raw, listErr := runRailway(ctx, workDir, nil, "domain", "list", "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Hosted.ServiceID, "--json")
+	if listErr == nil && strings.Contains(string(raw), host) {
+		return nil
+	}
+	_, err = runRailway(ctx, workDir, nil, "domain", host, "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Hosted.ServiceID, "-p", "8080", "--json")
+	return err
+}
+
+const knowledgeServerVersion = "0.3.1"
 
 func ensureRailwayKnowledge(ctx context.Context, workDir string, app *App, cfg *config.Config, opts railwayUpOptions, token, adminToken, embeddingKey string) error {
 	image := opts.KnowledgeImage
@@ -826,7 +848,7 @@ func resolveGHCRDigest(ctx context.Context, image string) (string, error) {
 	return prefix + name + "@" + digest, nil
 }
 
-func configureRailwayService(ctx context.Context, root string, cfg config.Config, secrets railwaySecrets, linearToken, linearOAuth, railwayOAuth, githubToken, openAIKey, codexAuthB64 string) error {
+func configureRailwayService(ctx context.Context, root string, cfg config.Config, secrets railwaySecrets, linearToken, linearOAuth, railwayOAuth, githubToken, openAIKey, codexAuthB64, previewOrigin string) error {
 	reference := "$" + "{{Postgres.DATABASE_URL}}"
 	privateKey, err := os.ReadFile(railwaySSHPrivateKeyPath(root))
 	if err != nil {
@@ -850,6 +872,8 @@ func configureRailwayService(ctx context.Context, root string, cfg config.Config
 		"VES_RAILWAY_SSH_PRIVATE_KEY": string(privateKey),
 		"VES_KNOWLEDGE_MODE":          "hosted", "VES_KNOWLEDGE_WORKSPACE_ID": cfg.Knowledge.WorkspaceID,
 		"VES_KNOWLEDGE_ENDPOINT": cfg.Knowledge.Endpoint, "VES_KNOWLEDGE_TOKEN": secrets.KnowledgeToken,
+		"VES_DASHBOARD_ENABLED": "true", "VES_DASHBOARD_ORIGIN": cfg.Hosted.ControlPlaneURL, "VES_PREVIEW_ORIGIN": previewOrigin,
+		"VES_GITHUB_OAUTH_CLIENT_ID": firstNonEmpty(os.Getenv("VES_GITHUB_OAUTH_CLIENT_ID"), dashboard.DefaultGitHubClientID),
 	}
 	for key, value := range variables {
 		if err := setRailwayVariable(ctx, cfg, key, value); err != nil {

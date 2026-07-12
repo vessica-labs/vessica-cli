@@ -28,6 +28,7 @@ type RailwayLauncher struct {
 	Config              config.Config
 	CLIPath             string
 	PublicURL           string
+	PreviewPublicURL    string
 	WorkerDownloadToken string
 	Broker              *PreviewBroker
 	RailwayToken        func(context.Context) (string, error)
@@ -124,7 +125,11 @@ func (l *RailwayLauncher) Launch(ctx context.Context, runRecord *state.Run) erro
 			cancel()
 			return err
 		}
-		publicPreview := strings.TrimRight(l.PublicURL, "/") + "/previews/" + runRecord.ID + "/"
+		previewBase := l.PreviewPublicURL
+		if previewBase == "" {
+			previewBase = l.PublicURL
+		}
+		publicPreview := strings.TrimRight(previewBase, "/") + "/previews/" + runRecord.ID + "/"
 		latest.PreviewURL = publicPreview
 		sbRecord.PreviewURL = publicPreview
 		_ = l.DB.UpdateRun(ctx, latest)
@@ -329,7 +334,11 @@ func (l *RailwayLauncher) RestorePreviews(ctx context.Context) {
 		}
 		l.remember(record.RunID, rs)
 		_ = l.Broker.Register(record.RunID, target, cancel)
-		publicURL := strings.TrimRight(l.PublicURL, "/") + "/previews/" + record.RunID + "/"
+		previewBase := l.PreviewPublicURL
+		if previewBase == "" {
+			previewBase = l.PublicURL
+		}
+		publicURL := strings.TrimRight(previewBase, "/") + "/previews/" + record.RunID + "/"
 		record.PreviewURL = publicURL
 		_ = l.DB.UpdateSandbox(ctx, record)
 		if runRecord, err := l.DB.GetRun(ctx, record.RunID); err == nil {

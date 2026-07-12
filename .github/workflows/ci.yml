@@ -11,12 +11,45 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: vessica
+          POSTGRES_PASSWORD: vessica
+          POSTGRES_DB: vessica_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vessica -d vessica_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/dashboard/package-lock.json
+      - run: npm ci
+        working-directory: web/dashboard
+      - run: ./scripts/embed-dashboard-docs.sh
+      - run: npm run generate:api && npm test && npm run build
+        working-directory: web/dashboard
+      - run: npx playwright install --with-deps chromium
+        working-directory: web/dashboard
+      - run: npm run test:e2e
+        working-directory: web/dashboard
+      - run: ./scripts/check-dashboard-assets.sh
+      - name: Verify generated dashboard is reproducible
+        run: git diff --exit-code -- internal/dashboard/assets internal/dashboard/docs web/dashboard/src/generated/api.ts
       - run: go test ./...
+        env:
+          TEST_POSTGRES_URL: postgres://vessica:vessica@127.0.0.1:5432/vessica_test?sslmode=disable
       - run: go vet ./...
       - run: go build ./cmd/ves

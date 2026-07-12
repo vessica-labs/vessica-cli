@@ -2,9 +2,12 @@ package knowledgegateway
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/vessica-labs/vessica-cli/internal/auth"
@@ -187,6 +190,129 @@ func (g *Gateway) ResolveEntities(ctx context.Context, q string, scopes []string
 		return g.store.ResolveEntities(ctx, g.workspace, scopes, q)
 	}
 	return g.remote.ResolveEntities(ctx, g.workspace, q, scopes)
+}
+func (g *Gateway) GetEntity(ctx context.Context, entityID string) (ks.Entity, error) {
+	if g.local != nil {
+		return g.store.GetEntity(ctx, g.workspace, entityID)
+	}
+	return g.remote.GetEntity(ctx, g.workspace, entityID)
+}
+func (g *Gateway) ListEntities(ctx context.Context, typ, state, cursor string, limit int, scopes []string) (ks.Page[ks.Entity], error) {
+	if g.local == nil {
+		return g.remote.ListEntities(ctx, g.workspace, typ, state, cursor, limit, scopes)
+	}
+	items, err := g.store.ListEntities(ctx, g.workspace, scopes, typ, state)
+	if err != nil {
+		return ks.Page[ks.Entity]{}, err
+	}
+	return localPage(items, cursor, limit), nil
+}
+func (g *Gateway) Status(ctx context.Context) (ks.Status, error) {
+	if g.local == nil {
+		return g.remote.Status(ctx, g.workspace)
+	}
+	backlog, err := g.store.EmbeddingBacklog(ctx, g.workspace)
+	if err != nil {
+		return ks.Status{}, err
+	}
+	return ks.Status{Schema: ks.APIVersion, RetrievalMode: "lexical", EmbeddingState: "not_configured", EmbeddingBacklog: backlog, IndexFresh: backlog == 0}, nil
+}
+func (g *Gateway) Search(ctx context.Context, query, objectType, cursor string, limit int, scopes []string) (ks.Page[ks.SearchResult], error) {
+	if g.local == nil {
+		return g.remote.Search(ctx, g.workspace, query, objectType, cursor, limit, scopes)
+	}
+	var out []ks.SearchResult
+	if objectType == "" || objectType == "entity" {
+		entities, err := g.store.ResolveEntities(ctx, g.workspace, scopes, query)
+		if err != nil {
+			return ks.Page[ks.SearchResult]{}, err
+		}
+		for _, v := range entities {
+			out = append(out, ks.SearchResult{ObjectType: "entity", ID: v.ID, ScopeID: v.ScopeID, Subtype: v.Type, Title: v.DisplayName, State: v.State, UpdatedAt: v.UpdatedAt})
+		}
+	}
+	if objectType == "" || objectType == "artifact" {
+		artifacts, err := g.store.ListArtifacts(ctx, g.workspace, scopes, nil)
+		if err != nil {
+			return ks.Page[ks.SearchResult]{}, err
+		}
+		for _, v := range artifacts {
+			if query == "" || strings.Contains(strings.ToLower(v.Title+" "+v.Content), strings.ToLower(query)) {
+				out = append(out, ks.SearchResult{ObjectType: "artifact", ID: v.ID, ScopeID: v.ScopeID, Subtype: v.Type, Title: v.Title, Summary: summary(v.Content), State: v.Status, UpdatedAt: v.UpdatedAt})
+			}
+		}
+	}
+	if objectType == "" || objectType == "memory" {
+		memories, err := g.store.SearchMemories(ctx, g.workspace, scopes, query, 500)
+		if err != nil {
+			return ks.Page[ks.SearchResult]{}, err
+		}
+		for _, v := range memories {
+			out = append(out, ks.SearchResult{ObjectType: "memory", ID: v.ID, ScopeID: v.ScopeID, Subtype: v.Type, Title: v.Title, Summary: summary(v.Content), State: v.State, UpdatedAt: v.UpdatedAt})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].UpdatedAt.After(out[j].UpdatedAt) })
+	return localPage(out, cursor, limit), nil
+}
+func (g *Gateway) ArtifactVersions(ctx context.Context, id, cursor string, limit int) (ks.Page[ks.Artifact], error) {
+	if g.local == nil {
+		return g.remote.ListArtifactVersions(ctx, g.workspace, id, cursor, limit)
+	}
+	items, err := g.store.ListArtifactVersions(ctx, g.workspace, id)
+	if err != nil {
+		return ks.Page[ks.Artifact]{}, err
+	}
+	return localPage(items, cursor, limit), nil
+}
+func (g *Gateway) MemoryVersions(ctx context.Context, id, cursor string, limit int) (ks.Page[ks.Memory], error) {
+	if g.local == nil {
+		return g.remote.ListMemoryVersions(ctx, g.workspace, id, cursor, limit)
+	}
+	items, err := g.store.ListMemoryVersions(ctx, g.workspace, id)
+	if err != nil {
+		return ks.Page[ks.Memory]{}, err
+	}
+	return localPage(items, cursor, limit), nil
+}
+func (g *Gateway) Relationships(ctx context.Context, objectID, cursor string, limit int) (ks.Page[ks.Relationship], error) {
+	if g.local == nil {
+		return g.remote.ListRelationships(ctx, g.workspace, objectID, cursor, limit)
+	}
+	items, err := g.store.ListRelationships(ctx, g.workspace, objectID)
+	if err != nil {
+		return ks.Page[ks.Relationship]{}, err
+	}
+	return localPage(items, cursor, limit), nil
+}
+func localPage[T any](items []T, cursor string, limit int) ks.Page[T] {
+	offset := 0
+	if raw, err := base64.RawURLEncoding.DecodeString(cursor); err == nil {
+		offset, _ = strconv.Atoi(string(raw))
+	}
+	if offset < 0 || offset > len(items) {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	end := offset + limit
+	if end > len(items) {
+		end = len(items)
+	}
+	result := ks.Page[T]{Items: items[offset:end]}
+	if end < len(items) {
+		result.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(strconv.Itoa(end)))
+	}
+	return result
+}
+func summary(v string) string {
+	if len(v) <= 240 {
+		return v
+	}
+	return v[:240] + "…"
 }
 func (g *Gateway) Workflow(ctx context.Context, key string, v ks.WorkflowEvent) (ks.Memory, error) {
 	v.WorkspaceID = g.workspace

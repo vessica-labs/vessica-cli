@@ -111,6 +111,7 @@ func NewRoot() *cobra.Command {
 	root.AddCommand(newTraceCmd(app))
 	root.AddCommand(newControlPlaneCmd(app))
 	root.AddCommand(newRailwayCmd(app))
+	root.AddCommand(newDashboardCmd(app))
 	root.AddCommand(newVersionCmd(app))
 
 	return root

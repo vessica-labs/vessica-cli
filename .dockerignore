@@ -5,3 +5,6 @@ coverage*
 *.db
 *.log
 .DS_Store
+web/dashboard/node_modules
+web/dashboard/playwright-report
+web/dashboard/test-results

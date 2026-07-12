@@ -3,6 +3,8 @@ package controlplane
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 )
 
 const previewCookie = "ves_preview"
@@ -25,7 +28,12 @@ type previewTarget struct {
 type PreviewBroker struct {
 	mu              sync.RWMutex
 	targets         map[string]previewTarget
+	capabilities    map[string]previewCapability
 	overlayProvider func(string) string
+}
+type previewCapability struct {
+	RunID     string
+	ExpiresAt time.Time
 }
 
 func (b *PreviewBroker) SetOverlayProvider(provider func(string) string) {
@@ -35,7 +43,7 @@ func (b *PreviewBroker) SetOverlayProvider(provider func(string) string) {
 }
 
 func NewPreviewBroker() *PreviewBroker {
-	return &PreviewBroker{targets: map[string]previewTarget{}}
+	return &PreviewBroker{targets: map[string]previewTarget{}, capabilities: map[string]previewCapability{}}
 }
 
 func (b *PreviewBroker) Register(token, target string, cancel context.CancelFunc) error {
@@ -62,27 +70,63 @@ func (b *PreviewBroker) Remove(token string) {
 	}
 }
 
+func (b *PreviewBroker) Issue(runID string, ttl time.Duration) (string, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, ok := b.targets[runID]; !ok {
+		return "", fmt.Errorf("preview is not available")
+	}
+	if ttl <= 0 || ttl > time.Hour {
+		ttl = 15 * time.Minute
+	}
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	capability := base64.RawURLEncoding.EncodeToString(raw)
+	b.capabilities[capability] = previewCapability{RunID: runID, ExpiresAt: time.Now().Add(ttl)}
+	return capability, nil
+}
+func (b *PreviewBroker) ResolveCapability(token string) (string, bool) {
+	b.mu.RLock()
+	capability, ok := b.capabilities[token]
+	b.mu.RUnlock()
+	return capability.RunID, ok && time.Now().Before(capability.ExpiresAt)
+}
+
 func (b *PreviewBroker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	token := ""
+	capabilityToken, runID := "", ""
 	if strings.HasPrefix(r.URL.Path, "/previews/") {
 		rest := strings.TrimPrefix(r.URL.Path, "/previews/")
 		parts := strings.SplitN(rest, "/", 2)
-		token = parts[0]
+		runID = parts[0]
+		capabilityToken = r.URL.Query().Get("cap")
+		resolved, valid := b.ResolveCapability(capabilityToken)
+		if !valid || resolved != runID {
+			http.Error(w, "preview authorization is invalid or expired", http.StatusUnauthorized)
+			return
+		}
 		if len(parts) == 1 || parts[1] == "" {
 			r.URL.Path = "/"
 		} else {
 			r.URL.Path = "/" + parts[1]
 		}
-		http.SetCookie(w, &http.Cookie{Name: previewCookie, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode})
+		secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+		sameSite := http.SameSiteLaxMode
+		if secure {
+			sameSite = http.SameSiteNoneMode
+		}
+		http.SetCookie(w, &http.Cookie{Name: previewCookie, Value: capabilityToken, Path: "/", HttpOnly: true, Secure: secure, SameSite: sameSite, MaxAge: 900})
 	} else if cookie, err := r.Cookie(previewCookie); err == nil {
-		token = cookie.Value
+		capabilityToken = cookie.Value
+		runID, _ = b.ResolveCapability(capabilityToken)
 	}
-	if token == "" {
+	if runID == "" {
 		http.NotFound(w, r)
 		return
 	}
 	b.mu.RLock()
-	target, ok := b.targets[token]
+	target, ok := b.targets[runID]
 	overlayProvider := b.overlayProvider
 	b.mu.RUnlock()
 	if !ok {
@@ -105,7 +149,7 @@ func (b *PreviewBroker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			_ = resp.Body.Close()
-			overlay := []byte(overlayProvider(token))
+			overlay := []byte(overlayProvider(runID))
 			lower := bytes.ToLower(body)
 			if index := bytes.LastIndex(lower, []byte("</body>")); index >= 0 {
 				body = append(append(append([]byte{}, body[:index]...), overlay...), body[index:]...)

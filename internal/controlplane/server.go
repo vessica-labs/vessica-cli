@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -43,6 +45,8 @@ type Server struct {
 	BinaryPath          string
 	Logger              *log.Logger
 	PreviewBroker       *PreviewBroker
+	Dashboard           http.Handler
+	PreviewPublicURL    string
 	workerID            string
 	projectionMu        sync.Mutex
 	importMu            sync.Mutex
@@ -78,6 +82,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/epics", s.requireAPIAuth(s.handlePublishEpic))
 	mux.HandleFunc("POST /api/v1/epics/{epic_id}/runs", s.requireAPIAuth(s.handleStartEpicRun))
 	mux.HandleFunc("POST /api/v1/runs/{run_id}/approve", s.requireAPIAuth(s.handleApproveRun))
+	mux.HandleFunc("POST /api/v1/migrations/workplan", s.requireAPIAuth(s.handleImportWorkplan))
 	mux.HandleFunc("GET /review/runs/{run_id}", s.handleReviewPage)
 	mux.HandleFunc("GET /review/runs/{run_id}/panel", s.handleReviewPage)
 	mux.HandleFunc("GET /review/runs/{run_id}/window", s.handleReviewPage)
@@ -86,10 +91,75 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /review/runs/{run_id}/approve", s.handleReviewApprove)
 	mux.HandleFunc("POST /review/runs/{run_id}/rollback", s.handleReviewRollback)
 	if s.PreviewBroker != nil {
-		s.PreviewBroker.SetOverlayProvider(s.previewOverlay)
+		if s.PreviewPublicURL == "" {
+			s.PreviewBroker.SetOverlayProvider(s.previewOverlay)
+		}
 		mux.Handle("/", s.PreviewBroker)
 	}
-	return mux
+	if s.Dashboard == nil {
+		return mux
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.PreviewPublicURL != "" {
+			if u, err := url.Parse(s.PreviewPublicURL); err == nil && strings.EqualFold(stripPort(r.Host), stripPort(u.Host)) {
+				if s.PreviewBroker != nil {
+					s.PreviewBroker.ServeHTTP(w, r)
+					return
+				}
+				http.NotFound(w, r)
+				return
+			}
+		}
+		if dashboardRoute(r) {
+			s.Dashboard.ServeHTTP(w, r)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+}
+func (s *Server) handleImportWorkplan(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<20))
+	if err != nil {
+		writeJSON(w, 400, map[string]any{"error": "read snapshot"})
+		return
+	}
+	var snap state.WorkplanSnapshot
+	if err = json.Unmarshal(body, &snap); err != nil {
+		writeJSON(w, 400, map[string]any{"error": "invalid snapshot"})
+		return
+	}
+	if err = s.DB.ImportWorkplanSnapshot(r.Context(), snap); err != nil {
+		writeJSON(w, 409, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"imported": true, "checksum": snap.Checksum})
+}
+
+func stripPort(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
+}
+func dashboardRoute(r *http.Request) bool {
+	p := r.URL.Path
+	if strings.HasPrefix(p, "/auth/") || strings.HasPrefix(p, "/assets/") || p == "/internal/dashboard/metrics" {
+		return true
+	}
+	for _, prefix := range []string{"/api/v1/system", "/api/v1/integrations", "/api/v1/sandboxes", "/api/v1/knowledge", "/api/v1/access", "/api/v1/audit", "/api/v1/hosting", "/api/v1/docs"} {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	if strings.HasPrefix(p, "/api/v1/runs") {
+		return !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") || r.Header.Get("Accept") == "application/vnd.vessica.dashboard+json"
+	}
+	for _, prefix := range []string{"/healthz", "/readyz", "/webhooks/", "/internal/", "/review/", "/previews/", "/api/v1/status", "/api/v1/jobs", "/api/v1/receipts", "/api/v1/epics"} {
+		if strings.HasPrefix(p, prefix) {
+			return false
+		}
+	}
+	return r.Method == http.MethodGet
 }
 
 func (s *Server) Run(ctx context.Context, addr string) error {
@@ -479,7 +549,11 @@ func (s *Server) projectedPreviewURL(runRecord *state.Run) string {
 		return ""
 	}
 	if runRecord.SandboxBackend == "railway" {
-		if base := strings.TrimRight(s.Config.Hosted.ControlPlaneURL, "/"); base != "" {
+		base := strings.TrimRight(s.PreviewPublicURL, "/")
+		if base == "" {
+			base = strings.TrimRight(s.Config.Hosted.ControlPlaneURL, "/")
+		}
+		if base != "" {
 			return base + "/previews/" + runRecord.ID + "/"
 		}
 	}

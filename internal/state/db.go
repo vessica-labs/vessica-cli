@@ -82,6 +82,9 @@ func (db *DB) Migrate(ctx context.Context) error {
 	if _, err := db.SQL.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("migrate schema: %w", err)
 	}
+	if err := db.applyMigrations(ctx); err != nil {
+		return fmt.Errorf("apply ordered migrations: %w", err)
+	}
 	// Knowledge memories moved to the authoritative knowledge store. There are
 	// no compatibility obligations for the experimental legacy table.
 	if db.Dialect == "sqlite" {
