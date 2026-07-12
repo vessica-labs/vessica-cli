@@ -6,14 +6,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
+	appservice "github.com/vessica-labs/vessica-cli/internal/app"
 	"github.com/vessica-labs/vessica-cli/internal/auth"
 	"github.com/vessica-labs/vessica-cli/internal/config"
 	"github.com/vessica-labs/vessica-cli/internal/controlplane"
+	"github.com/vessica-labs/vessica-cli/internal/dashboard"
 	"github.com/vessica-labs/vessica-cli/internal/pack"
 	"github.com/vessica-labs/vessica-cli/internal/repo"
 	runengine "github.com/vessica-labs/vessica-cli/internal/run"
@@ -75,6 +79,7 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 			broker := controlplane.NewPreviewBroker()
 			launcher := &controlplane.RailwayLauncher{
 				DB: db, Config: cfg, CLIPath: railwayPath(), PublicURL: cfg.Hosted.ControlPlaneURL,
+				PreviewPublicURL:    os.Getenv("VES_PREVIEW_ORIGIN"),
 				WorkerDownloadToken: os.Getenv("VES_WORKER_DOWNLOAD_TOKEN"), Broker: broker,
 			}
 			if credentialManager != nil && credentialManager.Has(cmd.Context(), "railway") {
@@ -89,6 +94,32 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 				APIToken:            os.Getenv("VES_CONTROL_PLANE_API_TOKEN"),
 				WorkerDownloadToken: os.Getenv("VES_WORKER_DOWNLOAD_TOKEN"),
 				Logger:              log.New(os.Stdout, "control-plane ", log.LstdFlags|log.LUTC),
+				PreviewPublicURL:    os.Getenv("VES_PREVIEW_ORIGIN"),
+			}
+			if !strings.EqualFold(strings.TrimSpace(os.Getenv("VES_DASHBOARD_ENABLED")), "false") {
+				dash := dashboard.New(appservice.New(db, root, cfg), "hosted")
+				dash.Origin = firstNonEmpty(os.Getenv("VES_DASHBOARD_ORIGIN"), cfg.Hosted.ControlPlaneURL)
+				dash.PreviewOrigin = os.Getenv("VES_PREVIEW_ORIGIN")
+				dash.ServiceToken = os.Getenv("VES_CONTROL_PLANE_API_TOKEN")
+				dash.GitHubClientID = firstNonEmpty(os.Getenv("VES_GITHUB_OAUTH_CLIENT_ID"), dashboard.DefaultGitHubClientID)
+				dash.PreviewAccess = func(ctx context.Context, runID string) (string, error) {
+					capability, err := broker.Issue(runID, 15*time.Minute)
+					if err != nil {
+						return "", err
+					}
+					base := strings.TrimRight(os.Getenv("VES_PREVIEW_ORIGIN"), "/")
+					if base == "" {
+						return "", fmt.Errorf("VES_PREVIEW_ORIGIN is required")
+					}
+					return base + "/previews/" + url.PathEscape(runID) + "/?cap=" + url.QueryEscape(capability), nil
+				}
+				dash.RefineAction = server.DashboardRefine
+				dash.ApproveAction = server.DashboardApprove
+				dash.RollbackAction = server.DashboardRollback
+				dash.CancelAction = server.DashboardCancel
+				dash.RetainAction = server.DashboardRetain
+				dash.DestroyAction = server.DashboardDestroy
+				server.Dashboard = dash.Handler()
 			}
 			return server.Run(cmd.Context(), addr)
 		},

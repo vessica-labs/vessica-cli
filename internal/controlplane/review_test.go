@@ -50,10 +50,21 @@ func TestReviewURLIncludesSignedAction(t *testing.T) {
 
 func TestReviewPanelRequiresPreviewCookieAndRendersControls(t *testing.T) {
 	server, runRecord, _ := reviewServerFixture(t)
+	broker := NewPreviewBroker()
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer target.Close()
+	if err := broker.Register(runRecord.ID, target.URL, func() {}); err != nil {
+		t.Fatal(err)
+	}
+	capability, err := broker.Issue(runRecord.ID, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.PreviewBroker = broker
 	req := httptest.NewRequest(http.MethodGet, "/review/runs/"+runRecord.ID+"/panel", nil)
 	req.SetPathValue("run_id", runRecord.ID)
 	req.Header.Set("Sec-Fetch-Dest", "iframe")
-	req.AddCookie(&http.Cookie{Name: previewCookie, Value: runRecord.ID})
+	req.AddCookie(&http.Cookie{Name: previewCookie, Value: capability})
 	rec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {

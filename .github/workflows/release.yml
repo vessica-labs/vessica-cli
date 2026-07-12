@@ -18,6 +18,20 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/dashboard/package-lock.json
+      - name: Build embedded dashboard
+        run: |
+          ./scripts/embed-dashboard-docs.sh
+          cd web/dashboard
+          npm ci
+          npm run generate:api
+          npm run build
+          cd ../..
+          ./scripts/check-dashboard-assets.sh
       - name: Build release archives
         env:
           VERSION: ${{ github.ref_name }}

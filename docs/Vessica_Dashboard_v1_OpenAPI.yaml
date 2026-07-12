@@ -1,0 +1,141 @@
+openapi: 3.1.0
+info:
+  title: Vessica Dashboard API
+  version: 1.0.0
+  description: Browser and version-matched CLI contract for the embedded Vessica dashboard.
+servers: [{url: /}]
+security: [{browserSession: []}, {serviceBearer: []}]
+paths:
+  /auth/config:
+    get:
+      security: []
+      operationId: getAuthConfig
+      responses: {'200': {$ref: '#/components/responses/Success'}}
+  /auth/github/device:
+    post:
+      security: []
+      operationId: startGitHubDeviceLogin
+      responses: {'200': {$ref: '#/components/responses/Success'}, '503': {$ref: '#/components/responses/Error'}}
+  /auth/github/device/{id}/poll:
+    post:
+      security: []
+      operationId: pollGitHubDeviceLogin
+      parameters: [{$ref: '#/components/parameters/ID'}]
+      responses: {'200': {$ref: '#/components/responses/Success'}, '202': {$ref: '#/components/responses/Success'}, '401': {$ref: '#/components/responses/Error'}}
+  /auth/session:
+    get: {operationId: getSession, responses: {'200': {$ref: '#/components/responses/Success'}, '401': {$ref: '#/components/responses/Error'}}}
+  /auth/logout:
+    post: {$ref: '#/components/pathItems/Mutation'}
+  /api/v1/system:
+    get: {operationId: getSystem, responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/integrations:
+    get: {operationId: listIntegrations, responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/runs:
+    get: {operationId: listRuns, parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/runs/{id}:
+    get: {operationId: getRun, parameters: [{$ref: '#/components/parameters/ID'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/runs/{id}/stream:
+    get:
+      operationId: streamRun
+      parameters: [{$ref: '#/components/parameters/ID'}, {$ref: '#/components/parameters/After'}, {name: Last-Event-ID, in: header, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: Resumable vessica.stream/v1 Server-Sent Events, content: {text/event-stream: {schema: {type: string}}}}}
+  /api/v1/runs/{id}/events/{event_id}:
+    get: {operationId: getRunEvent, parameters: [{$ref: '#/components/parameters/ID'}, {name: event_id, in: path, required: true, schema: {type: string}}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/runs/{id}/logs:
+    get: {operationId: getRunRawLog, description: Owner-only redacted raw agent log, parameters: [{$ref: '#/components/parameters/ID'}], responses: {'200': {$ref: '#/components/responses/Success'}, '403': {$ref: '#/components/responses/Error'}}}
+  /api/v1/runs/{id}/refinements:
+    post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/runs/{id}/approve:
+    post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/runs/{id}/rollback:
+    post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/runs/{id}/cancel:
+    post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/runs/{id}/preview-access:
+    post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/sandboxes:
+    get: {operationId: listSandboxes, parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/sandboxes/{id}/retain:
+    post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/sandboxes/{id}/destroy:
+    post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/knowledge/status:
+    get: {operationId: getKnowledgeStatus, responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/knowledge/search:
+    get: {operationId: searchKnowledge, parameters: [{name: q, in: query, schema: {type: string}}, {name: object_type, in: query, schema: {type: string}}, {$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/knowledge/entities:
+    get: {operationId: listKnowledgeEntities, responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/knowledge/entities/{id}:
+    get: {operationId: getKnowledgeEntity, parameters: [{$ref: '#/components/parameters/ID'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/knowledge/artifacts:
+    get: {operationId: listKnowledgeArtifacts, responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/knowledge/artifacts/{id}:
+    get: {operationId: getKnowledgeArtifact, parameters: [{$ref: '#/components/parameters/ID'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/knowledge/artifacts/{id}/versions:
+    get: {operationId: listKnowledgeArtifactVersions, parameters: [{$ref: '#/components/parameters/ID'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/knowledge/memories:
+    get: {operationId: listKnowledgeMemories, responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/knowledge/memories/{id}:
+    get: {operationId: getKnowledgeMemory, parameters: [{$ref: '#/components/parameters/ID'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/knowledge/memories/{id}/versions:
+    get: {operationId: listKnowledgeMemoryVersions, parameters: [{$ref: '#/components/parameters/ID'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/knowledge/relationships:
+    get: {operationId: listKnowledgeRelationships, parameters: [{name: object_id, in: query, required: true, schema: {type: string}}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/knowledge/context:explain:
+    post: {$ref: '#/components/pathItems/Mutation'}
+  /api/v1/docs:
+    get: {operationId: listDocumentation, responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/docs/{slug}:
+    get: {operationId: getDocumentation, parameters: [{name: slug, in: path, required: true, schema: {type: string}}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/access/members:
+    get: {operationId: listMembers, responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/access/invitations:
+    post: {$ref: '#/components/pathItems/Mutation'}
+  /api/v1/access/owner-claims:
+    post: {$ref: '#/components/pathItems/Mutation'}
+  /api/v1/audit:
+    get: {operationId: listAudit, responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/hosting/promotions:
+    post: {$ref: '#/components/pathItems/Mutation'}
+  /api/v1/hosting/promotions/{id}:
+    get: {operationId: getPromotion, parameters: [{$ref: '#/components/parameters/ID'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/hosting/promotions/{id}/resume:
+    post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/hosting/promotions/{id}/stream:
+    get: {operationId: streamPromotion, parameters: [{$ref: '#/components/parameters/ID'}, {$ref: '#/components/parameters/After'}], responses: {'200': {description: Resumable promotion event stream, content: {text/event-stream: {schema: {type: string}}}}}}
+components:
+  securitySchemes:
+    browserSession: {type: apiKey, in: cookie, name: ves_dashboard}
+    serviceBearer: {type: http, scheme: bearer}
+  parameters:
+    ID: {name: id, in: path, required: true, schema: {type: string}}
+    Cursor: {name: cursor, in: query, schema: {type: string}}
+    Limit: {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 200, default: 50}}
+    After: {name: after, in: query, schema: {type: integer, format: int64, minimum: 0}}
+    CSRF: {name: X-CSRF-Token, in: header, required: true, schema: {type: string}}
+    Idempotency: {name: Idempotency-Key, in: header, required: true, schema: {type: string}}
+  schemas:
+    Envelope:
+      type: object
+      required: [schema]
+      properties:
+        schema: {type: string, const: vessica.dashboard/v1}
+        data: {}
+        meta: {type: object, additionalProperties: true}
+        error: {$ref: '#/components/schemas/Error'}
+    Error:
+      type: object
+      required: [code, message, request_id]
+      properties: {code: {type: string}, message: {type: string}, request_id: {type: string}, details: {}}
+  responses:
+    Success: {description: Versioned dashboard response, content: {application/json: {schema: {$ref: '#/components/schemas/Envelope'}}}}
+    Error: {description: Structured request failure, content: {application/json: {schema: {$ref: '#/components/schemas/Envelope'}}}}
+  pathItems:
+    Mutation:
+      parameters: [{$ref: '#/components/parameters/CSRF'}, {$ref: '#/components/parameters/Idempotency'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}
+    ResourceMutation:
+      parameters: [{$ref: '#/components/parameters/ID'}, {$ref: '#/components/parameters/CSRF'}, {$ref: '#/components/parameters/Idempotency'}]
+      requestBody: {required: true, content: {application/json: {schema: {type: object}}}}
+      responses: {'200': {$ref: '#/components/responses/Success'}, '400': {$ref: '#/components/responses/Error'}, '403': {$ref: '#/components/responses/Error'}, '409': {$ref: '#/components/responses/Error'}}

@@ -5,8 +5,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPreviewBrokerPreservesRootRelativeRequests(t *testing.T) {
@@ -18,10 +20,14 @@ func TestPreviewBrokerPreservesRootRelativeRequests(t *testing.T) {
 	if err := broker.Register("run-1", target.URL, func() {}); err != nil {
 		t.Fatal(err)
 	}
+	capability, err := broker.Issue("run-1", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
 	server := httptest.NewServer(broker)
 	defer server.Close()
 	client := server.Client()
-	first, err := client.Get(server.URL + "/previews/run-1/")
+	first, err := client.Get(server.URL + "/previews/run-1/?cap=" + url.QueryEscape(capability))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,9 +63,13 @@ func TestPreviewBrokerInjectsReviewOverlayIntoHTML(t *testing.T) {
 	if err := broker.Register("run-1", target.URL, func() {}); err != nil {
 		t.Fatal(err)
 	}
+	capability, err := broker.Issue("run-1", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
 	server := httptest.NewServer(broker)
 	defer server.Close()
-	resp, err := server.Client().Get(server.URL + "/previews/run-1/")
+	resp, err := server.Client().Get(server.URL + "/previews/run-1/?cap=" + url.QueryEscape(capability))
 	if err != nil {
 		t.Fatal(err)
 	}

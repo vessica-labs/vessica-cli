@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestPostgresHostedSchema(t *testing.T) {
@@ -31,5 +32,34 @@ func TestPostgresHostedSchema(t *testing.T) {
 	claimed, err := db.ClaimJob(ctx, "postgres-test", 0)
 	if err != nil || claimed == nil {
 		t.Fatalf("claimed=%#v err=%v", claimed, err)
+	}
+	user, err := db.UpsertDashboardUser(ctx, "12345", "VessicaMember", "Vessica Member", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.UpsertMembership(ctx, user.ID, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	expires := time.Now().Add(time.Hour).UTC().Format(time.RFC3339Nano)
+	if _, err = db.CreateDashboardSession(ctx, user.ID, "owner", "postgres-session", "postgres-csrf", expires); err != nil {
+		t.Fatal(err)
+	}
+	invitation, err := db.CreateInvitation(ctx, "CaseSensitiveLogin", "member", "postgres-invitation", expires, user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := db.UpsertDashboardUser(ctx, "67890", "casesensitivelogin", "Member", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.AcceptInvitation(ctx, invitation.TokenHash, "CASESENSITIVELOGIN", member.ID); err != nil {
+		t.Fatal(err)
+	}
+	operation, err := db.CreateHostingOperation(ctx, "railway_promotion", "postgres-operation", user.ID, map[string]any{"preview_origin": "https://preview.example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.AppendHostingOperationEvent(ctx, operation.ID, "verify", "running", "verifying", nil); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -35,6 +35,11 @@ coverage.*
 # Go and Node tooling
 node_modules/
 .pnpm-store/
+web/dashboard/playwright-report/
+web/dashboard/test-results/
+web/dashboard/*.tsbuildinfo
+web/dashboard/vite.config.js
+web/dashboard/vite.config.d.ts
 
 # Editors
 .idea/

@@ -106,6 +106,18 @@ When the preview and draft pull request look right:
 ves run approve <run_id> --merge-method squash
 ```
 
+### 5. Open the dashboard
+
+```bash
+ves dashboard --open
+```
+
+The dashboard is embedded in the `ves` binary and requires no separate Node.js
+runtime after installation. It provides run and sandbox monitoring, live event
+streams, isolated previews, review actions, knowledge search, offline
+documentation, access management, and guided Railway promotion. Run
+`ves dashboard status --json` to inspect the reusable local server process.
+
 <details>
 <summary><strong>Try the workflow without calling a model</strong></summary>
 
@@ -174,6 +186,7 @@ flowchart TB
 | Execution | Phase controls, concurrent coding workers, integration branches, resume, cancellation |
 | Sandboxes | Docker execution, live previews, retained environments, direct refinement prompts |
 | Observability | Human streams, interactive TUI, versioned JSONL, raw Codex logs, traces, receipts |
+| Dashboard | Embedded local and hosted React UI, SSE run streams, review, knowledge, access, and promotion |
 | Integrations | GitHub authentication and PRs, best-effort Linear synchronization, Railway hosting |
 | Agent ergonomics | `ves prime`, stable JSON envelopes, idempotency keys, managed runner guidance |
 | Knowledge | Zero-key local retrieval, shared hosted semantic retrieval, immutable versions, workflow episodes, verified promotion |
@@ -197,7 +210,7 @@ The exact tools you need depend on the workflow you use.
 | Codex CLI | Production agent runs | Install and authenticate it before a non-simulated run |
 | Docker | Local isolated runs and previews | The default sandbox backend |
 | GitHub CLI (`gh`) | Browser-based GitHub login | A token can be supplied for headless use |
-| Node.js 24+ and pnpm 11 | Node repositories | Used when the detected project and harness commands require them |
+| Node.js 24+ and npm | Building Vessica from source or Node repositories | Installed release archives embed the compiled dashboard and require no Node runtime |
 | `jq` | README shell examples | The CLI itself does not require it |
 | Postgres | Team or hosted state | SQLite is the default for solo workspaces |
 | Railway CLI | Hosted control plane | Needed only for `ves railway ...` |

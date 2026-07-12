@@ -6,6 +6,7 @@ import (
 )
 
 var patterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)["']?[a-z0-9_-]*(?:api[_-]?key|token|secret|password|authorization|oauth[_-]?json|codex[_-]?auth[_-]?b64|credential[_-]?encryption[_-]?key)["']?\s*:\s*["'][^"']*["']`),
 	regexp.MustCompile(`(?i)([a-z0-9_-]*(?:oauth[_-]?json|codex[_-]?auth[_-]?b64|credential[_-]?encryption[_-]?key))\s*[:=]\s*['"]?[^\s'"]+`),
 	regexp.MustCompile(`(?i)(api[_-]?key|token|secret|password|authorization)\s*[:=]\s*['"]?[^\s'"]+`),
 	regexp.MustCompile(`(?i)bearer\s+[a-z0-9._\-]+`),
