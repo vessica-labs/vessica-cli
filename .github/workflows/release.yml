@@ -114,14 +114,16 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ steps.version.outputs.value }}
             org.opencontainers.image.licenses=Apache-2.0
-      - name: Make package public
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Verify package is anonymously pullable
         run: |
           for attempt in $(seq 1 12); do
-            if gh api --method PATCH \
-              "/orgs/${GITHUB_REPOSITORY_OWNER}/packages/container/vessica-cli" \
-              -f visibility=public; then
+            token="$(curl -fsS --get \
+              --data-urlencode "scope=repository:${GITHUB_REPOSITORY}:pull" \
+              https://ghcr.io/token | jq -r '.token // empty')"
+            if [ -n "$token" ] && curl -fsSI \
+              -H "Authorization: Bearer $token" \
+              -H 'Accept: application/vnd.oci.image.index.v1+json' \
+              "https://ghcr.io/v2/${GITHUB_REPOSITORY}/manifests/${{ steps.version.outputs.value }}"; then
               exit 0
             fi
             sleep 5
