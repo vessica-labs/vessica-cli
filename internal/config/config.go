@@ -391,6 +391,9 @@ func ApplyEnv(c *Config) {
 	if v := os.Getenv("VES_HOSTED_PROVIDER"); v != "" {
 		c.Hosted.Provider = v
 	}
+	if v := os.Getenv("VES_RAILWAY_CHECKPOINT"); v != "" {
+		c.Hosted.WorkerCheckpoint = v
+	}
 	if v := os.Getenv("RAILWAY_PROJECT_ID"); v != "" {
 		c.Hosted.ProjectID = v
 	}

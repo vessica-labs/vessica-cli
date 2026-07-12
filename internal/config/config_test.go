@@ -43,3 +43,12 @@ func TestSaveLoadSet(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyEnvLoadsRailwayWorkerCheckpoint(t *testing.T) {
+	t.Setenv("VES_RAILWAY_CHECKPOINT", "vessica-worker-test")
+	cfg := TeamDefaults()
+	ApplyEnv(&cfg)
+	if cfg.Hosted.WorkerCheckpoint != "vessica-worker-test" {
+		t.Fatalf("worker checkpoint=%q", cfg.Hosted.WorkerCheckpoint)
+	}
+}

@@ -557,7 +557,7 @@ func ensureRailwaySSHIdentity(ctx context.Context, root string, cfg config.Confi
 }
 
 func ensureRailwayWorkerCheckpoint(ctx context.Context, cfg config.Config) (string, error) {
-	name := "vessica-worker-" + strings.ReplaceAll(version.Version, ".", "-") + "-toolchain-3"
+	name := "vessica-worker-" + strings.ReplaceAll(version.Version, ".", "-") + "-toolchain-4"
 	base := []string{"sandbox", "-p", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID}
 	raw, err := runRailway(ctx, "", nil, append(base, "checkpoint", "list", "--json")...)
 	if err == nil && bytes.Contains(raw, []byte(name)) {
@@ -574,7 +574,7 @@ func ensureRailwayWorkerCheckpoint(ctx context.Context, cfg config.Config) (stri
 	defer func() {
 		_, _ = runRailway(context.Background(), "", nil, append(base, "destroy", "--id", sandboxID)...)
 	}()
-	install := "set -e; command -v pnpm >/dev/null || npm install -g pnpm@11.9.0; npm install -g @openai/codex@latest playwright@latest; export NODE_PATH=$(npm root -g); playwright install --with-deps chromium"
+	install := "set -e; command -v pnpm >/dev/null || npm install -g pnpm@11.9.0; npm install -g @openai/codex@latest playwright@latest; export NODE_PATH=$(npm root -g); playwright install --with-deps chromium; node -e 'const {chromium}=require(\"playwright\"); (async()=>{const b=await chromium.launch({headless:true}); await b.close()})().catch(e=>{console.error(e);process.exit(1)})'"
 	execArgs := append(base, "exec", "--id", sandboxID, "--timeout", "1200", "--", "bash", "-lc", install)
 	if _, err := runRailway(ctx, "", nil, execArgs...); err != nil {
 		return "", err
@@ -835,7 +835,8 @@ func configureRailwayService(ctx context.Context, root string, cfg config.Config
 	variables := map[string]string{
 		"DATABASE_URL": reference, "VES_DB_URL": reference, "VES_STATE_BACKEND": "postgres-url",
 		"VES_SANDBOX": "railway", "VES_HOSTED_PROVIDER": "railway", "VES_CONTROL_PLANE_URL": cfg.Hosted.ControlPlaneURL,
-		"VES_REPO_REMOTE": cfg.Repo.Remote, "VES_RUNNER": cfg.Runner.Default, "VES_RUNNER_MODEL": cfg.Runner.Model,
+		"VES_RAILWAY_CHECKPOINT": cfg.Hosted.WorkerCheckpoint,
+		"VES_REPO_REMOTE":        cfg.Repo.Remote, "VES_RUNNER": cfg.Runner.Default, "VES_RUNNER_MODEL": cfg.Runner.Model,
 		"VES_RUNNER_REASONING_EFFORT": cfg.Runner.ReasoningEffort, "VES_TRACKER_PROVIDER": "linear",
 		"VES_LINEAR_TEAM_ID": cfg.Tracker.TeamID, "VES_LINEAR_TODO_STATE_ID": cfg.Tracker.TodoStateID,
 		"VES_LINEAR_WIP_STATE_ID": cfg.Tracker.WIPStateID, "VES_LINEAR_DONE_STATE_ID": cfg.Tracker.DoneStateID,
