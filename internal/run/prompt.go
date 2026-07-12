@@ -97,7 +97,7 @@ func (e *Engine) PromptSandbox(ctx context.Context, sandboxID string, opts Promp
 		runRecord.ReasoningEffort = e.Config.Runner.ReasoningEffort
 	}
 
-	e.emit(ctx, runRecord.ID, "sandbox.prompt.started", map[string]any{"sandbox_id": sandboxID, "model": runRecord.Model})
+	e.emit(ctx, runRecord.ID, "sandbox.prompt.started", map[string]any{"sandbox_id": sandboxID, "model": runRecord.Model, "prompt": prompt})
 	directPrompt := `Apply this refinement directly in the current integration checkout.
 
 Do not create or manage Vessica tickets, artifacts, phases, receipts, sandboxes, or pull requests. Do not run ves lifecycle commands. Make the requested code changes, run only the focused checks useful for this request, and return a concise summary with changed files and checks run.

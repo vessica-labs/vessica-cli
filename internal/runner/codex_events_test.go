@@ -16,6 +16,10 @@ func TestCodexEventParserCommandAndMessage(t *testing.T) {
 	if message.Type != "agent.message" || message.Message != "Implemented the feature." {
 		t.Fatalf("message=%#v", message)
 	}
+	partial := p.parse(`{"type":"item.updated","item":{"id":"item_2","type":"agent_message","text":"Implementing"}}`, "coder")
+	if partial.Type != "agent.message" || partial.Message != "Implementing" || partial.Data["activity_id"] != "item_2" {
+		t.Fatalf("partial=%#v", partial)
+	}
 }
 
 func TestFileChangeSummaryHidesPatchBody(t *testing.T) {

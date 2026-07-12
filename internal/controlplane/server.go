@@ -455,17 +455,35 @@ func (s *Server) SyncRunToLinear(ctx context.Context, runID string) error {
 		_, _ = s.DB.EnqueueOutbox(ctx, integration.ID, "linear.subissue", key, map[string]any{"parent_id": epicMapping.ExternalID, "ticket_id": ticket.ID, "title": ticket.Title, "description": ticket.Body, "state_id": stateID})
 	}
 	if runRecord.Status == "completed" {
-		body := fmt.Sprintf("<!-- vessica:run:%s -->\nVessica completed the run.\n\n- Preview: %s\n- Draft PR: %s\n- Receipt: `%s`", runID, runRecord.PreviewURL, runRecord.PRURL, runRecord.ReceiptID)
+		previewURL := s.projectedPreviewURL(runRecord)
+		body := fmt.Sprintf("<!-- vessica:run:%s -->\nVessica completed the run.\n\n- Preview: %s\n- Draft PR: %s\n- Receipt: `%s`", runID, previewURL, runRecord.PRURL, runRecord.ReceiptID)
 		acceptURL, rollbackURL := s.reviewURL(runID, "approve"), s.reviewURL(runID, "rollback")
 		if acceptURL != "" && rollbackURL != "" && runRecord.PRMode != "merged" && runRecord.PRMode != "rolled_back" {
 			body += fmt.Sprintf("\n\n**[Accept and Merge](%s)** · [Rollback](%s)", acceptURL, rollbackURL)
 		}
-		_, _ = s.DB.EnqueueOutbox(ctx, integration.ID, "linear.comment", "linear:run:completed:v2:"+runID, map[string]any{"issue_id": epicMapping.ExternalID, "entity_type": "run_comment", "local_id": runID, "body": body})
+		_, _ = s.DB.EnqueueOutbox(ctx, integration.ID, "linear.comment", "linear:run:completed:v3:"+runID, map[string]any{"issue_id": epicMapping.ExternalID, "entity_type": "run_comment", "local_id": runID, "body": body})
 	}
 	if runTerminalStatus(runRecord.Status) {
 		return s.recordTerminalRunKnowledge(ctx, runRecord, epicMapping.ExternalID)
 	}
 	return nil
+}
+
+// projectedPreviewURL returns the stable URL users can open from Linear. The
+// worker records its loopback URL before the control plane establishes the
+// Railway port forward, so the projection loop can observe a completed run
+// during that short handoff. Hosted Railway previews are always addressed via
+// the control-plane proxy and must never publish the worker's loopback URL.
+func (s *Server) projectedPreviewURL(runRecord *state.Run) string {
+	if runRecord == nil || !runRecord.Preview {
+		return ""
+	}
+	if runRecord.SandboxBackend == "railway" {
+		if base := strings.TrimRight(s.Config.Hosted.ControlPlaneURL, "/"); base != "" {
+			return base + "/previews/" + runRecord.ID + "/"
+		}
+	}
+	return runRecord.PreviewURL
 }
 
 func (s *Server) recordTerminalRunKnowledge(ctx context.Context, runRecord *state.Run, linearIssueID string) error {

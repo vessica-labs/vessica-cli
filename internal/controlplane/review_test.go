@@ -59,12 +59,15 @@ func TestReviewPanelRequiresPreviewCookieAndRendersControls(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	for _, expected := range []string{"Request a revision", "Accept and Merge", "Rollback", "Pop out", "/window?token=", "new EventSource", "data-jump", "activity_id", "Jump to latest"} {
+	for _, expected := range []string{"Request a revision", "Accept and Merge", "Rollback", "Pop out", "/window?token=", "new EventSource", "session=1", "messages=new Map", "data-jump", "activity_id", "Jump to latest"} {
 		if !strings.Contains(rec.Body.String(), expected) {
 			t.Fatalf("review panel missing %q", expected)
 		}
 	}
 	body := rec.Body.String()
+	if strings.Contains(body, `resumeEventStream("\"`) || !strings.Contains(body, `resumeEventStream("`) {
+		t.Fatalf("review stream token was not emitted as one JavaScript string")
+	}
 	formData := strings.Index(body, "new FormData(form)")
 	disableControls := strings.Index(body, "el.disabled=true")
 	if formData < 0 || disableControls < 0 || formData > disableControls {
@@ -123,6 +126,28 @@ func TestReviewEventStreamRejectsUnsignedRequests(t *testing.T) {
 	server.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestReviewEventSessionReplaysLatestPromptForPopout(t *testing.T) {
+	server, runRecord, _ := reviewServerFixture(t)
+	ctx := context.Background()
+	_, _ = server.DB.AppendEvent(ctx, runRecord.ID, "", "sandbox.prompt.started", map[string]any{"prompt": "First request"})
+	_, _ = server.DB.AppendEvent(ctx, runRecord.ID, "", "sandbox.prompt.completed", map[string]any{"pushed": true})
+	started, _ := server.DB.AppendEvent(ctx, runRecord.ID, "", "sandbox.prompt.started", map[string]any{"prompt": "Make the proof cards denser"})
+	_, _ = server.DB.AppendEvent(ctx, runRecord.ID, "", "agent.message", map[string]any{"message": "Updating the cards"})
+	token := server.reviewToken(runRecord.ID, time.Now().Add(time.Hour))
+	req := httptest.NewRequest(http.MethodGet, "/review/runs/"+runRecord.ID+"/events?session=1&token="+url.QueryEscape(token), nil)
+	req.SetPathValue("run_id", runRecord.ID)
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	for _, expected := range []string{`"found":true`, `"terminal":false`, `"prompt":"Make the proof cards denser"`, `"after":` + fmt.Sprint(started.Seq-1)} {
+		if !strings.Contains(rec.Body.String(), expected) {
+			t.Fatalf("session missing %s: %s", expected, rec.Body.String())
+		}
 	}
 }
 
@@ -274,11 +299,36 @@ func TestCompletedRunProjectionAddsReviewLinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if message == nil || message.IntegrationID != integration.ID || message.IdempotencyKey != "linear:run:completed:v2:"+runRecord.ID {
+	if message == nil || message.IntegrationID != integration.ID || message.IdempotencyKey != "linear:run:completed:v3:"+runRecord.ID {
 		t.Fatalf("message=%#v", message)
 	}
 	if !strings.Contains(message.PayloadJSON, "Accept and Merge") || !strings.Contains(message.PayloadJSON, "Rollback") || !strings.Contains(message.PayloadJSON, "/review/runs/") {
 		t.Fatalf("completion projection has no review links: %s", message.PayloadJSON)
+	}
+}
+
+func TestCompletedRunProjectionNeverPublishesRailwayLoopbackPreview(t *testing.T) {
+	server, runRecord, _ := reviewServerFixture(t)
+	ctx := context.Background()
+	runRecord.PreviewURL = "http://127.0.0.1:3000"
+	if err := server.DB.UpdateRun(ctx, runRecord); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.DB.UpsertTrackerIntegration(ctx, "linear", "connected", map[string]string{"team": "team-1"}, "", "oauth:linear"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.DB.UpsertExternalMapping(ctx, "linear", "epic", runRecord.EpicID, "linear-issue-1", nil, "synced"); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.SyncRunToLinear(ctx, runRecord.ID); err != nil {
+		t.Fatal(err)
+	}
+	message, err := server.DB.ClaimOutbox(ctx)
+	if err != nil || message == nil {
+		t.Fatalf("message=%#v err=%v", message, err)
+	}
+	if strings.Contains(message.PayloadJSON, "127.0.0.1") || !strings.Contains(message.PayloadJSON, "https://control.example/previews/"+runRecord.ID+"/") {
+		t.Fatalf("completion projection used non-public preview: %s", message.PayloadJSON)
 	}
 }
 

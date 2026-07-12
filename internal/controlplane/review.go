@@ -146,6 +146,29 @@ func (s *Server) handleReviewEvents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"seq": seq})
 		return
 	}
+	if r.URL.Query().Get("session") == "1" {
+		events, err := s.DB.ListEvents(r.Context(), runID, 0)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		latest, _ := s.DB.LatestEventSeq(r.Context(), runID)
+		after, prompt, found, terminal := latest, "", false, false
+		for i := range events {
+			event := events[i]
+			if event.Type == "sandbox.prompt.started" {
+				after, found, terminal = event.Seq-1, true, false
+				var payload map[string]any
+				if json.Unmarshal([]byte(event.PayloadJSON), &payload) == nil {
+					prompt, _ = payload["prompt"].(string)
+				}
+			} else if found && (event.Type == "sandbox.prompt.completed" || event.Type == "sandbox.prompt.failed") {
+				terminal = true
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"after": after, "prompt": prompt, "found": found, "terminal": terminal})
+		return
+	}
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -573,8 +596,8 @@ button:focus-visible,a:focus-visible{outline:3px solid rgba(11,143,143,.25);outl
 </main>
 <script>
 (function(){
-  var content=document.querySelector('[data-content]'),toggle=document.querySelector('[data-toggle]'),result=document.querySelector('[data-result]'),transcript=document.querySelector('[data-transcript]'),textarea=document.querySelector('textarea'),count=document.querySelector('[data-count]'),jump=document.querySelector('[data-jump]');
-  var activities=new Map(),streamSource=null,streamTimer=null,streamStarted=0,streamState=null,streamElapsed=null,activityList=null,lastAgentMessage='',streamFinished=false;
+  var content=document.querySelector('[data-content]'),toggle=document.querySelector('[data-toggle]'),result=document.querySelector('[data-result]'),transcript=document.querySelector('[data-transcript]'),textarea=document.querySelector('textarea'),count=document.querySelector('[data-count]'),jump=document.querySelector('[data-jump]'),isPanel={{if .Panel}}true{{else}}false{{end}};
+  var activities=new Map(),messages=new Map(),streamSource=null,streamTimer=null,streamStarted=0,streamState=null,streamElapsed=null,activityList=null,lastAgentMessage='',streamFinished=false;
   function resize(open){if(content)content.style.display=open?'block':'none';if(toggle){toggle.textContent=open?'Hide':'Review';toggle.setAttribute('aria-expanded',String(open))}if(window.parent!==window)window.parent.postMessage({scope:'vessica.review',type:'resize',height:open?680:68},'*')}
   function requestReload(){if(window.parent!==window){window.parent.postMessage({scope:'vessica.review',type:'reload'},'*')}else if(window.opener){window.opener.postMessage({scope:'vessica.review',type:'reload'},'*')}}
   function bindReload(){var reload=document.querySelector('[data-reload]');if(reload)reload.addEventListener('click',requestReload)}
@@ -584,8 +607,8 @@ button:focus-visible,a:focus-visible{outline:3px solid rgba(11,143,143,.25);outl
   function append(node){var follow=nearBottom();transcript.appendChild(node);scrollLatest(follow);resize(true)}
   function setStreamState(label,running){if(!streamState)return;streamState.textContent=label;var turn=streamState.closest('.codex-turn');if(turn)turn.classList.toggle('is-streaming',running)}
   function elapsed(){if(!streamElapsed||!streamStarted)return;var seconds=Math.max(0,Math.floor((Date.now()-streamStarted)/1000));streamElapsed.textContent=seconds<60?seconds+'s':Math.floor(seconds/60)+'m '+String(seconds%60).padStart(2,'0')+'s'}
-  function beginTranscript(prompt){
-    if(streamSource)streamSource.close();if(streamTimer)clearInterval(streamTimer);activities.clear();lastAgentMessage='';streamFinished=false;transcript.replaceChildren();
+  function beginTranscript(prompt,keepSource){
+    if(streamSource&&!keepSource)streamSource.close();if(streamTimer)clearInterval(streamTimer);activities.clear();messages.clear();lastAgentMessage='';streamFinished=false;transcript.replaceChildren();
     var user=make('div','turn user-turn');user.appendChild(make('span','turn-label','You'));user.appendChild(document.createTextNode(prompt));transcript.appendChild(user);
     var turn=make('section','turn codex-turn is-streaming'),head=make('header','codex-head'),body=make('div','codex-body');
     head.appendChild(make('span','codex-glyph','C'));head.appendChild(make('span','codex-name','Codex'));var meta=make('span','codex-meta');meta.appendChild(make('span','stream-dot'));streamState=make('span','','Connecting');streamElapsed=make('span','','0s');meta.appendChild(streamState);meta.appendChild(streamElapsed);head.appendChild(meta);
@@ -601,13 +624,13 @@ button:focus-visible,a:focus-visible{outline:3px solid rgba(11,143,143,.25);outl
     if(!row){var details=make('details','activity'),summary=make('summary'),kindNode=make('span','activity-kind'),titleNode=make('span','activity-title'),stateNode=make('span','activity-state');summary.appendChild(kindNode);summary.appendChild(titleNode);summary.appendChild(stateNode);details.appendChild(summary);var detailNode=make('pre','activity-detail');details.appendChild(detailNode);row={details:details,kind:kindNode,title:titleNode,state:stateNode,detail:detailNode};activities.set(key,row);activityList.appendChild(details)}
     row.kind.textContent=kindLabel(kind);row.title.textContent=activityTitle(kind,payload.message,status);row.state.className='activity-state '+status;row.detail.textContent=detail||'No additional output.';row.detail.hidden=!detail;if(status==='failed')row.details.open=true;scrollLatest(false)
   }
-  function addAgentMessage(text){text=String(text||'').trim();if(!text||text==='codex completed'||text===lastAgentMessage)return;lastAgentMessage=text;var node=make('div','agent-message',text);activityList.appendChild(node);scrollLatest(false)}
+  function addAgentMessage(text,event){text=String(text||'').trim();if(!text||text==='codex completed'||!activityList)return;var payload=event?eventPayload(event):{},key=payload.activity_id||'';if(key&&messages.has(key)){messages.get(key).textContent=text;lastAgentMessage=text;scrollLatest(false);return}if(!key&&text===lastAgentMessage)return;lastAgentMessage=text;var node=make('div','agent-message',text);if(key)messages.set(key,node);activityList.appendChild(node);scrollLatest(false)}
   function addNote(text,error){if(!text)return;var node=make('div','stream-note'+(error?' error':''),text);activityList.appendChild(node);scrollLatest(false)}
   function renderEvent(event){
     var payload=eventPayload(event),type=event.type||'';payload.message=payload.message||'';
-    if(type==='sandbox.prompt.started'){setStreamState('Working',true);return}
+    if(type==='sandbox.prompt.started'){if(!activityList)beginTranscript(payload.prompt||'Revision request',true);setStreamState('Working',true);return}
     if(type==='agent.activity'){if(payload.kind==='session'){setStreamState('Session started',true);return}if(payload.kind==='turn'||payload.kind==='codex_event'||payload.kind==='prompt')return;upsertActivity(event,payload);return}
-    if(type==='agent.message'){addAgentMessage(payload.message);return}
+    if(type==='agent.message'){addAgentMessage(payload.message,event);return}
     if(type==='agent.usage'){var input=payload.input_tokens||0,output=payload.output_tokens||0;if(input||output)activityList.appendChild(make('div','usage',Number(input).toLocaleString()+' tokens in / '+Number(output).toLocaleString()+' out'));scrollLatest(false);return}
     if(type==='agent.error'||type==='agent.warning'){if(type==='agent.warning'&&!/error|failed/i.test(payload.message))return;addNote(payload.message||'Codex reported an error.',type==='agent.error');return}
     if(type==='repo.branch.updated'){upsertActivity(event,{kind:'file_change',status:'completed',message:'preview branch',detail:payload.commit||''});return}
@@ -620,6 +643,7 @@ button:focus-visible,a:focus-visible{outline:3px solid rgba(11,143,143,.25);outl
     streamSource.onmessage=function(message){try{renderEvent(JSON.parse(message.data))}catch(_){}};
     streamSource.onerror=function(){if(!streamFinished)setStreamState('Reconnecting',true)}
   }
+  async function resumeEventStream(token){try{var response=await fetch('/review/runs/{{.RunID}}/events?token='+encodeURIComponent(token)+'&session=1'),session=await response.json();if(!response.ok)throw new Error(session.error||'Unable to resume live activity');if(session.found){beginTranscript(session.prompt||'Revision request');if(isPanel)resize(false)}startEventStream(token,session.after||0)}catch(_){}}
   function finishStream(data){
     streamFinished=true;if(streamTimer){clearInterval(streamTimer);streamTimer=null}setStreamState(data.ok?'Completed':'Failed',false);
     if(data.output)addAgentMessage(data.output);addNote(data.ok?data.message:(data.error||'The request failed.'),!data.ok);if(data.ok&&textarea){textarea.value='';textarea.dispatchEvent(new Event('input'))}
@@ -636,6 +660,7 @@ button:focus-visible,a:focus-visible{outline:3px solid rgba(11,143,143,.25);outl
   var close=document.querySelector('[data-close]');if(close)close.addEventListener('click',function(){window.close()});
   if(textarea&&count){var updateCount=function(){count.textContent=textarea.value.length+' / 4000'};textarea.addEventListener('input',updateCount);updateCount()}
   if(jump)jump.addEventListener('click',function(){scrollLatest(true)});content.addEventListener('scroll',function(){if(!nearBottom())jump.hidden=false});window.addEventListener('scroll',function(){if(!nearBottom())jump.hidden=false});bindReload();
+  resumeEventStream({{.Token}});
   window.addEventListener('message',function(event){if(event.data&&event.data.scope==='vessica.review'&&event.data.type==='reload'&&window.parent!==window)window.parent.postMessage(event.data,'*')});
   document.querySelectorAll('form').forEach(function(form){form.addEventListener('submit',function(event){if(form.hasAttribute('data-rollback')&&!confirm('Close the draft PR and stop this preview sandbox?')){event.preventDefault();return}{{if or .Panel .Standalone}}event.preventDefault();if(form.classList.contains('composer'))submitPrompt(form);else submitAction(form);{{else}}form.classList.add('loading');{{end}}})});
 })();
