@@ -65,11 +65,11 @@ func writeTerminalRunRecord(runResult *state.Run) error {
 	return streaming.WriteRecord(os.Stdout, streaming.ResultRecord(runResult.ID, safeRunResult(runResult), runErr))
 }
 
-func hydrateRunOutput(db *state.DB, runResult *state.Run) {
+func hydrateRunOutput(ctx context.Context, db *state.DB, runResult *state.Run) {
 	if db == nil || runResult == nil {
 		return
 	}
-	if sandboxRecord, err := db.GetSandboxForRun(context.Background(), runResult.ID); err == nil {
+	if sandboxRecord, err := db.GetSandboxForRun(ctx, runResult.ID); err == nil {
 		runResult.SandboxID = sandboxRecord.ID
 		runResult.SandboxExpiresAt = sandboxRecord.ExpiresAt
 		if runResult.PreviewURL == "" {

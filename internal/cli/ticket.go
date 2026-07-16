@@ -16,11 +16,11 @@ func newTicketCmd(app *App) *cobra.Command {
 
 	list := &cobra.Command{
 		Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			list, err := app.DB.ListTickets(context.Background(), epicID)
+			list, err := app.DB.ListTickets(cmd.Context(), epicID)
 			if err != nil {
 				return err
 			}
@@ -35,11 +35,11 @@ func newTicketCmd(app *App) *cobra.Command {
 
 	ready := &cobra.Command{
 		Use: "ready", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			list, err := app.DB.ReadyTickets(context.Background(), epicID)
+			list, err := app.DB.ReadyTickets(cmd.Context(), epicID)
 			if err != nil {
 				return err
 			}
@@ -54,11 +54,11 @@ func newTicketCmd(app *App) *cobra.Command {
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "view <ticket_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			t, err := app.DB.GetTicket(context.Background(), args[0])
+			t, err := app.DB.GetTicket(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -68,7 +68,7 @@ func newTicketCmd(app *App) *cobra.Command {
 
 	add := &cobra.Command{
 		Use: "add", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -81,14 +81,14 @@ func newTicketCmd(app *App) *cobra.Command {
 			if app.Flags.JSON && !app.Flags.Yes {
 				return app.requireYes("create the ticket")
 			}
-			if replayed, err := app.idempotencyReplay(context.Background()); err != nil || replayed {
+			if replayed, err := app.idempotencyReplay(cmd.Context()); err != nil || replayed {
 				return err
 			}
-			t, err := app.DB.CreateTicketWithMeta(context.Background(), epicID, typ, title, body, nil, discoveredFrom, testStep)
+			t, err := app.DB.CreateTicketWithMeta(cmd.Context(), epicID, typ, title, body, nil, discoveredFrom, testStep)
 			if err != nil {
 				return err
 			}
-			if err := app.idempotencyStore(context.Background(), t); err != nil {
+			if err := app.idempotencyStore(cmd.Context(), t); err != nil {
 				return err
 			}
 			if discoveredFrom != "" {
@@ -107,7 +107,7 @@ func newTicketCmd(app *App) *cobra.Command {
 
 	update := &cobra.Command{
 		Use: "update <ticket_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -117,14 +117,14 @@ func newTicketCmd(app *App) *cobra.Command {
 			if app.Flags.JSON && !app.Flags.Yes {
 				return app.requireYes("update the ticket")
 			}
-			if replayed, replayErr := app.idempotencyReplay(context.Background()); replayErr != nil || replayed {
+			if replayed, replayErr := app.idempotencyReplay(cmd.Context()); replayErr != nil || replayed {
 				return replayErr
 			}
-			t, err := app.DB.UpdateTicket(context.Background(), args[0], title, body, "", typ)
+			t, err := app.DB.UpdateTicket(cmd.Context(), args[0], title, body, "", typ)
 			if err != nil {
 				return err
 			}
-			if err := app.idempotencyStore(context.Background(), t); err != nil {
+			if err := app.idempotencyStore(cmd.Context(), t); err != nil {
 				return err
 			}
 			return app.Printer.Success(t)
@@ -137,7 +137,7 @@ func newTicketCmd(app *App) *cobra.Command {
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "delete <ticket_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -147,7 +147,7 @@ func newTicketCmd(app *App) *cobra.Command {
 			if err := app.requireYes("delete ticket"); err != nil {
 				return err
 			}
-			if err := app.DB.DeleteTicket(context.Background(), args[0]); err != nil {
+			if err := app.DB.DeleteTicket(cmd.Context(), args[0]); err != nil {
 				return err
 			}
 			return app.Printer.Success(map[string]string{"deleted": args[0]})
@@ -156,7 +156,7 @@ func newTicketCmd(app *App) *cobra.Command {
 
 	claim := &cobra.Command{
 		Use: "claim [ticket_id]", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -176,13 +176,13 @@ func newTicketCmd(app *App) *cobra.Command {
 				if epicID == "" {
 					return app.Printer.Fail("missing_epic", "--epic required with --next", "")
 				}
-				c, t, err := app.DB.ClaimNext(context.Background(), epicID, agent, d)
+				c, t, err := app.DB.ClaimNext(cmd.Context(), epicID, agent, d)
 				if err != nil {
 					return app.Printer.Fail("claim_failed", err.Error(), "")
 				}
 				claim, ticket = c, t
 			} else {
-				c, t, err := app.DB.ClaimTicket(context.Background(), args[0], agent, d)
+				c, t, err := app.DB.ClaimTicket(cmd.Context(), args[0], agent, d)
 				if err != nil {
 					return app.Printer.Fail("claim_failed", err.Error(), "")
 				}
@@ -199,12 +199,12 @@ func newTicketCmd(app *App) *cobra.Command {
 
 	hb := &cobra.Command{
 		Use: "heartbeat <ticket_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
 			d, _ := time.ParseDuration(lease)
-			c, err := app.DB.HeartbeatClaim(context.Background(), args[0], agent, d)
+			c, err := app.DB.HeartbeatClaim(cmd.Context(), args[0], agent, d)
 			if err != nil {
 				return err
 			}
@@ -217,11 +217,11 @@ func newTicketCmd(app *App) *cobra.Command {
 
 	rel := &cobra.Command{
 		Use: "release <ticket_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			if err := app.DB.ReleaseClaim(context.Background(), args[0], agent, reason); err != nil {
+			if err := app.DB.ReleaseClaim(cmd.Context(), args[0], agent, reason); err != nil {
 				return err
 			}
 			return app.Printer.Success(map[string]string{"released": args[0], "reason": reason})
@@ -233,14 +233,14 @@ func newTicketCmd(app *App) *cobra.Command {
 
 	closeCmd := &cobra.Command{
 		Use: "close <ticket_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
 			if app.Flags.DryRun {
 				return app.dryRun("ticket.close", map[string]any{"ticket": args[0], "agent": agent, "evidence": evidence})
 			}
-			t, err := app.DB.CloseTicket(context.Background(), args[0], agent, evidence)
+			t, err := app.DB.CloseTicket(cmd.Context(), args[0], agent, evidence)
 			if err != nil {
 				return app.Printer.Fail("close_failed", err.Error(), "")
 			}
@@ -254,7 +254,7 @@ func newTicketCmd(app *App) *cobra.Command {
 
 	block := &cobra.Command{
 		Use: "block <ticket_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -264,10 +264,10 @@ func newTicketCmd(app *App) *cobra.Command {
 			if app.Flags.JSON && !app.Flags.Yes {
 				return app.requireYes("block the ticket")
 			}
-			if err := app.DB.AddDependency(context.Background(), args[0], by); err != nil {
+			if err := app.DB.AddDependency(cmd.Context(), args[0], by); err != nil {
 				return err
 			}
-			ticket, _ := app.DB.UpdateTicket(context.Background(), args[0], "", "", "blocked", "")
+			ticket, _ := app.DB.UpdateTicket(cmd.Context(), args[0], "", "", "blocked", "")
 			if ticket != nil {
 				app.recordTicketKnowledge(cmd.Context(), ticket, "ticket.blocked", "Ticket blocked by "+by+": "+ticket.Title, by)
 			}
@@ -279,7 +279,7 @@ func newTicketCmd(app *App) *cobra.Command {
 
 	unblock := &cobra.Command{
 		Use: "unblock <ticket_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -289,10 +289,10 @@ func newTicketCmd(app *App) *cobra.Command {
 			if app.Flags.JSON && !app.Flags.Yes {
 				return app.requireYes("unblock the ticket")
 			}
-			if err := app.DB.RemoveDependency(context.Background(), args[0], by); err != nil {
+			if err := app.DB.RemoveDependency(cmd.Context(), args[0], by); err != nil {
 				return err
 			}
-			_, _ = app.DB.UpdateTicket(context.Background(), args[0], "", "", "ready", "")
+			_, _ = app.DB.UpdateTicket(cmd.Context(), args[0], "", "", "ready", "")
 			return app.Printer.Success(map[string]string{"unblocked": args[0], "by": by})
 		},
 	}
@@ -333,19 +333,19 @@ func newWaveCmd(app *App) *cobra.Command {
 	var epicID string
 	list := &cobra.Command{
 		Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
 			if epicID == "" {
 				return app.Printer.Fail("missing_epic", "--epic required", "")
 			}
-			waves, err := app.DB.ListWaves(context.Background(), epicID)
+			waves, err := app.DB.ListWaves(cmd.Context(), epicID)
 			if err != nil {
 				return err
 			}
 			if len(waves) == 0 {
-				waves, err = app.DB.ComputeWaves(context.Background(), epicID)
+				waves, err = app.DB.ComputeWaves(cmd.Context(), epicID)
 				if err != nil {
 					return err
 				}
@@ -357,11 +357,11 @@ func newWaveCmd(app *App) *cobra.Command {
 	cmd.AddCommand(list)
 	cmd.AddCommand(&cobra.Command{
 		Use: "view <wave_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			w, err := app.DB.GetWave(context.Background(), args[0])
+			w, err := app.DB.GetWave(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -370,15 +370,15 @@ func newWaveCmd(app *App) *cobra.Command {
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use: "status <wave_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			w, err := app.DB.GetWave(context.Background(), args[0])
+			w, err := app.DB.GetWave(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
-			tickets, _ := app.DB.ListTickets(context.Background(), w.EpicID)
+			tickets, _ := app.DB.ListTickets(cmd.Context(), w.EpicID)
 			var inWave int
 			for _, t := range tickets {
 				if t.WaveID == w.ID {

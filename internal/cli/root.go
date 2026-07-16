@@ -117,15 +117,15 @@ func NewRoot() *cobra.Command {
 	return root
 }
 
-func (a *App) loadWorkspace() error {
-	return a.loadWorkspaceWithGC(true)
+func (a *App) loadWorkspace(ctx context.Context) error {
+	return a.loadWorkspaceWithGC(ctx, true)
 }
 
-func (a *App) loadWorkspaceWithoutGC() error {
-	return a.loadWorkspaceWithGC(false)
+func (a *App) loadWorkspaceWithoutGC(ctx context.Context) error {
+	return a.loadWorkspaceWithGC(ctx, false)
 }
 
-func (a *App) loadWorkspaceWithGC(autoGC bool) error {
+func (a *App) loadWorkspaceWithGC(ctx context.Context, autoGC bool) error {
 	root, err := config.FindRoot(a.Root)
 	if err != nil {
 		return err
@@ -142,11 +142,11 @@ func (a *App) loadWorkspaceWithGC(autoGC bool) error {
 		return err
 	}
 	a.DB = db
-	if _, err = db.GetWorkspace(context.Background()); err != nil {
+	if _, err = db.GetWorkspace(ctx); err != nil {
 		return err
 	}
 	if autoGC && !a.Flags.DryRun {
-		gcCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		gcCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		_, _ = retention.GC(gcCtx, db, root, retention.GCOptions{})
 		cancel()
 	}

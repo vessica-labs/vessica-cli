@@ -23,7 +23,7 @@ func newEpicCmd(app *App) *cobra.Command {
 	add := &cobra.Command{
 		Use: "add", Short: "Create an epic",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -38,23 +38,23 @@ func newEpicCmd(app *App) *cobra.Command {
 				if app.Flags.JSON && !app.Flags.Yes {
 					return app.requireYes("create the epic and tickets")
 				}
-				if replayed, err := app.idempotencyReplay(context.Background()); err != nil || replayed {
+				if replayed, err := app.idempotencyReplay(cmd.Context()); err != nil || replayed {
 					return err
 				}
-				created, err := app.DB.CreateEpicFromSpec(context.Background(), spec)
+				created, err := app.DB.CreateEpicFromSpec(cmd.Context(), spec)
 				if err != nil {
 					return err
 				}
 				data := map[string]any{"epic": created.Epic, "tickets": created.Tickets, "next_actions": []string{"ves run epic " + created.Epic.ID + " --dry-run --json", "ves run epic " + created.Epic.ID + " --yes --idempotency-key <key> --json"}}
 				if app.Config.Hosted.ControlPlaneURL != "" {
-					published, publishErr := app.publishEpic(context.Background(), created.Epic.ID, spec)
+					published, publishErr := app.publishEpic(cmd.Context(), created.Epic.ID, spec)
 					if publishErr != nil {
 						return app.Printer.Fail("hosted_publish_failed", publishErr.Error(), "retry ves epic publish "+created.Epic.ID+" --yes --idempotency-key "+app.Flags.IdempotencyKey+" --json")
 					}
 					data["hosted"] = published
 				}
 				app.recordEpicKnowledge(cmd.Context(), created.Epic, created.Tickets)
-				if err := app.idempotencyStore(context.Background(), data); err != nil {
+				if err := app.idempotencyStore(cmd.Context(), data); err != nil {
 					return err
 				}
 				return app.Printer.Success(data)
@@ -80,15 +80,15 @@ func newEpicCmd(app *App) *cobra.Command {
 			if app.Flags.JSON && !app.Flags.Yes {
 				return app.requireYes("create the epic")
 			}
-			if replayed, err := app.idempotencyReplay(context.Background()); err != nil || replayed {
+			if replayed, err := app.idempotencyReplay(cmd.Context()); err != nil || replayed {
 				return err
 			}
-			e, err := app.DB.CreateEpic(context.Background(), title, b)
+			e, err := app.DB.CreateEpic(cmd.Context(), title, b)
 			if err != nil {
 				return err
 			}
 			app.recordEpicKnowledge(cmd.Context(), e, nil)
-			if err := app.idempotencyStore(context.Background(), e); err != nil {
+			if err := app.idempotencyStore(cmd.Context(), e); err != nil {
 				return err
 			}
 			return app.Printer.Success(e)
@@ -123,7 +123,7 @@ func newEpicCmd(app *App) *cobra.Command {
 	cmd.AddCommand(draft)
 
 	publish := &cobra.Command{Use: "publish <local_epic_id>", Short: "Publish a local epic and tickets to hosted Vessica and Linear", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -155,11 +155,11 @@ func newEpicCmd(app *App) *cobra.Command {
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			list, err := app.DB.ListEpics(context.Background())
+			list, err := app.DB.ListEpics(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -171,11 +171,11 @@ func newEpicCmd(app *App) *cobra.Command {
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use: "view <epic_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			e, err := app.DB.GetEpic(context.Background(), args[0])
+			e, err := app.DB.GetEpic(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -184,7 +184,7 @@ func newEpicCmd(app *App) *cobra.Command {
 	})
 	update := &cobra.Command{
 		Use: "update <epic_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -194,14 +194,14 @@ func newEpicCmd(app *App) *cobra.Command {
 			if app.Flags.JSON && !app.Flags.Yes {
 				return app.requireYes("update the epic")
 			}
-			if replayed, replayErr := app.idempotencyReplay(context.Background()); replayErr != nil || replayed {
+			if replayed, replayErr := app.idempotencyReplay(cmd.Context()); replayErr != nil || replayed {
 				return replayErr
 			}
-			e, err := app.DB.UpdateEpic(context.Background(), args[0], title, body, status)
+			e, err := app.DB.UpdateEpic(cmd.Context(), args[0], title, body, status)
 			if err != nil {
 				return err
 			}
-			if err := app.idempotencyStore(context.Background(), e); err != nil {
+			if err := app.idempotencyStore(cmd.Context(), e); err != nil {
 				return err
 			}
 			return app.Printer.Success(e)
@@ -214,7 +214,7 @@ func newEpicCmd(app *App) *cobra.Command {
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "delete <epic_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -224,7 +224,7 @@ func newEpicCmd(app *App) *cobra.Command {
 			if app.Flags.DryRun {
 				return app.dryRun("epic.delete", map[string]any{"id": args[0]})
 			}
-			if err := app.DB.DeleteEpic(context.Background(), args[0]); err != nil {
+			if err := app.DB.DeleteEpic(cmd.Context(), args[0]); err != nil {
 				return err
 			}
 			return app.Printer.Success(map[string]string{"deleted": args[0]})
@@ -233,12 +233,12 @@ func newEpicCmd(app *App) *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use: "plan <epic_id>", Args: cobra.ExactArgs(1), Short: "Plan epic through ticketize",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
 			eng := &run.Engine{DB: app.DB, Root: app.Root, Config: app.Config, Stream: !app.Flags.JSON}
-			r, err := eng.RunEpic(context.Background(), run.Options{
+			r, err := eng.RunEpic(cmd.Context(), run.Options{
 				EpicID:    args[0],
 				StopAfter: "ticketize",
 				Stream:    !app.Flags.JSON,
@@ -251,16 +251,16 @@ func newEpicCmd(app *App) *cobra.Command {
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use: "status <epic_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			e, err := app.DB.GetEpic(context.Background(), args[0])
+			e, err := app.DB.GetEpic(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
-			tickets, _ := app.DB.ListTickets(context.Background(), e.ID)
-			ready, _ := app.DB.ReadyTickets(context.Background(), e.ID)
+			tickets, _ := app.DB.ListTickets(cmd.Context(), e.ID)
+			ready, _ := app.DB.ReadyTickets(cmd.Context(), e.ID)
 			return app.Printer.Success(map[string]any{"epic": e, "tickets": len(tickets), "ready": len(ready)})
 		},
 	})

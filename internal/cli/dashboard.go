@@ -30,7 +30,7 @@ func newDashboardCmd(app *App) *cobra.Command {
 	var port int
 	var open bool
 	cmd := &cobra.Command{Use: "dashboard", Short: "Open the local Vessica dashboard", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspaceWithoutGC(); err != nil {
+		if err := app.loadWorkspaceWithoutGC(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -43,7 +43,7 @@ func newDashboardCmd(app *App) *cobra.Command {
 	cmd.Flags().IntVar(&port, "port", 0, "loopback port (0 selects an available port)")
 	servePort := 0
 	serve := &cobra.Command{Use: "serve", Hidden: true, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspaceWithoutGC(); err != nil {
+		if err := app.loadWorkspaceWithoutGC(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -51,7 +51,7 @@ func newDashboardCmd(app *App) *cobra.Command {
 	}}
 	serve.Flags().IntVar(&servePort, "port", 0, "loopback port")
 	status := &cobra.Command{Use: "status", Short: "Show local dashboard process status", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspaceWithoutGC(); err != nil {
+		if err := app.loadWorkspaceWithoutGC(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -220,7 +220,7 @@ func serveLocalDashboard(ctx context.Context, app *App, port int, printURL bool)
 	go func() { done <- httpServer.Serve(listener) }()
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
 	case err = <-done:

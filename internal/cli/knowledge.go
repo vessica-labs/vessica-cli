@@ -19,7 +19,7 @@ func newKnowledgeCmd(app *App) *cobra.Command {
 	var query, outFile, inFile, endpoint, token string
 	var budget int
 	cmd.AddCommand(&cobra.Command{Use: "status", RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -35,7 +35,7 @@ func newKnowledgeCmd(app *App) *cobra.Command {
 		return app.Printer.Success(map[string]any{"mode": g.Mode(), "workspace_id": g.Workspace(), "endpoint": app.Config.Knowledge.Endpoint, "local_path": app.Config.Knowledge.LocalPath, "retrieval_mode": probe.RetrievalMode, "index_fresh": probe.IndexFresh, "embedding_model": probe.EmbeddingModel})
 	}})
 	contextCmd := &cobra.Command{Use: "context", RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -54,7 +54,7 @@ func newKnowledgeCmd(app *App) *cobra.Command {
 	contextCmd.Flags().IntVar(&budget, "token-budget", 12000, "maximum assembled context tokens")
 	cmd.AddCommand(contextCmd)
 	exportCmd := &cobra.Command{Use: "export", RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -82,7 +82,7 @@ func newKnowledgeCmd(app *App) *cobra.Command {
 		if inFile == "" {
 			return app.Printer.Fail("missing_file", "--file required", "")
 		}
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -116,7 +116,7 @@ func newKnowledgeCmd(app *App) *cobra.Command {
 		if endpoint == "" || token == "" {
 			return app.Printer.Fail("missing_hosted_knowledge", "--endpoint and --token required", "")
 		}
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -280,7 +280,7 @@ func newEntityCmd(app *App) *cobra.Command {
 		if typ == "" || name == "" {
 			return app.Printer.Fail("missing_fields", "--type and --name required", "")
 		}
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -318,7 +318,7 @@ func newEntityCmd(app *App) *cobra.Command {
 	for _, verb := range []string{"resolve", "search"} {
 		v := verb
 		cmd.AddCommand(&cobra.Command{Use: v + " <query>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()

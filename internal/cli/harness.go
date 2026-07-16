@@ -11,7 +11,7 @@ func newHarnessCmd(app *App) *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use: "install", Short: "Install the default pinned engineering harness",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -37,7 +37,7 @@ func newHarnessCmd(app *App) *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use: "create", Short: "Create initial harness",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -51,7 +51,7 @@ func newHarnessCmd(app *App) *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use: "audit", Short: "Audit harness drift",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -65,7 +65,7 @@ func newHarnessCmd(app *App) *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use: "sync", Short: "Sync harness to repo reality",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -85,7 +85,7 @@ func newHarnessCmd(app *App) *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use: "lint", Short: "Run deterministic harness lint",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -99,7 +99,7 @@ func newHarnessCmd(app *App) *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use: "status", Short: "Show harness status",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()

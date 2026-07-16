@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,11 +24,11 @@ func newSandboxCmd(app *App) *cobra.Command {
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			list, err := app.DB.ListSandboxes(context.Background())
+			list, err := app.DB.ListSandboxes(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -41,11 +40,11 @@ func newSandboxCmd(app *App) *cobra.Command {
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use: "view <sandbox_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			s, err := app.DB.GetSandbox(context.Background(), args[0])
+			s, err := app.DB.GetSandbox(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -54,18 +53,18 @@ func newSandboxCmd(app *App) *cobra.Command {
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use: "logs <sandbox_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			s, err := app.DB.GetSandbox(context.Background(), args[0])
+			s, err := app.DB.GetSandbox(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
 			if s.ContainerID == "" || s.ContainerID == "local" {
 				return app.Printer.Success(map[string]string{"message": "no docker logs for local sandbox", "id": s.ID})
 			}
-			_ = retention.Touch(context.Background(), app.DB, s)
+			_ = retention.Touch(cmd.Context(), app.DB, s)
 			out, err := exec.Command("docker", "logs", "--tail", "200", s.ContainerID).CombinedOutput()
 			if err != nil {
 				return err
@@ -75,11 +74,11 @@ func newSandboxCmd(app *App) *cobra.Command {
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use: "shell <sandbox_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			s, err := app.DB.GetSandbox(context.Background(), args[0])
+			s, err := app.DB.GetSandbox(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -91,7 +90,7 @@ func newSandboxCmd(app *App) *cobra.Command {
 				c.Stderr = os.Stderr
 				return c.Run()
 			}
-			_ = retention.Touch(context.Background(), app.DB, s)
+			_ = retention.Touch(cmd.Context(), app.DB, s)
 			c := exec.Command("docker", "exec", "-it", s.ContainerID, "bash")
 			c.Stdin = os.Stdin
 			c.Stdout = os.Stdout
@@ -101,11 +100,11 @@ func newSandboxCmd(app *App) *cobra.Command {
 	})
 	tunnel := &cobra.Command{
 		Use: "tunnel <sandbox_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			s, err := app.DB.GetSandbox(context.Background(), args[0])
+			s, err := app.DB.GetSandbox(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -113,7 +112,7 @@ func newSandboxCmd(app *App) *cobra.Command {
 			if url == "" {
 				if s.RunID != "" {
 					eng := &run.Engine{DB: app.DB, Root: app.Root, Config: app.Config}
-					r, err := eng.EnsurePreview(context.Background(), s.RunID)
+					r, err := eng.EnsurePreview(cmd.Context(), s.RunID)
 					if err == nil {
 						url = r.PreviewURL
 					}
@@ -129,9 +128,9 @@ func newSandboxCmd(app *App) *cobra.Command {
 			if browser {
 				_ = run.OpenPreview(url)
 			}
-			if latest, err := app.DB.GetSandboxForRun(context.Background(), s.RunID); err == nil && latest.PreviewURL == url {
+			if latest, err := app.DB.GetSandboxForRun(cmd.Context(), s.RunID); err == nil && latest.PreviewURL == url {
 				s = latest
-				_ = retention.Touch(context.Background(), app.DB, s)
+				_ = retention.Touch(cmd.Context(), app.DB, s)
 			}
 			return app.Printer.Success(map[string]string{"url": url, "sandbox_id": s.ID, "expires_at": retention.EffectiveExpiry(s).Format(time.RFC3339Nano)})
 		},
@@ -144,7 +143,7 @@ func newSandboxCmd(app *App) *cobra.Command {
 		Short: "Ask Codex to refine a live sandbox directly",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -179,18 +178,18 @@ func newSandboxCmd(app *App) *cobra.Command {
 			var result *run.PromptResult
 			if mode == streaming.ModeUI {
 				_, err = executeWithUI("Refine Vessica sandbox", app.Root, eng, func() (*state.Run, error) {
-					result, err = eng.PromptSandbox(context.Background(), args[0], opts)
+					result, err = eng.PromptSandbox(cmd.Context(), args[0], opts)
 					if result == nil {
 						return nil, err
 					}
-					runRecord, getErr := app.DB.GetRun(context.Background(), result.RunID)
+					runRecord, getErr := app.DB.GetRun(cmd.Context(), result.RunID)
 					if err != nil {
 						return runRecord, err
 					}
 					return runRecord, getErr
 				})
 			} else {
-				result, err = eng.PromptSandbox(context.Background(), args[0], opts)
+				result, err = eng.PromptSandbox(cmd.Context(), args[0], opts)
 			}
 			if mode == streaming.ModeJSONL {
 				runID := ""
@@ -219,7 +218,7 @@ func newSandboxCmd(app *App) *cobra.Command {
 
 	destroy := &cobra.Command{
 		Use: "destroy [sandbox_id]", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -232,7 +231,7 @@ func newSandboxCmd(app *App) *cobra.Command {
 			var targets []state.Sandbox
 			var err error
 			if runID != "" {
-				targets, err = app.DB.ListSandboxesForRun(context.Background(), runID)
+				targets, err = app.DB.ListSandboxesForRun(cmd.Context(), runID)
 				if err != nil {
 					return err
 				}
@@ -240,7 +239,7 @@ func newSandboxCmd(app *App) *cobra.Command {
 				if len(args) != 1 {
 					return fmt.Errorf("sandbox_id or --run is required")
 				}
-				s, getErr := app.DB.GetSandbox(context.Background(), args[0])
+				s, getErr := app.DB.GetSandbox(cmd.Context(), args[0])
 				if getErr != nil {
 					return getErr
 				}
@@ -249,7 +248,7 @@ func newSandboxCmd(app *App) *cobra.Command {
 			var destroyed []string
 			for i := range targets {
 				s := &targets[i]
-				if err := retention.Destroy(context.Background(), app.DB, app.Root, s, "manual"); err != nil {
+				if err := retention.Destroy(cmd.Context(), app.DB, app.Root, s, "manual"); err != nil {
 					return err
 				}
 				destroyed = append(destroyed, s.ID)
@@ -262,7 +261,7 @@ func newSandboxCmd(app *App) *cobra.Command {
 
 	retain := &cobra.Command{
 		Use: "retain <sandbox_id>", Args: cobra.ExactArgs(1), Short: "Extend a sandbox preview lease", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -273,11 +272,11 @@ func newSandboxCmd(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			s, err := app.DB.GetSandbox(context.Background(), args[0])
+			s, err := app.DB.GetSandbox(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
-			if err := retention.Retain(context.Background(), app.DB, s, d); err != nil {
+			if err := retention.Retain(cmd.Context(), app.DB, s, d); err != nil {
 				return err
 			}
 			return app.Printer.Success(map[string]string{"sandbox_id": s.ID, "retained_until": s.RetainedUntil})
@@ -288,7 +287,7 @@ func newSandboxCmd(app *App) *cobra.Command {
 
 	gc := &cobra.Command{
 		Use: "gc", Short: "Remove expired Vessica sandboxes", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspaceWithoutGC(); err != nil {
+			if err := app.loadWorkspaceWithoutGC(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -300,7 +299,7 @@ func newSandboxCmd(app *App) *cobra.Command {
 					return err
 				}
 			}
-			result, err := retention.GC(context.Background(), app.DB, app.Root, retention.GCOptions{DryRun: app.Flags.DryRun, OlderThan: age})
+			result, err := retention.GC(cmd.Context(), app.DB, app.Root, retention.GCOptions{DryRun: app.Flags.DryRun, OlderThan: age})
 			if err != nil {
 				return err
 			}

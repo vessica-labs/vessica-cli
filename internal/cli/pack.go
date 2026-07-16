@@ -12,7 +12,7 @@ func newPackCmd(app *App) *cobra.Command {
 		Short: "Install a pack (default @vessica/engineering-harness)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -32,7 +32,7 @@ func newPackCmd(app *App) *cobra.Command {
 		Short: "Install a pack from a Git URL with an optional #ref",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -46,7 +46,7 @@ func newPackCmd(app *App) *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use: "sync", Short: "Sync pack from origin/embedded",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -60,7 +60,7 @@ func newPackCmd(app *App) *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use: "update", Short: "Explicitly update pack",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -76,7 +76,7 @@ func newPackCmd(app *App) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		Short: "Pin pack version",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -90,7 +90,7 @@ func newPackCmd(app *App) *cobra.Command {
 	origin := &cobra.Command{Use: "origin", Short: "Pack origin"}
 	origin.AddCommand(&cobra.Command{
 		Use: "get", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -103,7 +103,7 @@ func newPackCmd(app *App) *cobra.Command {
 	})
 	origin.AddCommand(&cobra.Command{
 		Use: "set <git-url>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()

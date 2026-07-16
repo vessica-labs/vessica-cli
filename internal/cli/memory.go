@@ -38,7 +38,7 @@ func newMemoryCmd(app *App) *cobra.Command {
 	var importance, confidence float64
 	var stdin bool
 	cmd.AddCommand(&cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -54,7 +54,7 @@ func newMemoryCmd(app *App) *cobra.Command {
 		return app.Printer.Success(list)
 	}})
 	cmd.AddCommand(&cobra.Command{Use: "view <memory_id>", Aliases: []string{"get"}, Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -70,7 +70,7 @@ func newMemoryCmd(app *App) *cobra.Command {
 		return app.Printer.Success(v)
 	}})
 	add := &cobra.Command{Use: "add", RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -114,7 +114,7 @@ func newMemoryCmd(app *App) *cobra.Command {
 	add.Flags().BoolVar(&stdin, "stdin", false, "read body from stdin")
 	cmd.AddCommand(add)
 	update := &cobra.Command{Use: "update <memory_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -152,7 +152,7 @@ func newMemoryCmd(app *App) *cobra.Command {
 		st := state
 		use := map[string]string{"superseded": "supersede", "archived": "archive"}[st]
 		cmd.AddCommand(&cobra.Command{Use: use + " <memory_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -175,7 +175,7 @@ func newMemoryCmd(app *App) *cobra.Command {
 		}})
 	}
 	search := &cobra.Command{Use: "search <query>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()

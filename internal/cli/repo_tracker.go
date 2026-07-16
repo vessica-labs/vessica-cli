@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"context"
-
 	"github.com/spf13/cobra"
 	"github.com/vessica-labs/vessica-cli/internal/repo"
 	"github.com/vessica-labs/vessica-cli/internal/tracker"
@@ -14,7 +12,7 @@ func newRepoCmd(app *App) *cobra.Command {
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "connect <provider>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -27,11 +25,11 @@ func newRepoCmd(app *App) *cobra.Command {
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use: "status", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			return app.Printer.Success(repo.Status(context.Background(), app.Root, app.Config.Repo.Remote))
+			return app.Printer.Success(repo.Status(cmd.Context(), app.Root, app.Config.Repo.Remote))
 		},
 	})
 	prCreate := &cobra.Command{
@@ -39,11 +37,11 @@ func newRepoCmd(app *App) *cobra.Command {
 	}
 	create := &cobra.Command{
 		Use: "create", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			r, err := app.DB.GetRun(context.Background(), runID)
+			r, err := app.DB.GetRun(cmd.Context(), runID)
 			if err != nil {
 				return err
 			}
@@ -57,11 +55,11 @@ func newRepoCmd(app *App) *cobra.Command {
 	prCreate.AddCommand(create)
 	view := &cobra.Command{
 		Use: "view", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			r, err := app.DB.GetRun(context.Background(), runID)
+			r, err := app.DB.GetRun(cmd.Context(), runID)
 			if err != nil {
 				return err
 			}
@@ -82,7 +80,7 @@ func newTrackerCmd(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := app.loadWorkspace(); err == nil {
+			if err := app.loadWorkspace(cmd.Context()); err == nil {
 				app.Config.Tracker.Provider = args[0]
 				_ = saveConfig(app)
 				app.closeDB()
@@ -92,11 +90,11 @@ func newTrackerCmd(app *App) *cobra.Command {
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use: "sync", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			res, err := tracker.Sync(context.Background(), app.DB, app.Config.Tracker.Provider)
+			res, err := tracker.Sync(cmd.Context(), app.DB, app.Config.Tracker.Provider)
 			if err != nil {
 				return err
 			}
@@ -107,27 +105,27 @@ func newTrackerCmd(app *App) *cobra.Command {
 		Use: "status", RunE: func(cmd *cobra.Command, args []string) error {
 			provider := "linear"
 			var dbLoaded bool
-			if err := app.loadWorkspace(); err == nil {
+			if err := app.loadWorkspace(cmd.Context()); err == nil {
 				provider = app.Config.Tracker.Provider
 				dbLoaded = true
 			}
 			if dbLoaded {
 				defer app.closeDB()
-				return app.Printer.Success(tracker.GetStatus(context.Background(), app.DB, provider))
+				return app.Printer.Success(tracker.GetStatus(cmd.Context(), app.DB, provider))
 			}
-			return app.Printer.Success(tracker.GetStatus(context.Background(), nil, provider))
+			return app.Printer.Success(tracker.GetStatus(cmd.Context(), nil, provider))
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use: "push", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			epics, _ := app.DB.ListEpics(context.Background())
+			epics, _ := app.DB.ListEpics(cmd.Context())
 			var pushed int
 			for _, e := range epics {
-				if _, err := tracker.Push(context.Background(), app.DB, app.Config.Tracker.Provider, "epic", e.ID); err == nil {
+				if _, err := tracker.Push(cmd.Context(), app.DB, app.Config.Tracker.Provider, "epic", e.ID); err == nil {
 					pushed++
 				}
 			}

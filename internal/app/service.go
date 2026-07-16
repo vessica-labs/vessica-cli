@@ -16,7 +16,6 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/knowledgegateway"
 	"github.com/vessica-labs/vessica-cli/internal/receipt"
 	"github.com/vessica-labs/vessica-cli/internal/redaction"
-	"github.com/vessica-labs/vessica-cli/internal/retention"
 	runengine "github.com/vessica-labs/vessica-cli/internal/run"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 	"github.com/vessica-labs/vessica-cli/internal/version"
@@ -219,49 +218,13 @@ func (s *Service) Rollback(ctx context.Context, runID string) (any, error) {
 	return engine.RollbackRun(ctx, runID)
 }
 func (s *Service) Cancel(ctx context.Context, runID string) (*state.Run, error) {
-	r, err := s.DB.GetRun(ctx, runID)
-	if err != nil {
-		return nil, err
-	}
-	if r.Status == "completed" || r.Status == "cancelled" || r.Status == "failed" {
-		return nil, fmt.Errorf("run %s cannot be cancelled from status %s", runID, r.Status)
-	}
-	r.Status = "cancelled"
-	r.FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	if err = s.DB.UpdateRun(ctx, r); err != nil {
-		return nil, err
-	}
-	sandboxes, _ := s.DB.ListSandboxesForRun(ctx, runID)
-	for i := range sandboxes {
-		_ = retention.Destroy(ctx, s.DB, s.Root, &sandboxes[i], "cancelled")
-	}
-	engine := &runengine.Engine{DB: s.DB, Root: s.Root, Config: s.Config}
-	engine.RecordRunKnowledge(ctx, r, "run.cancelled", "Run was cancelled", "run:"+r.ID+":cancelled")
-	_, _ = s.DB.AppendEvent(ctx, runID, "", "run.cancelled", map[string]any{"source": "dashboard"})
-	return r, nil
+	return NewRunLifecycle(s.DB, s.Root, s.Config, nil).Cancel(ctx, runID, "dashboard")
 }
 func (s *Service) Retain(ctx context.Context, sandboxID string, duration time.Duration) (*state.Sandbox, error) {
-	v, err := s.DB.GetSandbox(ctx, sandboxID)
-	if err != nil {
-		return nil, err
-	}
-	if v.Status == "destroyed" || v.Status == "expired" {
-		return nil, fmt.Errorf("sandbox is no longer available")
-	}
-	if err = retention.Retain(ctx, s.DB, v, duration); err != nil {
-		return nil, err
-	}
-	return v, nil
+	return NewRunLifecycle(s.DB, s.Root, s.Config, nil).Retain(ctx, sandboxID, duration)
 }
 func (s *Service) Destroy(ctx context.Context, sandboxID string) (*state.Sandbox, error) {
-	v, err := s.DB.GetSandbox(ctx, sandboxID)
-	if err != nil {
-		return nil, err
-	}
-	if err = retention.Destroy(ctx, s.DB, s.Root, v, "dashboard"); err != nil {
-		return nil, err
-	}
-	return v, nil
+	return NewRunLifecycle(s.DB, s.Root, s.Config, nil).Destroy(ctx, sandboxID, "dashboard")
 }
 
 func (s *Service) knowledge(ctx context.Context) (*knowledgegateway.Gateway, error) {

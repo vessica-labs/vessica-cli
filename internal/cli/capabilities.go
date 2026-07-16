@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"os/exec"
 	"path/filepath"
 
@@ -46,7 +45,7 @@ func newCapabilitiesCmd(app *App) *cobra.Command {
 					}
 					if db, openErr := openState(root, cfg); openErr == nil {
 						defer db.Close()
-						if ws, wsErr := db.GetWorkspace(context.Background()); wsErr == nil {
+						if ws, wsErr := db.GetWorkspace(cmd.Context()); wsErr == nil {
 							workspace["workspace_id"] = ws.ID
 							workspace["profile"] = ws.Profile
 						}

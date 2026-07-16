@@ -11,7 +11,7 @@ func newArtifactCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "artifact", Short: "Manage authoritative knowledge artifacts"}
 	var typ, title, body, bodyFile, status string
 	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -30,7 +30,7 @@ func newArtifactCmd(app *App) *cobra.Command {
 	list.Flags().StringVar(&status, "status", "", "draft|active|superseded|archived")
 	cmd.AddCommand(list)
 	cmd.AddCommand(&cobra.Command{Use: "view <artifact_id>", Aliases: []string{"get"}, Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -46,7 +46,7 @@ func newArtifactCmd(app *App) *cobra.Command {
 		return app.Printer.Success(v)
 	}})
 	add := &cobra.Command{Use: "add", Aliases: []string{"create"}, RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -85,7 +85,7 @@ func newArtifactCmd(app *App) *cobra.Command {
 	add.Flags().StringVar(&bodyFile, "body-file", "", "body file")
 	cmd.AddCommand(add)
 	update := &cobra.Command{Use: "update <artifact_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if err := app.loadWorkspace(); err != nil {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
@@ -123,7 +123,7 @@ func newArtifactCmd(app *App) *cobra.Command {
 		state := st
 		use := map[string]string{"active": "activate", "superseded": "supersede"}[state]
 		cmd.AddCommand(&cobra.Command{Use: use + " <artifact_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -94,7 +93,7 @@ func newInitCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			ws, err := db.EnsureWorkspace(context.Background(), root, profile)
+			ws, err := db.EnsureWorkspace(cmd.Context(), root, profile)
 			if err != nil {
 				return err
 			}
@@ -139,11 +138,11 @@ func newStatusCmd(app *App) *cobra.Command {
 		Use:   "status",
 		Short: "Show workspace status",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return app.Printer.Fail("not_initialized", err.Error(), "run ves init")
 			}
 			defer app.closeDB()
-			ws, _ := app.DB.GetWorkspace(context.Background())
+			ws, _ := app.DB.GetWorkspace(cmd.Context())
 			packLock := fileExists(filepath.Join(app.Root, app.Config.Pack.Lockfile))
 			return app.Printer.Success(map[string]any{
 				"workspace_id": ws.ID,
@@ -188,17 +187,17 @@ func newDoctorCmd(app *App) *cobra.Command {
 				add("state", false, err.Error())
 			} else {
 				defer db.Close()
-				if err := db.Ping(context.Background()); err != nil {
+				if err := db.Ping(cmd.Context()); err != nil {
 					add("state", false, err.Error())
 				} else {
 					add("state", true, app.Config.State.Backend)
 				}
-				if ws, wsErr := db.GetWorkspace(context.Background()); wsErr == nil {
+				if ws, wsErr := db.GetWorkspace(cmd.Context()); wsErr == nil {
 					if gateway, knowledgeErr := knowledgegateway.Open(root, app.Config, ws.ID); knowledgeErr != nil {
 						add("knowledge", false, knowledgeErr.Error())
 					} else {
 						defer gateway.Close()
-						if _, exportErr := gateway.Export(context.Background()); exportErr != nil {
+						if _, exportErr := gateway.Export(cmd.Context()); exportErr != nil {
 							add("knowledge", false, exportErr.Error())
 						} else {
 							add("knowledge", true, gateway.Mode())
@@ -285,7 +284,7 @@ func newConfigCmd(app *App) *cobra.Command {
 		Use:   "list",
 		Short: "List config keys",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -297,7 +296,7 @@ func newConfigCmd(app *App) *cobra.Command {
 		Short: "Get a config value",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -313,7 +312,7 @@ func newConfigCmd(app *App) *cobra.Command {
 		Short: "Set a config value",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -331,7 +330,7 @@ func newConfigCmd(app *App) *cobra.Command {
 		Short: "Unset a config value",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()

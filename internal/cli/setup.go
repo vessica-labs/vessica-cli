@@ -28,7 +28,7 @@ func newSetupCmd(app *App) *cobra.Command {
 					status["ves_available"] = commandAvailable("ves")
 					return app.Printer.Success(status)
 				}
-				if err := app.loadWorkspace(); err != nil {
+				if err := app.loadWorkspace(cmd.Context()); err != nil {
 					return err
 				}
 				defer app.closeDB()

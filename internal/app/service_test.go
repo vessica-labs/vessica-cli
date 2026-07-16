@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,5 +44,34 @@ func TestRawLogIsBoundedAndRedacted(t *testing.T) {
 	content, _ := result["content"].(string)
 	if strings.Contains(content, "sk-secret-value") {
 		t.Fatalf("raw secret was not redacted: %s", content)
+	}
+}
+
+func TestRunLifecyclePropagatesSandboxDestructionFailure(t *testing.T) {
+	root := t.TempDir()
+	db, err := state.Open("sqlite", filepath.Join(root, "state.db"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	if _, err = db.EnsureWorkspace(ctx, root, "solo"); err != nil {
+		t.Fatal(err)
+	}
+	epic, err := db.CreateEpic(ctx, "Cancel", "body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runRecord, err := db.CreateRun(ctx, epic.ID, "", "codex", "model", "high", "local", 1, false, "none", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.CreateSandbox(ctx, runRecord.ID, "docker", "branch"); err != nil {
+		t.Fatal(err)
+	}
+	want := errors.New("sandbox backend unavailable")
+	service := NewRunLifecycle(db, root, config.Defaults(), func(context.Context, *state.Sandbox, string) error { return want })
+	if _, err = service.Cancel(ctx, runRecord.ID, "test"); !errors.Is(err, want) {
+		t.Fatalf("cancel error=%v, want wrapped backend error", err)
 	}
 }

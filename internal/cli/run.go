@@ -1,17 +1,15 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	appservice "github.com/vessica-labs/vessica-cli/internal/app"
 	"github.com/vessica-labs/vessica-cli/internal/output"
-	"github.com/vessica-labs/vessica-cli/internal/retention"
 	"github.com/vessica-labs/vessica-cli/internal/run"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 	"github.com/vessica-labs/vessica-cli/internal/streaming"
@@ -20,153 +18,25 @@ import (
 func newRunCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "run", Short: "Execute and inspect workflow runs"}
 	var (
-		runnerName, model, reasoningEffort, sandboxName, prMode, startAt, stopAfter, reuse string
-		streamMode, fromPhase, logsDetail                                                  string
-		approveMethod                                                                      string
-		concurrency                                                                        int
-		watchAfter                                                                         int64
-		preview, openPreview, eventsOnly, noStream, browser                                bool
-		approveKeepPreview, approveKeepBranch                                              bool
-		jsonl, logsAgentOnly, logsJSONL, logsRaw, watchUI                                  bool
-		promptFile, promptModel, promptReasoning                                           string
-		promptNoPush                                                                       bool
+		streamMode, fromPhase, logsDetail                 string
+		approveMethod                                     string
+		watchAfter                                        int64
+		eventsOnly, noStream, browser                     bool
+		approveKeepPreview, approveKeepBranch             bool
+		jsonl, logsAgentOnly, logsJSONL, logsRaw, watchUI bool
+		promptFile, promptModel, promptReasoning          string
+		promptNoPush                                      bool
 	)
 
-	epicCmd := &cobra.Command{
-		Use:   "epic <epic_id>",
-		Args:  optionalStreamModeArgs(&streamMode),
-		Short: "Run software epic workflow",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
-				return err
-			}
-			defer app.closeDB()
-			if app.Config.Hosted.ControlPlaneURL != "" {
-				hostedID := ""
-				if mapping, mapErr := app.DB.GetExternalMapping(cmd.Context(), "vessica-hosted", "epic", args[0]); mapErr == nil {
-					hostedID = mapping.ExternalID
-				} else if _, localErr := app.DB.GetEpic(cmd.Context(), args[0]); localErr != nil {
-					hostedID = args[0]
-				}
-				if hostedID != "" {
-					if app.Flags.DryRun {
-						return app.dryRun("run.epic.hosted", map[string]any{"local_epic_id": args[0], "hosted_epic_id": hostedID, "sandbox": "railway"})
-					}
-					if err := app.requireYes("start the hosted epic run"); err != nil {
-						return err
-					}
-					result, err := app.startHostedEpicRun(cmd.Context(), hostedID)
-					if err != nil {
-						return err
-					}
-					return app.Printer.Success(result)
-				}
-			}
-			mode, err := resolveStreamMode(streamMode, noStream, eventsOnly, app.Flags.JSON)
-			if err != nil {
-				return err
-			}
-			streamEnabled := mode != streaming.ModeOff && mode != streaming.ModeUI
-			opts := run.Options{
-				EpicID:          args[0],
-				Runner:          runnerName,
-				Model:           model,
-				ReasoningEffort: reasoningEffort,
-				Sandbox:         sandboxName,
-				Concurrency:     concurrency,
-				Preview:         preview || openPreview,
-				PRMode:          prMode,
-				StartAt:         startAt,
-				StopAfter:       stopAfter,
-				ReuseArtifacts:  reuse,
-				Stream:          streamEnabled,
-				EventsOnly:      eventsOnly,
-				StreamMode:      mode,
-			}
-			if app.Flags.DryRun {
-				if mode == streaming.ModeJSONL {
-					return streaming.WriteRecord(os.Stdout, streaming.ResultRecord("", map[string]any{"dry_run": true, "action": "run.epic", "would": opts}, nil))
-				}
-				return app.dryRun("run.epic", opts)
-			}
-			if app.Flags.JSON && mode != streaming.ModeJSONL && !app.Flags.Yes {
-				return app.requireYes("start the epic run")
-			}
-			if mode == streaming.ModeJSONL && !app.Flags.Yes {
-				err := &output.Error{Body: output.ErrorBody{Code: "confirmation_required", Message: "confirmation required to start the epic run", Hint: "review the action, then repeat with --yes"}, Printed: true}
-				record := streaming.ResultRecord("", nil, err)
-				record.Error.Code = "confirmation_required"
-				_ = streaming.WriteRecord(os.Stdout, record)
-				return err
-			}
-			if mode == streaming.ModeJSONL {
-				data, replayed, replayErr := app.idempotencyLookup(context.Background())
-				if replayErr != nil {
-					_ = streaming.WriteRecord(os.Stdout, streaming.ResultRecord("", nil, replayErr))
-					return replayErr
-				}
-				if replayed {
-					return streaming.WriteRecord(os.Stdout, streaming.ResultRecord(streamResultRunID(data), data, nil))
-				}
-			} else if replayed, replayErr := app.idempotencyReplay(context.Background()); replayErr != nil || replayed {
-				return replayErr
-			}
-			eng := &run.Engine{DB: app.DB, Root: app.Root, Config: app.Config, Stream: streamEnabled, EventsOnly: eventsOnly, StreamMode: mode}
-			if openPreview {
-				openPreviewWhenReady(eng)
-			}
-			var r *state.Run
-			if mode == streaming.ModeUI {
-				r, err = executeWithUI("Vessica epic run", app.Root, eng, func() (*state.Run, error) {
-					return eng.RunEpic(context.Background(), opts)
-				})
-			} else {
-				r, err = eng.RunEpic(context.Background(), opts)
-			}
-			if err != nil {
-				if mode == streaming.ModeJSONL {
-					_ = writeRunResult(mode, r, err)
-					return err
-				}
-				_ = app.Printer.Success(r)
-				return err
-			}
-			if err := app.idempotencyStore(context.Background(), r); err != nil {
-				if mode == streaming.ModeJSONL {
-					_ = writeRunResult(mode, r, err)
-				}
-				return err
-			}
-			if mode == streaming.ModeJSONL {
-				return writeRunResult(mode, r, nil)
-			}
-			return app.Printer.Success(r)
-		},
-	}
-	epicCmd.Flags().StringVar(&runnerName, "runner", "", "codex|claude|cursor|pi")
-	epicCmd.Flags().StringVar(&model, "model", "", "Codex model ID (for example gpt-5.6-terra, gpt-5.6-sol, or gpt-5.6-luna)")
-	epicCmd.Flags().StringVar(&reasoningEffort, "reasoning-effort", "", "Codex reasoning effort: low|medium|high|xhigh")
-	epicCmd.Flags().StringVar(&sandboxName, "sandbox", "", "docker")
-	epicCmd.Flags().IntVar(&concurrency, "concurrency", 3, "coding workers")
-	epicCmd.Flags().BoolVar(&preview, "preview", false, "enable preview phase")
-	epicCmd.Flags().BoolVar(&openPreview, "open-preview", false, "enable preview and open it when ready")
-	epicCmd.Flags().StringVar(&prMode, "pr", "none", "draft|ready|none")
-	epicCmd.Flags().StringVar(&streamMode, "stream", "pretty", "stream mode: pretty|ui|events|jsonl|raw|off")
-	epicCmd.Flags().Lookup("stream").NoOptDefVal = "pretty"
-	epicCmd.Flags().BoolVar(&noStream, "no-stream", false, "disable live run stream")
-	epicCmd.Flags().BoolVar(&eventsOnly, "events-only", false, "stream compact run events instead of agent output")
-	epicCmd.Flags().StringVar(&startAt, "start-at", "", "start phase")
-	epicCmd.Flags().StringVar(&stopAfter, "stop-after", "", "stop after phase")
-	epicCmd.Flags().StringVar(&reuse, "reuse-artifacts", "", "approved")
-	cmd.AddCommand(epicCmd)
+	cmd.AddCommand(newRunEpicCmd(app))
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "ticket <ticket_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			t, err := app.DB.GetTicket(context.Background(), args[0])
+			t, err := app.DB.GetTicket(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -176,7 +46,7 @@ func newRunCmd(app *App) *cobra.Command {
 			}
 			streamEnabled := mode != streaming.ModeOff && mode != streaming.ModeUI
 			eng := &run.Engine{DB: app.DB, Root: app.Root, Config: app.Config, Stream: streamEnabled, EventsOnly: eventsOnly, StreamMode: mode}
-			r, err := eng.RunEpic(context.Background(), run.Options{
+			r, err := eng.RunEpic(cmd.Context(), run.Options{
 				EpicID:      t.EpicID,
 				TicketID:    t.ID,
 				StartAt:     "code",
@@ -195,7 +65,7 @@ func newRunCmd(app *App) *cobra.Command {
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -206,7 +76,7 @@ func newRunCmd(app *App) *cobra.Command {
 				}
 				return app.Printer.Success(list)
 			}
-			list, err := app.DB.ListRuns(context.Background())
+			list, err := app.DB.ListRuns(cmd.Context())
 			if err != nil {
 				return err
 			}
@@ -215,7 +85,7 @@ func newRunCmd(app *App) *cobra.Command {
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use: "view <run_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -226,22 +96,22 @@ func newRunCmd(app *App) *cobra.Command {
 				}
 				return app.Printer.Success(map[string]any{"run": runRecord, "hosted": true})
 			}
-			r, err := app.DB.GetRun(context.Background(), args[0])
+			r, err := app.DB.GetRun(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
-			phases, _ := app.DB.ListPhases(context.Background(), r.ID)
+			phases, _ := app.DB.ListPhases(cmd.Context(), r.ID)
 			return app.Printer.Success(map[string]any{"run": r, "phases": phases})
 		},
 	})
 	logsCmd := &cobra.Command{
 		Use: "logs <run_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
 			if logsDetail != "" {
-				event, err := app.DB.GetEvent(context.Background(), logsDetail)
+				event, err := app.DB.GetEvent(cmd.Context(), logsDetail)
 				if err != nil {
 					return err
 				}
@@ -257,7 +127,7 @@ func newRunCmd(app *App) *cobra.Command {
 				}
 				return app.Printer.Success(strings.TrimRight(raw, "\n"))
 			}
-			evs, err := app.DB.ListEvents(context.Background(), args[0], 0)
+			evs, err := app.DB.ListEvents(cmd.Context(), args[0], 0)
 			if err != nil {
 				return err
 			}
@@ -267,11 +137,11 @@ func newRunCmd(app *App) *cobra.Command {
 						return err
 					}
 				}
-				r, err := app.DB.GetRun(context.Background(), args[0])
+				r, err := app.DB.GetRun(cmd.Context(), args[0])
 				if err != nil {
 					return err
 				}
-				hydrateRunOutput(app.DB, r)
+				hydrateRunOutput(cmd.Context(), app.DB, r)
 				return writeTerminalRunRecord(r)
 			}
 			if !app.Flags.JSON {
@@ -287,7 +157,7 @@ func newRunCmd(app *App) *cobra.Command {
 	cmd.AddCommand(logsCmd)
 	watch := &cobra.Command{
 		Use: "watch <run_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -299,7 +169,7 @@ func newRunCmd(app *App) *cobra.Command {
 				_, err := executeWithUI("Vessica run "+args[0], app.Root, eng, func() (*state.Run, error) {
 					after := watchAfter
 					for {
-						evs, err := app.DB.ListEvents(context.Background(), args[0], after)
+						evs, err := app.DB.ListEvents(cmd.Context(), args[0], after)
 						if err != nil {
 							return nil, err
 						}
@@ -309,7 +179,7 @@ func newRunCmd(app *App) *cobra.Command {
 								eng.EventSink(&evs[i])
 							}
 						}
-						r, err := app.DB.GetRun(context.Background(), args[0])
+						r, err := app.DB.GetRun(cmd.Context(), args[0])
 						if err != nil {
 							return nil, err
 						}
@@ -324,7 +194,7 @@ func newRunCmd(app *App) *cobra.Command {
 			after := watchAfter
 			started := map[string]bool{}
 			for {
-				evs, err := app.DB.ListEvents(context.Background(), args[0], after)
+				evs, err := app.DB.ListEvents(cmd.Context(), args[0], after)
 				if err != nil {
 					return err
 				}
@@ -342,13 +212,13 @@ func newRunCmd(app *App) *cobra.Command {
 						}
 					}
 				}
-				r, err := app.DB.GetRun(context.Background(), args[0])
+				r, err := app.DB.GetRun(cmd.Context(), args[0])
 				if err != nil {
 					return err
 				}
 				if r.Status == "completed" || r.Status == "failed" || r.Status == "cancelled" || r.Status == "stopped" {
 					if jsonl {
-						hydrateRunOutput(app.DB, r)
+						hydrateRunOutput(cmd.Context(), app.DB, r)
 						return writeTerminalRunRecord(r)
 					}
 					return app.Printer.Success(map[string]any{"status": r.Status, "last_seq": after})
@@ -364,7 +234,7 @@ func newRunCmd(app *App) *cobra.Command {
 
 	resume := &cobra.Command{
 		Use: "resume <run_id>", Args: optionalStreamModeArgs(&streamMode), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -383,10 +253,10 @@ func newRunCmd(app *App) *cobra.Command {
 			var r *state.Run
 			if mode == streaming.ModeUI {
 				r, err = executeWithUI("Resume Vessica run", app.Root, eng, func() (*state.Run, error) {
-					return eng.Resume(context.Background(), args[0], fromPhase)
+					return eng.Resume(cmd.Context(), args[0], fromPhase)
 				})
 			} else {
-				r, err = eng.Resume(context.Background(), args[0], fromPhase)
+				r, err = eng.Resume(cmd.Context(), args[0], fromPhase)
 			}
 			if err != nil {
 				if mode == streaming.ModeJSONL {
@@ -412,7 +282,7 @@ func newRunCmd(app *App) *cobra.Command {
 		Short: "Approve the preview and merge its pull request",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -423,15 +293,15 @@ func newRunCmd(app *App) *cobra.Command {
 			if err := app.requireYes("approve and merge the run pull request"); err != nil {
 				return err
 			}
-			if replayed, replayErr := app.idempotencyReplay(context.Background()); replayErr != nil || replayed {
+			if replayed, replayErr := app.idempotencyReplay(cmd.Context()); replayErr != nil || replayed {
 				return replayErr
 			}
 			eng := &run.Engine{DB: app.DB, Root: app.Root, Config: app.Config}
-			result, err := eng.ApproveRun(context.Background(), args[0], opts)
+			result, err := eng.ApproveRun(cmd.Context(), args[0], opts)
 			if err != nil {
 				return err
 			}
-			if err := app.idempotencyStore(context.Background(), result); err != nil {
+			if err := app.idempotencyStore(cmd.Context(), result); err != nil {
 				return err
 			}
 			return app.Printer.Success(result)
@@ -445,7 +315,7 @@ func newRunCmd(app *App) *cobra.Command {
 	promptCmd := &cobra.Command{
 		Use: "prompt <run_id> [prompt]", Short: "Refine the retained sandbox attached to a run", Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -463,7 +333,7 @@ func newRunCmd(app *App) *cobra.Command {
 			if prompt == "" {
 				return app.Printer.Fail("missing_prompt", "prompt is required", "provide text or --file")
 			}
-			sandboxRecord, err := app.DB.GetSandboxForRun(context.Background(), args[0])
+			sandboxRecord, err := app.DB.GetSandboxForRun(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
@@ -474,14 +344,14 @@ func newRunCmd(app *App) *cobra.Command {
 			if app.Flags.JSON && !app.Flags.Yes {
 				return app.requireYes("refine the retained run sandbox")
 			}
-			if replayed, replayErr := app.idempotencyReplay(context.Background()); replayErr != nil || replayed {
+			if replayed, replayErr := app.idempotencyReplay(cmd.Context()); replayErr != nil || replayed {
 				return replayErr
 			}
-			result, err := (&run.Engine{DB: app.DB, Root: app.Root, Config: app.Config}).PromptSandbox(context.Background(), sandboxRecord.ID, opts)
+			result, err := (&run.Engine{DB: app.DB, Root: app.Root, Config: app.Config}).PromptSandbox(cmd.Context(), sandboxRecord.ID, opts)
 			if err != nil {
 				return err
 			}
-			if err := app.idempotencyStore(context.Background(), result); err != nil {
+			if err := app.idempotencyStore(cmd.Context(), result); err != nil {
 				return err
 			}
 			return app.Printer.Success(result)
@@ -496,7 +366,7 @@ func newRunCmd(app *App) *cobra.Command {
 	rollback := &cobra.Command{
 		Use: "rollback <run_id>", Short: "Close the run pull request and destroy its preview", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -506,14 +376,14 @@ func newRunCmd(app *App) *cobra.Command {
 			if err := app.requireYes("roll back the run"); err != nil {
 				return err
 			}
-			if replayed, replayErr := app.idempotencyReplay(context.Background()); replayErr != nil || replayed {
+			if replayed, replayErr := app.idempotencyReplay(cmd.Context()); replayErr != nil || replayed {
 				return replayErr
 			}
-			result, err := (&run.Engine{DB: app.DB, Root: app.Root, Config: app.Config}).RollbackRun(context.Background(), args[0])
+			result, err := (&run.Engine{DB: app.DB, Root: app.Root, Config: app.Config}).RollbackRun(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
-			if err := app.idempotencyStore(context.Background(), result); err != nil {
+			if err := app.idempotencyStore(cmd.Context(), result); err != nil {
 				return err
 			}
 			return app.Printer.Success(result)
@@ -523,7 +393,7 @@ func newRunCmd(app *App) *cobra.Command {
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "cancel <run_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
@@ -533,34 +403,24 @@ func newRunCmd(app *App) *cobra.Command {
 			if err := app.requireYes("cancel run"); err != nil {
 				return err
 			}
-			r, err := app.DB.GetRun(context.Background(), args[0])
+			r, err := appservice.NewRunLifecycle(app.DB, app.Root, app.Config, nil).Cancel(cmd.Context(), args[0], "cli")
 			if err != nil {
 				return err
 			}
-			r.Status = "cancelled"
-			r.FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)
-			_ = app.DB.UpdateRun(context.Background(), r)
-			if sandboxes, listErr := app.DB.ListSandboxesForRun(context.Background(), r.ID); listErr == nil {
-				for i := range sandboxes {
-					_ = retention.Destroy(context.Background(), app.DB, app.Root, &sandboxes[i], "cancelled")
-				}
-			}
-			eng := &run.Engine{DB: app.DB, Root: app.Root, Config: app.Config}
-			eng.RecordRunKnowledge(cmd.Context(), r, "run.cancelled", "Run was cancelled", "run:"+r.ID+":cancelled")
 			return app.Printer.Success(r)
 		},
 	})
 	cmd.AddCommand(&cobra.Command{
 		Use: "artifacts <run_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			r, err := app.DB.GetRun(context.Background(), args[0])
+			r, err := app.DB.GetRun(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
-			arts, err := app.DB.ListArtifactsForRun(context.Background(), r.ID)
+			arts, err := app.DB.ListArtifactsForRun(cmd.Context(), r.ID)
 			if err != nil {
 				return err
 			}
@@ -572,17 +432,17 @@ func newRunCmd(app *App) *cobra.Command {
 	})
 	previewCmd := &cobra.Command{
 		Use: "preview <run_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			r, err := app.DB.GetRun(context.Background(), args[0])
+			r, err := app.DB.GetRun(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
 			if r.PreviewURL == "" {
 				eng := &run.Engine{DB: app.DB, Root: app.Root, Config: app.Config, Stream: false}
-				r, err = eng.EnsurePreview(context.Background(), r.ID)
+				r, err = eng.EnsurePreview(cmd.Context(), r.ID)
 				if err != nil {
 					return app.Printer.Fail("no_preview", err.Error(), "run with --preview or configure .vessica/harness.yaml preview")
 				}
@@ -598,18 +458,18 @@ func newRunCmd(app *App) *cobra.Command {
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "receipt <run_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			r, err := app.DB.GetRun(context.Background(), args[0])
+			r, err := app.DB.GetRun(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
 			if r.ReceiptID == "" {
 				return app.Printer.Fail("no_receipt", "run has no receipt yet", "")
 			}
-			rcpt, err := app.DB.GetReceipt(context.Background(), r.ReceiptID)
+			rcpt, err := app.DB.GetReceipt(cmd.Context(), r.ReceiptID)
 			if err != nil {
 				return err
 			}
@@ -619,176 +479,4 @@ func newRunCmd(app *App) *cobra.Command {
 		},
 	})
 	return cmd
-}
-
-func (a *App) startHostedEpicRun(ctx context.Context, hostedEpicID string) (map[string]any, error) {
-	secrets, err := loadRailwaySecrets(a.Root)
-	if err != nil {
-		return nil, err
-	}
-	key := a.Flags.IdempotencyKey
-	if key == "" {
-		key = "run-" + hostedEpicID
-	}
-	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/epics/" + hostedEpicID + "/runs"
-	var result map[string]any
-	if err := hostedRequestWithKey(ctx, http.MethodPost, endpoint, secrets.APIToken, key, nil, &result); err != nil {
-		return nil, err
-	}
-	return result, nil
-}
-
-func (a *App) listHostedRuns(ctx context.Context) ([]*state.Run, error) {
-	secrets, err := loadRailwaySecrets(a.Root)
-	if err != nil {
-		return nil, err
-	}
-	var runs []*state.Run
-	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/runs"
-	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &runs); err != nil {
-		return nil, err
-	}
-	return runs, nil
-}
-
-func (a *App) getHostedRun(ctx context.Context, runID string) (*state.Run, error) {
-	secrets, err := loadRailwaySecrets(a.Root)
-	if err != nil {
-		return nil, err
-	}
-	var runRecord state.Run
-	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/runs/" + runID
-	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &runRecord); err != nil {
-		return nil, err
-	}
-	return &runRecord, nil
-}
-
-func (a *App) listHostedRunEvents(ctx context.Context, runID string, after int64) ([]state.Event, error) {
-	secrets, err := loadRailwaySecrets(a.Root)
-	if err != nil {
-		return nil, err
-	}
-	var events []state.Event
-	endpoint := fmt.Sprintf("%s/api/v1/runs/%s/events?after=%d", strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/"), runID, after)
-	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &events); err != nil {
-		return nil, err
-	}
-	return events, nil
-}
-
-func (a *App) watchHostedRun(ctx context.Context, runID string, after int64, jsonl bool) error {
-	started := map[string]bool{}
-	for {
-		events, err := a.listHostedRunEvents(ctx, runID, after)
-		if err != nil {
-			return err
-		}
-		for _, event := range events {
-			after = event.Seq
-			if jsonl {
-				if err := streaming.WriteEvent(os.Stdout, &event); err != nil {
-					return err
-				}
-			} else if a.Flags.JSON {
-				_ = output.PrintJSONL(os.Stdout, event)
-			} else if line := formatEventLine(event, false, started); line != "" {
-				a.Printer.Info("%s", line)
-			}
-		}
-		runRecord, err := a.getHostedRun(ctx, runID)
-		if err != nil {
-			return err
-		}
-		if runTerminal(runRecord.Status) {
-			if jsonl {
-				return writeTerminalRunRecord(runRecord)
-			}
-			return a.Printer.Success(map[string]any{"status": runRecord.Status, "last_seq": after, "hosted": true, "run": runRecord})
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(time.Second):
-		}
-	}
-}
-
-func runTerminal(status string) bool {
-	switch status {
-	case "completed", "failed", "cancelled", "stopped":
-		return true
-	default:
-		return false
-	}
-}
-
-func optionalStreamModeArgs(mode *string) cobra.PositionalArgs {
-	return func(cmd *cobra.Command, args []string) error {
-		if len(args) == 2 && cmd.Flags().Changed("stream") && *mode == string(streaming.ModePretty) {
-			parsed, err := streaming.ParseMode(args[1])
-			if err != nil {
-				return err
-			}
-			*mode = string(parsed)
-			return nil
-		}
-		return cobra.ExactArgs(1)(cmd, args)
-	}
-}
-
-func streamResultRunID(data any) string {
-	if values, ok := data.(map[string]any); ok {
-		if runID, ok := values["id"].(string); ok {
-			return runID
-		}
-	}
-	return ""
-}
-
-func formatRunEvents(evs []state.Event, agentOnly bool) string {
-	var b strings.Builder
-	started := map[string]bool{}
-	for _, e := range evs {
-		line := formatEventLine(e, agentOnly, started)
-		if line == "" {
-			continue
-		}
-		b.WriteString(line)
-		if !strings.HasSuffix(line, "\n") {
-			b.WriteByte('\n')
-		}
-	}
-	out := strings.TrimRight(b.String(), "\n")
-	if out == "" {
-		return "(no matching log events)"
-	}
-	return out
-}
-
-func formatEventLine(e state.Event, agentOnly bool, started map[string]bool) string {
-	payload := streaming.Payload(&e)
-	message, _ := payload["message"].(string)
-	if agentOnly {
-		if e.Type != "agent.message" && e.Type != "agent.output" {
-			return ""
-		}
-		if strings.TrimSpace(message) == "" || message == "codex completed" {
-			return ""
-		}
-		return message
-	}
-	if line := streaming.PrettyLine(&e, started); line != "" {
-		return fmt.Sprintf("%s  [%s]", line, e.ID)
-	}
-	if e.Type == "agent.prompt" {
-		return fmt.Sprintf("  %-9s %s  [%s]", "Prompt", "prepared (collapsed)", e.ID)
-	}
-	if strings.HasPrefix(e.Type, "agent.") {
-		return ""
-	}
-	if message == "" {
-		message = strings.ReplaceAll(e.Type, ".", " ")
-	}
-	return fmt.Sprintf("  %-28s %s  [%s]", e.Type, message, e.ID)
 }

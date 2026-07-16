@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -16,11 +15,11 @@ func newPrimeCmd(app *App) *cobra.Command {
 		Use:   "prime",
 		Short: "Prime agent/human context",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(); err != nil {
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
 				return err
 			}
 			defer app.closeDB()
-			resp, err := prime.Build(context.Background(), app.DB, app.Root, prime.Request{
+			resp, err := prime.Build(cmd.Context(), app.DB, app.Root, prime.Request{
 				For:      forRunner,
 				EpicID:   epicID,
 				TicketID: ticketID,
