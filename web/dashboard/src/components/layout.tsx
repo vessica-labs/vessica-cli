@@ -81,7 +81,7 @@ export function Layout() {
             <span>Control surface</span>
           </div>
         </div>
-        {!!repositories.data?.repositories.length && (
+        {!!repositories.data?.repositories?.length && (
           <label className="repository-switcher">
             <span>Repository</span>
             <select value={repositoryID} onChange={(event) => selectRepository(event.target.value)}>

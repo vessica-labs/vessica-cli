@@ -25,6 +25,8 @@ async function mockDashboard(page: Page) {
       };
     } else if (path === "/api/v1/runs" || path === "/api/v1/sandboxes") {
       data = { items: [] };
+    } else if (path === "/api/v1/repositories") {
+      data = { repositories: [] };
     } else if (path === "/api/v1/knowledge/status") {
       data = {
         retrieval_mode: "lexical",
@@ -51,7 +53,7 @@ test("primary dashboard routes expose deliberate empty and ready states", async 
     ["/sandboxes", "Sandboxes"],
     ["/knowledge", "Knowledge explorer"],
     ["/docs", "Documentation"],
-    ["/hosting", "Move to Railway"],
+    ["/workspace", "Vessica workspace"],
     ["/access", "Access"],
   ]) {
     await page.goto(path);

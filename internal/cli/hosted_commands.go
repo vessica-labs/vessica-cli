@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vessica-labs/vessica-cli/internal/auth"
 	"github.com/vessica-labs/vessica-cli/internal/config"
+	"github.com/vessica-labs/vessica-cli/internal/onboarding"
 	"github.com/vessica-labs/vessica-cli/internal/tracker"
 )
 
@@ -40,6 +41,32 @@ func newWorkspaceCmd(app *App) *cobra.Command {
 			return err
 		}
 		return app.Printer.Success(map[string]any{"workspace_id": ws.ID, "provider": app.Config.Hosted.Provider, "project_id": app.Config.Hosted.ProjectID, "endpoint": app.Config.Hosted.ControlPlaneURL, "knowledge": map[string]any{"mode": app.Config.Knowledge.Mode, "endpoint": app.Config.Knowledge.Endpoint, "embedding_provider": app.Config.Knowledge.EmbeddingProvider, "embedding_model": app.Config.Knowledge.EmbeddingModel}, "repositories": repositories})
+	}})
+	cmd.AddCommand(&cobra.Command{Use: "forget", Short: "Forget the local attachment without deleting Railway resources", RunE: func(c *cobra.Command, args []string) error {
+		if err := app.requireYes("forget this repository's hosted Vessica attachment"); err != nil {
+			return err
+		}
+		if err := app.loadWorkspaceWithoutGC(c.Context()); err != nil {
+			return err
+		}
+		defer app.closeDB()
+		projectID := app.Config.Hosted.ProjectID
+		workspaceID := app.Config.Hosted.WorkspaceID
+		if err := onboarding.RemoveInstallation(projectID); err != nil {
+			return err
+		}
+		defaults := config.Defaults()
+		app.Config.Hosted = config.HostedConfig{}
+		app.Config.Attachment = config.AttachmentConfig{}
+		app.Config.Knowledge = defaults.Knowledge
+		app.Config.Sandbox.Backend = "railway"
+		if err := config.Save(app.Root, app.Config); err != nil {
+			return err
+		}
+		if err := auth.DeleteSecret(railwaySecretsReference(app.Root)); err != nil {
+			return err
+		}
+		return app.Printer.Success(map[string]any{"forgotten": projectID != "" || workspaceID != "", "railway_project_deleted": false, "project_id": projectID, "workspace_id": workspaceID})
 	}})
 	return cmd
 }

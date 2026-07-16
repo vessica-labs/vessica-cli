@@ -1,7 +1,9 @@
 package onboarding
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -69,6 +71,32 @@ func SaveInstallation(cfg config.Config, credentials []byte) error {
 	defer db.Close()
 	_, err = db.Exec(`INSERT INTO installations(project_id,workspace_id,endpoint,credential_ref,config_json,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(project_id) DO UPDATE SET workspace_id=excluded.workspace_id,endpoint=excluded.endpoint,credential_ref=excluded.credential_ref,config_json=excluded.config_json,updated_at=excluded.updated_at`, next.ProjectID, next.WorkspaceID, next.Endpoint, next.CredentialRef, string(configJSON), time.Now().UTC().Format(time.RFC3339Nano))
 	return err
+}
+
+// RemoveInstallation forgets a hosted installation from this client's registry
+// and credential store. It does not mutate the Railway project.
+func RemoveInstallation(projectID string) error {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return nil
+	}
+	db, err := openClientDB()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	var credentialRef string
+	err = db.QueryRow(`SELECT credential_ref FROM installations WHERE project_id=?`, projectID).Scan(&credentialRef)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if _, err := db.Exec(`DELETE FROM installations WHERE project_id=?`, projectID); err != nil {
+		return err
+	}
+	return auth.DeleteSecret(credentialRef)
 }
 
 func FindInstallation(workspace string) (*Installation, []byte, error) {

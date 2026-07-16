@@ -37,4 +37,13 @@ func TestInstallationRegistryKeepsCredentialsOutOfRegistry(t *testing.T) {
 	if installation.ProjectID != "railway-project" || string(loaded) != string(secret) {
 		t.Fatalf("installation=%#v credentials=%s", installation, loaded)
 	}
+	if err := RemoveInstallation("railway-project"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := FindInstallation("railway-workspace"); !os.IsNotExist(err) {
+		t.Fatalf("expected installation to be forgotten, got %v", err)
+	}
+	if err := RemoveInstallation("railway-project"); err != nil {
+		t.Fatalf("forget must be idempotent: %v", err)
+	}
 }

@@ -103,7 +103,7 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 			opts.Workspace = selected
 		}
 	}
-	plan := map[string]any{"repository": profile, "workspace": opts.Workspace, "retrieval": map[string]any{"mode": "lexical", "embedding_state": "not_configured", "upgrade_optional": true}, "resources": []string{"control-plane", "control-plane Postgres", "knowledge-server", "knowledge Postgres", "Railway sandbox checkpoint"}, "harness_action": map[string]string{"absent": "create", "partial": "audit and preserve", "present": "audit and preserve"}[profile.Harness], "linear": "not connected", "railway_preflight": preflight}
+	plan := map[string]any{"repository": profile, "workspace": opts.Workspace, "retrieval": map[string]any{"mode": "lexical", "embedding_state": "not_configured", "upgrade_optional": true}, "resources": []string{"control-plane", "knowledge-server", "Postgres (vessica_control and vessica_knowledge)", "Railway sandbox checkpoint"}, "harness_action": map[string]string{"absent": "create", "partial": "audit and preserve", "present": "audit and preserve"}[profile.Harness], "linear": "not connected", "railway_preflight": preflight}
 	if app.Flags.DryRun {
 		return app.dryRun("up", plan)
 	}
