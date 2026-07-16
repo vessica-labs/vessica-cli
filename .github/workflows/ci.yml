@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        image: postgres:17@sha256:39fb82e41109483c81ac15422a302500b4a753777b47f8431038703536bc6c52
         env:
           POSTGRES_USER: vessica
           POSTGRES_PASSWORD: vessica
@@ -26,12 +26,12 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: go.mod
           cache: true
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
           cache: npm
@@ -48,8 +48,13 @@ jobs:
       - run: ./scripts/check-dashboard-assets.sh
       - name: Verify generated dashboard is reproducible
         run: git diff --exit-code -- internal/dashboard/assets internal/dashboard/docs web/dashboard/src/generated/api.ts
+      - run: ./scripts/lint-arch.sh
       - run: go test ./...
         env:
           TEST_POSTGRES_URL: postgres://vessica:vessica@127.0.0.1:5432/vessica_test?sslmode=disable
+      - run: go test -race ./internal/state ./internal/app ./internal/run ./internal/controlplane
+        env:
+          TEST_POSTGRES_URL: postgres://vessica:vessica@127.0.0.1:5432/vessica_test?sslmode=disable
       - run: go vet ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
       - run: go build ./cmd/ves

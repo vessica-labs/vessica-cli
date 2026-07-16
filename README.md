@@ -53,7 +53,28 @@ Make sure your Go bin directory is on `PATH`:
 export PATH="$(go env GOPATH)/bin:$PATH"
 ```
 
-### 2. Initialize your repository
+### 2. Attach the repository to GitHub
+
+Vessica needs an `origin` remote before you run an epic. It uses that remote to
+clone isolated sandboxes, push branches, and create pull requests. Confirm it
+first:
+
+```bash
+git remote get-url origin
+```
+
+If the command reports no `origin`, create an empty GitHub repository and attach
+it before continuing:
+
+```bash
+git remote add origin git@github.com:your-org/your-repository.git
+git push -u origin "$(git branch --show-current)"
+```
+
+You can use an HTTPS remote instead if that is how your GitHub credentials are
+configured. Make sure the remote is reachable with `git ls-remote origin`.
+
+### 3. Initialize your repository
 
 ```bash
 cd your-repository
@@ -65,7 +86,7 @@ ves setup codex
 
 This creates local SQLite workplan and knowledge stores, installs pinned agent definitions, detects the project stack, and materializes durable repository guidance. Solo knowledge retrieval uses FTS5/BM25 and requires no API key.
 
-### 3. Authenticate
+### 4. Authenticate
 
 ```bash
 ves auth login github
@@ -76,7 +97,7 @@ ves doctor
 
 GitHub browser login delegates to the authenticated `gh` CLI. Codex login delegates to the installed `codex` CLI.
 
-### 4. Create and run an epic
+### 5. Create and run an epic
 
 ```bash
 cat > epic.md <<'EOF'
@@ -631,6 +652,8 @@ Railway and Linear use browser OAuth with PKCE. On macOS, supported credentials 
 ## Hosted Railway control plane
 
 The same `ves` binary can run as a persistent Railway control plane backed by Postgres. It receives Linear webhooks, starts Railway sandboxes, executes the workflow, publishes previews and draft PRs, and waits for human approval.
+
+The current hosted architecture supports exactly **one control-plane replica**. Keep Railway replica count at one. Startup acquires a Postgres lease and fails with an explicit error if a second replica from the same deployment starts; rolling deployments use a deployment-aware handoff. Railway worker sandboxes can still scale independently. See [Hosted Railway](docs/Hosted_Railway.md) for the scale-out prerequisites.
 
 ```mermaid
 sequenceDiagram

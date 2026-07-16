@@ -15,6 +15,16 @@ The local CLI, persistent control plane, and sandbox worker are roles of the sam
 
 Postgres is the shared source of truth. Webhook delivery IDs, jobs, and outbound tracker operations are idempotent and recover stale leases after service restarts.
 
+## Current replica constraint
+
+Run exactly one control-plane replica. The process acquires a database-backed lease at startup and returns an explicit error when another replica from the same Railway deployment is active. A new deployment ID may take over the lease so rolling releases can drain the previous process without deadlocking readiness.
+
+The deployment runs `ves control-plane migrate` as a locked pre-deploy step. API and worker processes only verify the expected schema; they do not race to apply migrations.
+
+Postgres pools are bounded per process. Defaults are 20 open and 5 idle connections, with 30-minute maximum lifetime and 5-minute maximum idle time. Override them with `VES_DB_MAX_OPEN_CONNS`, `VES_DB_MAX_IDLE_CONNS`, `VES_DB_CONN_MAX_LIFETIME_SECONDS`, and `VES_DB_CONN_MAX_IDLE_SECONDS`; budget the total across the control plane and active workers against the database connection limit.
+
+Railway worker sandboxes remain independently scalable. Before increasing the control-plane replica count, move preview forwarding and stream coordination out of process memory, assign distributed ownership to reconciliation and cleanup loops, and load-test claims, projections, outbox delivery, and database pool limits with concurrent Postgres writers.
+
 ## Provision
 
 From an initialized repository:

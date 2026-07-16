@@ -1,11 +1,11 @@
 preview:
-  command: pnpm run dev
+  command: npm run dev
   port: 3000
   healthcheck: http://localhost:3000/
 build:
-  command: pnpm run build
+  command: if [ -f go.mod ]; then go build ./...; else npm run build; fi
 test:
-  command: pnpm test
+  command: if [ -f go.mod ]; then go test ./...; else npm test; fi
 lint:
-  command: pnpm run lint
+  command: if [ -f go.mod ]; then go vet ./...; else npm run lint; fi
   arch: .vessica/lint-arch.sh

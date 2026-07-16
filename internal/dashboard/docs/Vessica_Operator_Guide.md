@@ -14,6 +14,18 @@ Never infer permission to dispatch from task size. Confirm harness changes, pers
 
 ## Install and initialize
 
+Before initializing or dispatching an epic, the repository must have a reachable
+GitHub `origin`. Vessica uses it for isolated sandbox clones, branch pushes, and
+pull requests:
+
+```bash
+git remote get-url origin
+# If origin is missing:
+git remote add origin git@github.com:your-org/your-repository.git
+git push -u origin "$(git branch --show-current)"
+git ls-remote origin
+```
+
 ```bash
 ves version
 ves init --profile solo --runner codex --repo github
@@ -127,6 +139,8 @@ ves railway up \
 ```
 
 `ves railway up` deploys the compatible public knowledge-server image by immutable digest, provisions isolated Postgres, configures ordinary and export credentials, waits for `SUCCESS` and readiness, promotes knowledge, then configures the control plane to use the hosted authority.
+
+Keep the Railway control-plane service at one replica. This release intentionally rejects a second replica from the same deployment with a database-backed singleton lease. Worker sandboxes remain independently scalable; control-plane scale-out is deferred until preview coordination, scheduled loops, and all remaining process-local ownership are distributed.
 
 After promotion:
 
