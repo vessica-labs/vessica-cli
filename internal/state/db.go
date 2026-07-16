@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
@@ -20,8 +22,19 @@ type DB struct {
 	Workspace *Workspace
 }
 
+// OpenOptions controls lifecycle work performed while opening a database.
+// Hosted processes leave migrations to the deployment's explicit migration step.
+type OpenOptions struct {
+	Migrate bool
+}
+
 // Open opens SQLite or Postgres based on backend/url.
 func Open(backend, dbURL, root string) (*DB, error) {
+	return OpenWithOptions(backend, dbURL, root, OpenOptions{Migrate: true})
+}
+
+// OpenWithOptions opens SQLite or Postgres with an explicit migration policy.
+func OpenWithOptions(backend, dbURL, root string, options OpenOptions) (*DB, error) {
 	switch backend {
 	case "sqlite", "":
 		path := dbURL
@@ -39,9 +52,11 @@ func Open(backend, dbURL, root string) (*DB, error) {
 		sqlDB.SetMaxOpenConns(4)
 		sqlDB.SetMaxIdleConns(4)
 		db := &DB{SQL: sqlDB, Dialect: "sqlite", Root: root}
-		if err := db.Migrate(context.Background()); err != nil {
-			_ = sqlDB.Close()
-			return nil, err
+		if options.Migrate {
+			if err := db.Migrate(context.Background()); err != nil {
+				_ = sqlDB.Close()
+				return nil, err
+			}
 		}
 		return db, nil
 	case "postgres-url", "postgres", "postgres-docker":
@@ -52,19 +67,37 @@ func Open(backend, dbURL, root string) (*DB, error) {
 		if err != nil {
 			return nil, err
 		}
+		configurePostgresPool(sqlDB)
 		if err := sqlDB.Ping(); err != nil {
 			_ = sqlDB.Close()
 			return nil, fmt.Errorf("postgres ping: %w", err)
 		}
 		db := &DB{SQL: sqlDB, Dialect: "postgres", Root: root}
-		if err := db.Migrate(context.Background()); err != nil {
-			_ = sqlDB.Close()
-			return nil, err
+		if options.Migrate {
+			if err := db.Migrate(context.Background()); err != nil {
+				_ = sqlDB.Close()
+				return nil, err
+			}
 		}
 		return db, nil
 	default:
 		return nil, fmt.Errorf("unsupported state backend: %s", backend)
 	}
+}
+
+// VerifySchema fails fast when a hosted process starts before the migration job
+// has applied the schema expected by this binary.
+func (db *DB) VerifySchema(ctx context.Context) error {
+	var version int
+	err := db.SQL.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&version)
+	if err != nil {
+		return fmt.Errorf("read schema version (run `ves control-plane migrate` first): %w", err)
+	}
+	expected := latestMigrationVersion()
+	if version != expected {
+		return fmt.Errorf("database schema version %d does not match binary version %d; run `ves control-plane migrate`", version, expected)
+	}
+	return nil
 }
 
 func (db *DB) Close() error {
@@ -75,6 +108,23 @@ func (db *DB) Close() error {
 }
 
 func (db *DB) Migrate(ctx context.Context) error {
+	if db.Dialect == "postgres" {
+		conn, err := db.SQL.Conn(ctx)
+		if err != nil {
+			return fmt.Errorf("acquire migration lock connection: %w", err)
+		}
+		defer conn.Close()
+		if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock(hashtext('vessica-control-plane-schema'))`); err != nil {
+			return fmt.Errorf("acquire migration lock: %w", err)
+		}
+		defer func() {
+			_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock(hashtext('vessica-control-plane-schema'))`)
+		}()
+	}
+	return db.migrate(ctx)
+}
+
+func (db *DB) migrate(ctx context.Context) error {
 	schema := SchemaSQL
 	if db.Dialect == "postgres" {
 		schema = adaptPostgres(schema)
@@ -150,6 +200,30 @@ func (db *DB) Migrate(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func configurePostgresPool(db *sql.DB) {
+	maxOpen := envInt("VES_DB_MAX_OPEN_CONNS", 20)
+	maxIdle := envInt("VES_DB_MAX_IDLE_CONNS", 5)
+	if maxIdle > maxOpen {
+		maxIdle = maxOpen
+	}
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxIdle)
+	db.SetConnMaxLifetime(time.Duration(envInt("VES_DB_CONN_MAX_LIFETIME_SECONDS", 1800)) * time.Second)
+	db.SetConnMaxIdleTime(time.Duration(envInt("VES_DB_CONN_MAX_IDLE_SECONDS", 300)) * time.Second)
+}
+
+func envInt(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 1 {
+		return fallback
+	}
+	return value
 }
 
 func (db *DB) ensureColumn(ctx context.Context, table, column, typ string) error {

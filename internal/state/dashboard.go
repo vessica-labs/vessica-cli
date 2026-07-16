@@ -340,12 +340,22 @@ func (db *DB) UpdateHostingOperation(ctx context.Context, operationID, status, s
 	return err
 }
 func (db *DB) AppendHostingOperationEvent(ctx context.Context, operationID, stage, status, message string, detail any) (*HostingOperationEvent, error) {
-	var seq int64
-	_ = db.QueryRow(ctx, `SELECT COALESCE(MAX(seq),0)+1 FROM hosting_operation_events WHERE operation_id=?`, operationID).Scan(&seq)
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	seq, err := db.nextSequenceTx(ctx, tx, "hosting:"+operationID)
+	if err != nil {
+		return nil, err
+	}
 	raw, _ := json.Marshal(detail)
 	v := &HostingOperationEvent{ID: id.New("hope"), OperationID: operationID, Seq: seq, Stage: stage, Status: status, Message: message, DetailJSON: string(raw), CreatedAt: Now()}
-	_, err := db.Exec(ctx, `INSERT INTO hosting_operation_events(id,operation_id,seq,stage,status,message,detail_json,created_at) VALUES(?,?,?,?,?,?,?,?)`, v.ID, v.OperationID, v.Seq, v.Stage, v.Status, v.Message, v.DetailJSON, v.CreatedAt)
-	return v, err
+	_, err = tx.ExecContext(ctx, db.Rebind(`INSERT INTO hosting_operation_events(id,operation_id,seq,stage,status,message,detail_json,created_at) VALUES(?,?,?,?,?,?,?,?)`), v.ID, v.OperationID, v.Seq, v.Stage, v.Status, v.Message, v.DetailJSON, v.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return v, tx.Commit()
 }
 func (db *DB) ListHostingOperationEvents(ctx context.Context, operationID string, after int64) ([]HostingOperationEvent, error) {
 	rows, err := db.Query(ctx, `SELECT id,operation_id,seq,stage,status,message,detail_json,created_at FROM hosting_operation_events WHERE operation_id=? AND seq>? ORDER BY seq`, operationID, after)

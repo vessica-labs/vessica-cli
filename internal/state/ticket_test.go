@@ -3,6 +3,8 @@ package state
 import (
 	"context"
 	"path/filepath"
+	"sort"
+	"sync"
 	"testing"
 	"time"
 )
@@ -197,5 +199,105 @@ func TestAppendEventSequences(t *testing.T) {
 		if ev.Seq != int64(i) {
 			t.Fatalf("seq=%d want %d", ev.Seq, i)
 		}
+	}
+}
+
+func TestAppendEventSequencesAreAtomic(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open("sqlite", filepath.Join(dir, "t.db"), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	if _, err := db.EnsureWorkspace(ctx, dir, "solo"); err != nil {
+		t.Fatal(err)
+	}
+	epic, err := db.CreateEpic(ctx, "E", "body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := db.CreateRun(ctx, epic.ID, "", "codex", "gpt-5.6-terra", "high", "docker", 1, false, "none", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const count = 24
+	sequences := make(chan int64, count)
+	errors := make(chan error, count)
+	var wg sync.WaitGroup
+	for i := 0; i < count; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			event, err := db.AppendEvent(ctx, run.ID, "", "concurrent", map[string]any{"i": i})
+			if err != nil {
+				errors <- err
+				return
+			}
+			sequences <- event.Seq
+		}(i)
+	}
+	wg.Wait()
+	close(errors)
+	for err := range errors {
+		t.Fatalf("append concurrent event: %v", err)
+	}
+	close(sequences)
+	var got []int
+	for sequence := range sequences {
+		got = append(got, int(sequence))
+	}
+	sort.Ints(got)
+	for i, sequence := range got {
+		if sequence != i+1 {
+			t.Fatalf("sequences=%v", got)
+		}
+	}
+}
+
+func TestConcurrentTicketClaimHasOneWinner(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open("sqlite", filepath.Join(dir, "t.db"), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	if _, err := db.EnsureWorkspace(ctx, dir, "solo"); err != nil {
+		t.Fatal(err)
+	}
+	epic, err := db.CreateEpic(ctx, "E", "body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket, err := db.CreateTicket(ctx, epic.ID, "feature", "A", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var wg sync.WaitGroup
+	for _, agent := range []string{"agent_1", "agent_2"} {
+		wg.Add(1)
+		go func(agent string) {
+			defer wg.Done()
+			<-start
+			_, _, err := db.ClaimTicket(ctx, ticket.ID, agent, time.Minute)
+			results <- err
+		}(agent)
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	winners := 0
+	for err := range results {
+		if err == nil {
+			winners++
+		}
+	}
+	if winners != 1 {
+		t.Fatalf("claim winners=%d, want 1", winners)
 	}
 }

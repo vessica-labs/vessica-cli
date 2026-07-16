@@ -280,13 +280,10 @@ func (db *DB) AppendEvent(ctx context.Context, runID, sandboxID, typ string, pay
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	var seq int64
-	if runID != "" {
-		_ = tx.QueryRowContext(ctx, db.Rebind(`SELECT COALESCE(MAX(seq),0) FROM events WHERE run_id=?`), runID).Scan(&seq)
-	} else {
-		_ = tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq),0) FROM events`).Scan(&seq)
+	seq, err := db.nextSequenceTx(ctx, tx, runID)
+	if err != nil {
+		return nil, err
 	}
-	seq++
 	b, _ := json.Marshal(payload)
 	e := &Event{
 		ID:          id.New(id.Event),
@@ -306,6 +303,17 @@ func (db *DB) AppendEvent(ctx context.Context, runID, sandboxID, typ string, pay
 		return nil, err
 	}
 	return e, nil
+}
+
+func (db *DB) nextSequenceTx(ctx context.Context, tx *sql.Tx, scope string) (int64, error) {
+	var seq int64
+	query := db.Rebind(`INSERT INTO event_sequences(scope,last_seq) VALUES(?,1)
+		ON CONFLICT(scope) DO UPDATE SET last_seq=event_sequences.last_seq+1
+		RETURNING last_seq`)
+	if err := tx.QueryRowContext(ctx, query, scope).Scan(&seq); err != nil {
+		return 0, fmt.Errorf("allocate event sequence for %q: %w", scope, err)
+	}
+	return seq, nil
 }
 
 func (db *DB) ListEvents(ctx context.Context, runID string, afterSeq int64) ([]Event, error) {

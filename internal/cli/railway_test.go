@@ -5,13 +5,32 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/vessica-labs/vessica-cli/internal/auth"
 	"github.com/vessica-labs/vessica-cli/internal/config"
+	"github.com/vessica-labs/vessica-cli/internal/toolchain"
 	"github.com/vessica-labs/vessica-cli/internal/tracker"
 )
+
+func TestRailwayCheckpointToolchainIsPinned(t *testing.T) {
+	command := railwayCheckpointInstallCommand()
+	for _, required := range []string{
+		"apt-get install -y --no-install-recommends util-linux",
+		"pnpm@" + toolchain.PNPMVersion,
+		"@openai/codex@" + toolchain.CodexVersion,
+		"playwright@" + toolchain.PlaywrightVersion,
+	} {
+		if !strings.Contains(command, required) {
+			t.Fatalf("checkpoint command missing %q: %s", required, command)
+		}
+	}
+	if strings.Contains(command, "@latest") {
+		t.Fatalf("checkpoint command contains a mutable version: %s", command)
+	}
+}
 
 func TestRailwayUpDryRunDoesNotCallRailway(t *testing.T) {
 	dir := t.TempDir()

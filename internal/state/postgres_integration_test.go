@@ -3,6 +3,8 @@ package state
 import (
 	"context"
 	"os"
+	"sort"
+	"sync"
 	"testing"
 	"time"
 )
@@ -61,5 +63,74 @@ func TestPostgresHostedSchema(t *testing.T) {
 	}
 	if _, err = db.AppendHostingOperationEvent(ctx, operation.ID, "verify", "running", "verifying", nil); err != nil {
 		t.Fatal(err)
+	}
+
+	epic, err := db.CreateEpic(ctx, "Postgres concurrency", "atomic state transitions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runRecord, err := db.CreateRun(ctx, epic.ID, "", "codex", "test", "high", "railway", 1, false, "none", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const eventCount = 32
+	sequences := make(chan int64, eventCount)
+	errors := make(chan error, eventCount)
+	var wg sync.WaitGroup
+	for i := 0; i < eventCount; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			event, appendErr := db.AppendEvent(ctx, runRecord.ID, "", "postgres.concurrent", map[string]any{"i": i})
+			if appendErr != nil {
+				errors <- appendErr
+				return
+			}
+			sequences <- event.Seq
+		}(i)
+	}
+	wg.Wait()
+	close(errors)
+	for appendErr := range errors {
+		t.Fatalf("append concurrent Postgres event: %v", appendErr)
+	}
+	close(sequences)
+	var got []int
+	for sequence := range sequences {
+		got = append(got, int(sequence))
+	}
+	sort.Ints(got)
+	for i, sequence := range got {
+		if sequence != i+1 {
+			t.Fatalf("Postgres sequences=%v", got)
+		}
+	}
+
+	ticket, err := db.CreateTicket(ctx, epic.ID, "feature", "Atomic claim", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimStart := make(chan struct{})
+	claimResults := make(chan error, 2)
+	for _, agent := range []string{"postgres-agent-1", "postgres-agent-2"} {
+		wg.Add(1)
+		go func(agent string) {
+			defer wg.Done()
+			<-claimStart
+			_, _, claimErr := db.ClaimTicket(ctx, ticket.ID, agent, time.Minute)
+			claimResults <- claimErr
+		}(agent)
+	}
+	close(claimStart)
+	wg.Wait()
+	close(claimResults)
+	winners := 0
+	for claimErr := range claimResults {
+		if claimErr == nil {
+			winners++
+		}
+	}
+	if winners != 1 {
+		t.Fatalf("Postgres claim winners=%d, want 1", winners)
 	}
 }

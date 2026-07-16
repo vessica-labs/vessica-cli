@@ -5,6 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
+    "preDeployCommand": "ves control-plane migrate",
     "healthcheckPath": "/readyz",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",

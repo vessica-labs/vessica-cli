@@ -20,7 +20,31 @@ CREATE TABLE IF NOT EXISTS dashboard_idempotency(workspace_id TEXT NOT NULL,acto
 CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_expiry ON dashboard_sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_dashboard_audit_workspace ON dashboard_audit_events(workspace_id,created_at);
 CREATE INDEX IF NOT EXISTS idx_hosting_operation_events ON hosting_operation_events(operation_id,seq);
+`}, {version: 3, sql: `
+CREATE TABLE IF NOT EXISTS event_sequences(scope TEXT PRIMARY KEY,last_seq INTEGER NOT NULL);
+INSERT INTO event_sequences(scope,last_seq)
+SELECT COALESCE(run_id,''),MAX(seq) FROM events GROUP BY COALESCE(run_id,'')
+ON CONFLICT(scope) DO UPDATE SET last_seq=CASE WHEN excluded.last_seq>event_sequences.last_seq THEN excluded.last_seq ELSE event_sequences.last_seq END;
+INSERT INTO event_sequences(scope,last_seq)
+SELECT 'hosting:' || operation_id,MAX(seq) FROM hosting_operation_events GROUP BY operation_id
+ON CONFLICT(scope) DO UPDATE SET last_seq=CASE WHEN excluded.last_seq>event_sequences.last_seq THEN excluded.last_seq ELSE event_sequences.last_seq END;
+`}, {version: 4, sql: `
+CREATE TABLE IF NOT EXISTS control_plane_leases(
+name TEXT PRIMARY KEY,
+holder_id TEXT NOT NULL,
+deployment_id TEXT NOT NULL,
+replica_id TEXT NOT NULL,
+heartbeat_at TEXT NOT NULL,
+acquired_at TEXT NOT NULL
+);
 `}}
+
+func latestMigrationVersion() int {
+	if len(migrations) == 0 {
+		return 1
+	}
+	return migrations[len(migrations)-1].version
+}
 
 func (db *DB) applyMigrations(ctx context.Context) error {
 	for _, m := range migrations {

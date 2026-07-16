@@ -27,6 +27,27 @@ import (
 
 func newControlPlaneCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "control-plane", Short: "Run Vessica hosted control-plane roles", Hidden: true}
+	migrate := &cobra.Command{
+		Use:   "migrate",
+		Short: "Apply hosted database migrations before starting a deployment",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg := config.TeamDefaults()
+			config.ApplyEnv(&cfg)
+			if cfg.State.DBURL == "" {
+				cfg.State.DBURL = os.Getenv("DATABASE_URL")
+			}
+			if cfg.State.DBURL == "" {
+				return fmt.Errorf("DATABASE_URL or VES_DB_URL is required")
+			}
+			db, err := state.OpenWithOptions("postgres-url", cfg.State.DBURL, "/var/lib/vessica", state.OpenOptions{})
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			return db.Migrate(cmd.Context())
+		},
+	}
+	cmd.AddCommand(migrate)
 	var addr string
 	serve := &cobra.Command{
 		Use:   "serve",
@@ -47,11 +68,14 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 			if err := os.MkdirAll(root, 0o755); err != nil {
 				return err
 			}
-			db, err := state.Open("postgres-url", cfg.State.DBURL, root)
+			db, err := state.OpenWithOptions("postgres-url", cfg.State.DBURL, root, state.OpenOptions{})
 			if err != nil {
 				return err
 			}
 			defer db.Close()
+			if err := db.VerifySchema(cmd.Context()); err != nil {
+				return err
+			}
 			workspaceKey := hostedWorkspaceKey(cfg)
 			if _, err := db.EnsureWorkspace(cmd.Context(), workspaceKey, "hosted"); err != nil {
 				return err
@@ -215,8 +239,12 @@ func openHostedWorker(ctx context.Context) (*runengine.Engine, *state.DB, error)
 	if _, err := pack.Install(root, pack.DefaultRef); err != nil {
 		return nil, nil, err
 	}
-	db, err := state.Open(cfg.State.Backend, cfg.State.DBURL, root)
+	db, err := state.OpenWithOptions(cfg.State.Backend, cfg.State.DBURL, root, state.OpenOptions{})
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := db.VerifySchema(ctx); err != nil {
+		_ = db.Close()
 		return nil, nil, err
 	}
 	if _, err := db.GetWorkspace(ctx); err != nil {
@@ -257,9 +285,13 @@ func installCodexAuth() error {
 	if !json.Valid(data) {
 		return fmt.Errorf("Codex login is not valid JSON")
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
+	home := strings.TrimSpace(os.Getenv("VES_RUNNER_HOME"))
+	if home == "" {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return err
+		}
 	}
 	dir := filepath.Join(home, ".codex")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
