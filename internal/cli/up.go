@@ -102,7 +102,7 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 			opts.Workspace = selected
 		}
 	}
-	plan := map[string]any{"repository": profile, "workspace": opts.Workspace, "retrieval": map[string]any{"mode": "lexical", "embedding_state": "not_configured", "upgrade_optional": true}, "resources": []string{"control-plane", "knowledge-server", "Postgres (vessica_control and vessica_knowledge)", "Railway sandbox checkpoint"}, "harness_action": map[string]string{"absent": "create", "partial": "audit and preserve", "present": "audit and preserve"}[profile.Harness], "linear": "not connected", "railway_preflight": preflight}
+	plan := map[string]any{"repository": profile, "workspace": opts.Workspace, "railway_project_name": railwayControlPlaneProjectName, "retrieval": map[string]any{"mode": "lexical", "embedding_state": "not_configured", "upgrade_optional": true}, "resources": []string{"control-plane", "knowledge-server", "Postgres (vessica_control and vessica_knowledge)", "Railway sandbox checkpoint"}, "harness_action": map[string]string{"absent": "create", "partial": "audit and preserve", "present": "audit and preserve"}[profile.Harness], "linear": "not connected", "railway_preflight": preflight}
 	if app.Flags.DryRun {
 		return app.dryRun("up", plan)
 	}
@@ -227,7 +227,7 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 		_ = emit("service_deploy", "skipped", "existing hosted services are healthy")
 	} else {
 		_ = emit("resource_provision", "running", "provisioning Railway services")
-		result, err = railwayUp(cmd.Context(), app, railwayUpOptions{Name: "vessica", Workspace: opts.Workspace, Image: defaultControlPlaneImage()})
+		result, err = railwayUp(cmd.Context(), app, railwayUpOptions{Workspace: opts.Workspace, Image: defaultControlPlaneImage()})
 		if err != nil {
 			code := "railway_provision_failed"
 			if sandboxFeatureError(err) {
@@ -485,7 +485,7 @@ func gitRoot(root string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 func confirmHostedUp(cmd *cobra.Command, p onboarding.RepositoryProfile, workspace string) (bool, error) {
-	fmt.Fprintf(cmd.OutOrStdout(), "Repository: %s\nRemote: %s\nRailway workspace: %s\nRetrieval: lexical (semantic optional later)\nHarness: %s\nRailway: control plane, knowledge service, one Postgres service with two isolated databases, sandboxes\n\nProceed? [Y/n] ", p.Name, p.Remote, firstNonEmpty(workspace, "select during authentication"), p.Harness)
+	fmt.Fprintf(cmd.OutOrStdout(), "Repository: %s\nRemote: %s\nRailway workspace: %s\nRailway project: %s\nRetrieval: lexical (semantic optional later)\nHarness: %s\nRailway: control plane, knowledge service, one Postgres service with two isolated databases, sandboxes\n\nProceed? [Y/n] ", p.Name, p.Remote, firstNonEmpty(workspace, "select during authentication"), railwayControlPlaneProjectName, p.Harness)
 	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	if err != nil && len(line) == 0 {
 		return false, err

@@ -21,10 +21,10 @@ type railwaySecrets struct {
 }
 
 type railwayUpOptions struct {
-	Name, Workspace, Source, Image, RuntimeToken, LinearToken, GitHubToken, OpenAIKey, PreviewOrigin string
-	Team, TodoState, WIPState, DoneState, BlockedState, TriggerLabel, WorkerCheckpoint               string
-	KnowledgeImage, KnowledgeSource, EmbeddingAPIKey, EmbeddingAPIKeyEnv                             string
-	EnableLinear                                                                                     bool
+	Workspace, Source, Image, RuntimeToken, LinearToken, GitHubToken, OpenAIKey, PreviewOrigin string
+	Team, TodoState, WIPState, DoneState, BlockedState, TriggerLabel, WorkerCheckpoint         string
+	KnowledgeImage, KnowledgeSource, EmbeddingAPIKey, EmbeddingAPIKeyEnv                       string
+	EnableLinear                                                                               bool
 }
 
 func defaultControlPlaneImage() string {
@@ -43,7 +43,7 @@ func newRailwayCmd(app *App) *cobra.Command {
 			defer app.closeDB()
 			if app.Flags.DryRun {
 				return app.dryRun("railway.up", map[string]any{
-					"project_name":            opts.Name,
+					"project_name":            railwayControlPlaneProjectName,
 					"workspace":               opts.Workspace,
 					"control_plane_source":    opts.Source,
 					"control_plane_image":     opts.Image,
@@ -65,7 +65,6 @@ func newRailwayCmd(app *App) *cobra.Command {
 			return app.Printer.Success(result)
 		},
 	}
-	up.Flags().StringVar(&opts.Name, "name", "vessica-control-plane", "Railway project name")
 	up.Flags().StringVar(&opts.Workspace, "workspace", "", "Railway workspace id or name")
 	up.Flags().StringVar(&opts.Source, "source", "", "deploy control-plane source from this directory")
 	up.Flags().StringVar(&opts.Image, "image", defaultControlPlaneImage(), "published control-plane image")

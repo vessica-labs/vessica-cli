@@ -62,12 +62,13 @@ func TestRailwayUpDryRunDoesNotCallRailway(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("VES_TEST_COMMAND_LOG", logPath)
 	runCLI(t, dir, "dev", "up", "--profile", "solo", "--runner", "codex", "--repo", "github", "--json")
-	raw := runCLI(t, dir, "railway", "up", "--name", "mvp-test", "--dry-run", "--json")
+	raw := runCLI(t, dir, "railway", "up", "--dry-run", "--json")
 	var envelope struct {
 		OK   bool `json:"ok"`
 		Data struct {
-			DryRun bool   `json:"dry_run"`
-			Action string `json:"action"`
+			DryRun bool           `json:"dry_run"`
+			Action string         `json:"action"`
+			Would  map[string]any `json:"would"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
@@ -76,8 +77,53 @@ func TestRailwayUpDryRunDoesNotCallRailway(t *testing.T) {
 	if !envelope.OK || !envelope.Data.DryRun || envelope.Data.Action != "railway.up" {
 		t.Fatalf("unexpected dry-run envelope: %s", raw)
 	}
+	if got := envelope.Data.Would["project_name"]; got != railwayControlPlaneProjectName {
+		t.Fatalf("project_name=%v want=%q", got, railwayControlPlaneProjectName)
+	}
 	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
 		t.Fatalf("railway command unexpectedly executed: %v", err)
+	}
+}
+
+func TestCreateRailwayResourcesUsesFixedControlPlaneProjectName(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	root := filepath.Join(home, "repo")
+	workDir := filepath.Join(home, "provision")
+	for _, dir := range []string{bin, root, workDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	logPath := filepath.Join(home, "commands.log")
+	script := filepath.Join(bin, "railway")
+	content := `#!/bin/sh
+printf '%s\n' "$*" >> "$VES_TEST_COMMAND_LOG"
+case "$1 $2" in
+  "init --name") printf '%s' '{"project":{"id":"project-new"}}' ;;
+  "service list") printf '%s' '[]' ;;
+  "add --service") printf '%s' '{"service":{"id":"control-new"}}' ;;
+  "add --database") printf '%s' '{"service":{"id":"postgres-new"}}' ;;
+  *) printf '%s' '{}' ;;
+esac
+`
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("VES_TEST_COMMAND_LOG", logPath)
+	t.Setenv("RAILWAY_TOKEN", "test-token")
+	cfg := config.Defaults()
+	if err := createRailwayResources(context.Background(), workDir, root, &cfg, railwayUpOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	commands, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(commands)), "\n")
+	if len(lines) == 0 || lines[0] != "init --name "+railwayControlPlaneProjectName+" --json" {
+		t.Fatalf("first Railway command=%q", firstNonEmpty(strings.Join(lines, "\n"), "<none>"))
 	}
 }
 

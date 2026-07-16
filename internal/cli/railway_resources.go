@@ -9,9 +9,11 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/config"
 )
 
+const railwayControlPlaneProjectName = "vessica-control-plane"
+
 func createRailwayResources(ctx context.Context, workDir, root string, cfg *config.Config, opts railwayUpOptions) error {
 	if cfg.Hosted.ProjectID == "" {
-		args := []string{"init", "--name", opts.Name, "--json"}
+		args := []string{"init", "--name", railwayControlPlaneProjectName, "--json"}
 		if opts.Workspace != "" {
 			args = append(args, "--workspace", opts.Workspace)
 		}

@@ -92,7 +92,7 @@ func newIntegrationCmd(app *App) *cobra.Command {
 				return app.Printer.Fail("linear_authentication_failed", err.Error(), "authenticate with ves auth login linear, then retry")
 			}
 		}
-		result, err := railwayUp(c.Context(), app, railwayUpOptions{Name: "vessica", Workspace: app.Config.Hosted.WorkspaceID, Image: firstNonEmpty(app.Config.Hosted.ControlPlaneImage, defaultControlPlaneImage()), EnableLinear: true})
+		result, err := railwayUp(c.Context(), app, railwayUpOptions{Workspace: app.Config.Hosted.WorkspaceID, Image: firstNonEmpty(app.Config.Hosted.ControlPlaneImage, defaultControlPlaneImage()), EnableLinear: true})
 		if err != nil {
 			return app.Printer.Fail("linear_connection_failed", err.Error(), "fix the reported Linear or Railway prerequisite, then rerun this command")
 		}

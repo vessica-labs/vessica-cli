@@ -40,15 +40,11 @@ func dashboardPromotion(app *App) func(context.Context, *state.HostingOperation)
 		}
 		stage("snapshot", "completed", "Created verified local recovery snapshot", map[string]any{"checksum": snapshot.Checksum, "path": recoveryPath})
 		var input struct {
-			Name          string `json:"name"`
 			PreviewOrigin string `json:"preview_origin"`
 		}
 		_ = json.Unmarshal([]byte(operation.InputJSON), &input)
-		if input.Name == "" {
-			input.Name = "vessica-control-plane"
-		}
 		original := app.Config
-		opts := railwayUpOptions{Name: input.Name, Image: "ghcr.io/vessica-labs/vessica-cli:" + version.Version, KnowledgeImage: firstNonEmpty(app.Config.Knowledge.Image, "ghcr.io/vessica-labs/vessica-knowledge-server:v"+knowledgeServerVersion), EmbeddingAPIKeyEnv: "EMBEDDING_API_KEY", PreviewOrigin: input.PreviewOrigin}
+		opts := railwayUpOptions{Image: "ghcr.io/vessica-labs/vessica-cli:" + version.Version, KnowledgeImage: firstNonEmpty(app.Config.Knowledge.Image, "ghcr.io/vessica-labs/vessica-knowledge-server:v"+knowledgeServerVersion), EmbeddingAPIKeyEnv: "EMBEDDING_API_KEY", PreviewOrigin: input.PreviewOrigin}
 		stage("provision", "running", "Provisioning Railway services and pinned images", map[string]any{"control_plane_image": opts.Image, "knowledge_image": opts.KnowledgeImage})
 		result, err := railwayUp(ctx, app, opts)
 		if err != nil {

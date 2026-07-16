@@ -39,6 +39,8 @@ From a repository with a reachable GitHub origin:
 
 `ves up` opens provider authentication only when a valid existing session is unavailable. Linear is not part of quickstart and can be connected later with `ves integration connect linear`. Codex authentication remains owned by Codex and is provisioned to sandboxes without asking for an OpenAI API key.
 
+New installations always create the Railway project as `vessica-control-plane`, independent of the repository being attached. This keeps Vessica infrastructure distinct from any Railway project later used to deploy the target application.
+
 Provisioning creates only one managed Postgres service. It waits for the service variables, connects through the public bootstrap endpoint without logging the URL, creates or reconciles both fixed database roles and databases under an advisory lock, enables `vector` in `vessica_knowledge`, and then configures the application services. Repeating or resuming the operation reuses the same Railway service and logical databases.
 
 The control plane receives only `VES_CONTROL_DATABASE_URL`. The knowledge service receives only `VES_KNOWLEDGE_DATABASE_URL`. No service receives the other store's URL, and there is no generic database variable that can silently point a process at the wrong store.
