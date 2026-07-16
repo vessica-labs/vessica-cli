@@ -56,7 +56,7 @@ func configureRailwayService(ctx context.Context, cfg config.Config, secrets rai
 	return nil
 }
 
-func configureRailwayControlPlaneDeploy(ctx context.Context, cfg config.Config) error {
+func configureRailwayControlPlaneMigration(ctx context.Context, cfg config.Config) error {
 	_, err := runRailway(ctx, "", nil,
 		"environment", "edit",
 		"--project", cfg.Hosted.ProjectID,
@@ -67,6 +67,24 @@ func configureRailwayControlPlaneDeploy(ctx context.Context, cfg config.Config) 
 	)
 	if err != nil {
 		return fmt.Errorf("configure Railway control-plane migration: %w", err)
+	}
+	return nil
+}
+
+func configureRailwayControlPlaneImage(ctx context.Context, cfg config.Config, image string) error {
+	if strings.TrimSpace(image) == "" {
+		return fmt.Errorf("control-plane image is required")
+	}
+	_, err := runRailway(ctx, "", nil,
+		"environment", "edit",
+		"--project", cfg.Hosted.ProjectID,
+		"--environment", cfg.Hosted.EnvironmentID,
+		"--service-config", cfg.Hosted.ServiceID, "source.image", image,
+		"--message", "Configure Vessica control-plane image",
+		"--json",
+	)
+	if err != nil {
+		return fmt.Errorf("configure Railway control-plane image: %w", err)
 	}
 	return nil
 }

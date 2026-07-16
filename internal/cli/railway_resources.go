@@ -58,12 +58,10 @@ func createRailwayResources(ctx context.Context, workDir, root string, cfg *conf
 		}
 	}
 	if cfg.Hosted.ServiceID == "" {
-		serviceArgs := []string{"add", "--service", "control-plane", "--json"}
-		if opts.Image != "" {
-			serviceArgs = []string{"add", "--image", opts.Image, "--service", "control-plane", "--json"}
-			cfg.Hosted.ControlPlaneImage = opts.Image
-		}
-		raw, err := runRailway(ctx, workDir, nil, serviceArgs...)
+		// Keep the service source-less until its database variables and migration
+		// command are configured. Attaching the image here causes Railway to start
+		// the control plane against an unmigrated database during first install.
+		raw, err := runRailway(ctx, workDir, nil, "add", "--service", "control-plane", "--json")
 		if err != nil {
 			return err
 		}

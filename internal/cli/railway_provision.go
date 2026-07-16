@@ -169,21 +169,30 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	if err := configureRailwayService(ctx, cfg, secrets, databaseURLs.Control, hostedLinearToken, linearOAuth, railwayOAuth, githubToken, openAIKey, codexAuthB64, opts.PreviewOrigin); err != nil {
 		return nil, err
 	}
-	if err := configureRailwayControlPlaneDeploy(ctx, cfg); err != nil {
-		return nil, err
-	}
-	source := opts.Source
-	if source == "" {
-		cfg.Hosted.ControlPlaneImage = opts.Image
-	}
 	previousDeploymentID := ""
 	if latest, err := latestRailwayDeployment(ctx, cfg); err == nil {
 		previousDeploymentID = latest.ID
 	}
+	if err := configureRailwayControlPlaneMigration(ctx, cfg); err != nil {
+		return nil, err
+	}
+	source := opts.Source
 	if source != "" {
 		if _, err := runRailway(ctx, source, nil, "up", "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Hosted.ServiceID, "--detach", "--json", "--message", "Vessica "+version.Version); err != nil {
 			return nil, err
 		}
+	} else if cfg.Hosted.ControlPlaneImage != opts.Image {
+		// Attaching the image is the first action that can deploy a freshly
+		// created service. The migration command and database variables are now
+		// already present, so the first process start is safe.
+		if err := configureRailwayControlPlaneImage(ctx, cfg, opts.Image); err != nil {
+			return nil, err
+		}
+		cfg.Hosted.ControlPlaneImage = opts.Image
+		if err := config.Save(app.Root, cfg); err != nil {
+			return nil, err
+		}
+		app.Config = cfg
 	} else {
 		if _, err := runRailway(ctx, "", nil, "redeploy", "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Hosted.ServiceID, "--yes"); err != nil {
 			return nil, err

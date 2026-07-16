@@ -51,6 +51,15 @@ var requiredTools = []Tool{
 	{Name: "playwright", Executable: "node", Args: []string{"-e", playwrightProbe}, Version: PlaywrightVersion},
 }
 
+var workstationTools = []Tool{
+	{Name: "bash", Executable: "bash", Args: []string{"--version"}},
+	{Name: "curl", Executable: "curl", Args: []string{"--version"}},
+	{Name: "git", Executable: "git", Args: []string{"--version"}},
+	{Name: "gh", Executable: "gh", Args: []string{"--version"}},
+	{Name: "jq", Executable: "jq", Args: []string{"--version"}},
+	{Name: "ssh-keygen", Executable: "ssh-keygen"},
+}
+
 const playwrightProbe = `const p=require('playwright/package.json'); if(p.version!==process.argv[1]) process.exit(2); const {chromium}=require('playwright'); (async()=>{const b=await chromium.launch({headless:true}); await b.close(); console.log(p.version)})().catch(e=>{console.error(e.message);process.exit(1)})`
 
 var debianPackages = []string{
@@ -63,8 +72,20 @@ var debianPackages = []string{
 
 // RequiredTools returns a copy of the coding-agent tool contract.
 func RequiredTools() []Tool {
-	tools := make([]Tool, len(requiredTools))
-	for index, tool := range requiredTools {
+	return copyTools(requiredTools)
+}
+
+// RequiredWorkstationTools returns the tools needed to operate hosted Vessica
+// from a developer workstation. The larger worker contract belongs in the
+// managed Railway checkpoint and must not make hosted workstation readiness
+// depend on Linux-only utilities or exact build-tool versions.
+func RequiredWorkstationTools() []Tool {
+	return copyTools(workstationTools)
+}
+
+func copyTools(source []Tool) []Tool {
+	tools := make([]Tool, len(source))
+	for index, tool := range source {
 		tool.Args = append([]string(nil), tool.Args...)
 		tools[index] = tool
 	}
@@ -73,13 +94,28 @@ func RequiredTools() []Tool {
 
 // Verify checks the complete contract using the caller's PATH and environment.
 func Verify(ctx context.Context, workdir string) []Check {
-	checks := make([]Check, 0, len(requiredTools))
+	return verifyTools(ctx, workdir, requiredTools)
+}
+
+// VerifyWorkstation checks only the hosted workstation contract.
+func VerifyWorkstation(ctx context.Context, workdir string) []Check {
+	return verifyTools(ctx, workdir, workstationTools)
+}
+
+func verifyTools(ctx context.Context, workdir string, tools []Tool) []Check {
+	checks := make([]Check, 0, len(tools))
 	env := WithGlobalNodePath(os.Environ())
-	for _, tool := range requiredTools {
+	for _, tool := range tools {
 		check := Check{Name: tool.Name, Executable: tool.Executable}
 		path, err := exec.LookPath(tool.Executable)
 		if err != nil {
 			check.Error = tool.Executable + " not found in PATH"
+			checks = append(checks, check)
+			continue
+		}
+		if len(tool.Args) == 0 {
+			check.OK = true
+			check.Version = path
 			checks = append(checks, check)
 			continue
 		}

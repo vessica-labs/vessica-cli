@@ -88,7 +88,7 @@ func TestInitializeRailwaySecretsPreservesRetainedValues(t *testing.T) {
 	}
 }
 
-func TestConfigureRailwayControlPlaneDeployAddsMigration(t *testing.T) {
+func TestConfigureRailwayControlPlaneMigrationAddsPreDeployCommand(t *testing.T) {
 	home := t.TempDir()
 	bin := filepath.Join(home, "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
@@ -102,7 +102,7 @@ func TestConfigureRailwayControlPlaneDeployAddsMigration(t *testing.T) {
 	t.Setenv("VES_TEST_COMMAND_LOG", logPath)
 	t.Setenv("RAILWAY_TOKEN", "test-token")
 	cfg := config.Config{Hosted: config.HostedConfig{ProjectID: "project", EnvironmentID: "production", ServiceID: "control-plane"}}
-	if err := configureRailwayControlPlaneDeploy(context.Background(), cfg); err != nil {
+	if err := configureRailwayControlPlaneMigration(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
 	command, err := os.ReadFile(logPath)
@@ -110,6 +110,33 @@ func TestConfigureRailwayControlPlaneDeployAddsMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "environment edit --project project --environment production --service-config control-plane deploy.preDeployCommand ves control-plane migrate --message Configure Vessica database migration --json\n"
+	if string(command) != want {
+		t.Fatalf("command=%q want=%q", command, want)
+	}
+}
+
+func TestConfigureRailwayControlPlaneImageAttachesSourceAfterMigration(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(home, "commands.log")
+	if err := os.WriteFile(filepath.Join(bin, "railway"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$VES_TEST_COMMAND_LOG\"\nprintf '{}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("VES_TEST_COMMAND_LOG", logPath)
+	t.Setenv("RAILWAY_TOKEN", "test-token")
+	cfg := config.Config{Hosted: config.HostedConfig{ProjectID: "project", EnvironmentID: "production", ServiceID: "control-plane"}}
+	if err := configureRailwayControlPlaneImage(context.Background(), cfg, "ghcr.io/vessica-labs/vessica-cli@sha256:abc"); err != nil {
+		t.Fatal(err)
+	}
+	command, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "environment edit --project project --environment production --service-config control-plane source.image ghcr.io/vessica-labs/vessica-cli@sha256:abc --message Configure Vessica control-plane image --json\n"
 	if string(command) != want {
 		t.Fatalf("command=%q want=%q", command, want)
 	}

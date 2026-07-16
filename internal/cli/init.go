@@ -250,7 +250,14 @@ func newDoctorCmd(app *App) *cobra.Command {
 				}
 			}
 
-			for _, check := range toolchain.Verify(cmd.Context(), root) {
+			toolchainProfile := "worker"
+			toolchainChecks := toolchain.Verify(cmd.Context(), root)
+			if config.IsHostedAttachment(app.Config) {
+				toolchainProfile = "workstation"
+				toolchainChecks = toolchain.VerifyWorkstation(cmd.Context(), root)
+			}
+			add("toolchain_profile", true, toolchainProfile)
+			for _, check := range toolchainChecks {
 				detail := check.Version
 				if !check.OK {
 					detail = check.Error

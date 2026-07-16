@@ -223,7 +223,9 @@ The exact tools you need depend on the workflow you use.
 | Postgres | Hosted state and knowledge | Provisioned automatically on Railway |
 | Railway CLI | Hosted control plane and sandboxes | Used by `ves up` |
 
-Run `ves doctor` inside a workspace to see which dependencies are ready.
+Run `ves doctor` inside a workspace to see which dependencies are ready. Hosted
+workspaces validate the lightweight workstation profile locally; the complete,
+version-pinned worker profile is verified in the managed Railway checkpoint.
 
 ## Installation
 
@@ -740,7 +742,8 @@ Common environment overrides:
 | `ves memory`, `ves prime` | Preserve and retrieve durable context |
 | `ves run` | Execute, resume, watch, preview, approve, and inspect runs |
 | `ves sandbox` | Operate retained local or Railway environments |
-| `ves toolchain verify` | Verify the coding-agent tools and launch Playwright Chromium |
+| `ves toolchain verify` | Verify the complete managed worker toolchain and launch Playwright Chromium |
+| `ves toolchain verify --profile workstation` | Verify only the tools required to operate hosted Vessica locally |
 | `ves repo` | Inspect repository and pull-request integration |
 | `ves tracker` | Connect and synchronize external trackers |
 | `ves receipt`, `ves trace` | Inspect evidence and diagnostics |

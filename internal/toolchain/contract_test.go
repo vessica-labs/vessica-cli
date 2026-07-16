@@ -26,6 +26,23 @@ func TestRequiredToolsContainsAgentBaseline(t *testing.T) {
 	}
 }
 
+func TestWorkstationToolsExcludeManagedWorkerOnlyDependencies(t *testing.T) {
+	tools := map[string]bool{}
+	for _, tool := range RequiredWorkstationTools() {
+		tools[tool.Name] = true
+	}
+	for _, required := range []string{"bash", "curl", "git", "gh", "jq", "ssh-keygen"} {
+		if !tools[required] {
+			t.Errorf("workstation tool %q is missing", required)
+		}
+	}
+	for _, workerOnly := range []string{"git-lfs", "fd", "yq", "bat", "go", "node", "pnpm", "codex", "playwright"} {
+		if tools[workerOnly] {
+			t.Errorf("worker-only tool %q leaked into workstation readiness", workerOnly)
+		}
+	}
+}
+
 func TestCheckpointInstallCommandIsPinnedAndVerifiesAgent(t *testing.T) {
 	script := CheckpointInstallCommand()
 	for _, required := range []string{
@@ -77,6 +94,19 @@ func TestVerifyReportsMissingTools(t *testing.T) {
 	for _, check := range checks {
 		if check.OK || !strings.Contains(check.Error, "not found in PATH") {
 			t.Fatalf("unexpected missing-tool result: %#v", check)
+		}
+	}
+}
+
+func TestVerifyWorkstationReportsOnlyWorkstationContract(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	checks := VerifyWorkstation(context.Background(), "")
+	if len(checks) != len(RequiredWorkstationTools()) {
+		t.Fatalf("checks=%d tools=%d", len(checks), len(RequiredWorkstationTools()))
+	}
+	for _, check := range checks {
+		if check.Name == "go" || check.Name == "playwright" {
+			t.Fatalf("worker-only check reported on workstation: %#v", check)
 		}
 	}
 }

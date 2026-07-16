@@ -1,6 +1,6 @@
 {
   "name": "vessica",
-  "version": "0.4.0+codex.20260716180856",
+  "version": "0.4.0+codex.20260716223856",
   "description": "Set up and operate hosted Vessica workspaces, repositories, sandboxes, and durable knowledge through the ves CLI.",
   "author": {
     "name": "Vessica Labs",

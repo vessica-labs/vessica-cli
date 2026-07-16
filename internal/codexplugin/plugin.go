@@ -7,6 +7,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/vessica-labs/vessica-cli/internal/version"
 )
 
 //go:embed all:assets
@@ -58,6 +61,13 @@ func Install() (*installResult, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	cliVersion := strings.TrimSpace(version.Version)
+	if cliVersion == "" || cliVersion == "dev" {
+		return nil, fmt.Errorf("install Codex plugin: released Vessica CLI version is unavailable")
+	}
+	if err := os.WriteFile(filepath.Join(dest, "scripts", "cli-version.txt"), []byte(cliVersion+"\n"), 0o644); err != nil {
+		return nil, fmt.Errorf("write Codex plugin CLI pin: %w", err)
 	}
 	marketplace := filepath.Join(home, ".agents", "plugins", "marketplace.json")
 	if err := updateMarketplace(marketplace); err != nil {

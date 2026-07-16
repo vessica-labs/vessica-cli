@@ -71,12 +71,16 @@ jobs:
             rm -rf "dist/$name"
           done
 
-          (cd dist && sha256sum ./vessica-cli_*.tar.gz ./vessica-cli_*.zip > cli-checksums.txt)
-          printf '%s\n' "$version" > internal/codexplugin/assets/scripts/cli-version.txt
-          cp dist/cli-checksums.txt internal/codexplugin/assets/scripts/cli-checksums.txt
-          tar -C internal/codexplugin/assets -czf "dist/vessica-codex-plugin_${version}.tar.gz" .
-          rm dist/cli-checksums.txt
+          plugin_stage="$(mktemp -d)"
+          cp -R internal/codexplugin/assets/. "$plugin_stage/"
+          printf '%s\n' "$version" > "$plugin_stage/scripts/cli-version.txt"
+          chmod 0755 "$plugin_stage/scripts/"*.sh
+          tar -C "$plugin_stage" -czf "dist/vessica-codex-plugin_${version}.tar.gz" .
+          rm -rf "$plugin_stage"
           (cd dist && sha256sum ./*.tar.gz ./*.zip > checksums.txt)
+          test "$(tar -xOf "dist/vessica-codex-plugin_${version}.tar.gz" ./scripts/cli-version.txt)" = "$version"
+          tar -xOf "dist/vessica-codex-plugin_${version}.tar.gz" ./scripts/ensure-ves.sh | grep -F '$base/checksums.txt'
+          tar -tvf "dist/vessica-codex-plugin_${version}.tar.gz" ./scripts/ensure-ves.sh | grep -E '^-rwxr-xr-x'
           cat > dist/compatibility.json <<EOF
           {
             "schema": "vessica.release/v1",

@@ -114,7 +114,7 @@ esac
 	t.Setenv("VES_TEST_COMMAND_LOG", logPath)
 	t.Setenv("RAILWAY_TOKEN", "test-token")
 	cfg := config.Defaults()
-	if err := createRailwayResources(context.Background(), workDir, root, &cfg, railwayUpOptions{}); err != nil {
+	if err := createRailwayResources(context.Background(), workDir, root, &cfg, railwayUpOptions{Image: "ghcr.io/vessica-labs/vessica-cli@sha256:must-not-deploy-yet"}); err != nil {
 		t.Fatal(err)
 	}
 	commands, err := os.ReadFile(logPath)
@@ -124,6 +124,9 @@ esac
 	lines := strings.Split(strings.TrimSpace(string(commands)), "\n")
 	if len(lines) == 0 || lines[0] != "init --name "+railwayControlPlaneProjectName+" --json" {
 		t.Fatalf("first Railway command=%q", firstNonEmpty(strings.Join(lines, "\n"), "<none>"))
+	}
+	if strings.Contains(string(commands), "add --image") || !strings.Contains(string(commands), "add --service control-plane --json") {
+		t.Fatalf("control-plane source was attached before configuration: %s", commands)
 	}
 }
 
