@@ -7,7 +7,7 @@ import { RunDetail } from "@/pages/run-detail";
 import { Sandboxes } from "@/pages/sandboxes";
 import { Knowledge, KnowledgeDetail } from "@/pages/knowledge";
 import { Docs, Doc } from "@/pages/docs";
-import { Hosting } from "@/pages/hosting";
+import { Workspace } from "@/pages/hosting";
 import { Access } from "@/pages/access";
 const client = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 3000 } },
@@ -26,7 +26,7 @@ export function App() {
             <Route path="knowledge/:type/:id" element={<KnowledgeDetail />} />
             <Route path="docs" element={<Docs />} />
             <Route path="docs/:slug" element={<Doc />} />
-            <Route path="hosting" element={<Hosting />} />
+            <Route path="workspace" element={<Workspace />} />
             <Route path="access" element={<Access />} />
           </Route>
         </Routes>

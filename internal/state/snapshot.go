@@ -13,7 +13,7 @@ import (
 
 const WorkplanSnapshotSchema = "vessica.workplan/v1"
 
-var snapshotTables = []string{"epics", "artifacts", "artifact_versions", "artifact_sets", "tickets", "ticket_dependencies", "waves", "runs", "run_phases", "sandboxes", "events", "run_evidence", "receipts", "traces", "external_mappings", "packs", "harness_status", "control_plane_deployments"}
+var snapshotTables = []string{"repositories", "epics", "artifacts", "artifact_versions", "artifact_sets", "tickets", "ticket_dependencies", "waves", "runs", "run_phases", "sandboxes", "events", "run_evidence", "receipts", "traces", "external_mappings", "packs", "harness_status", "onboarding_operations", "control_plane_deployments"}
 var safeIdentifier = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 type WorkplanSnapshot struct {

@@ -14,20 +14,36 @@ type Workspace struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type Repository struct {
+	ID              string `json:"id"`
+	WorkspaceID     string `json:"workspace_id"`
+	Provider        string `json:"provider"`
+	CanonicalRemote string `json:"canonical_remote"`
+	Remote          string `json:"remote"`
+	DisplayName     string `json:"display_name"`
+	DefaultBranch   string `json:"default_branch"`
+	Status          string `json:"status"`
+	MetadataJSON    string `json:"metadata_json"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
 type Epic struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
-	Title       string `json:"title"`
-	Body        string `json:"body"`
-	Status      string `json:"status"`
-	ExternalID  string `json:"external_id,omitempty"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID           string `json:"id"`
+	WorkspaceID  string `json:"workspace_id"`
+	RepositoryID string `json:"repository_id"`
+	Title        string `json:"title"`
+	Body         string `json:"body"`
+	Status       string `json:"status"`
+	ExternalID   string `json:"external_id,omitempty"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 type Artifact struct {
 	ID              string `json:"id"`
 	WorkspaceID     string `json:"workspace_id"`
+	RepositoryID    string `json:"repository_id"`
 	EpicID          string `json:"epic_id,omitempty"`
 	ArtifactSetID   string `json:"artifact_set_id,omitempty"`
 	Type            string `json:"type"`
@@ -95,6 +111,7 @@ type Claim struct {
 type Run struct {
 	ID               string `json:"id"`
 	WorkspaceID      string `json:"workspace_id"`
+	RepositoryID     string `json:"repository_id"`
 	EpicID           string `json:"epic_id,omitempty"`
 	TicketID         string `json:"ticket_id,omitempty"`
 	Workflow         string `json:"workflow"`
@@ -192,15 +209,16 @@ type Trace struct {
 }
 
 type ExternalMapping struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
-	Provider    string `json:"provider"`
-	EntityType  string `json:"entity_type"`
-	LocalID     string `json:"local_id"`
-	ExternalID  string `json:"external_id"`
-	MetaJSON    string `json:"meta_json"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID           string `json:"id"`
+	WorkspaceID  string `json:"workspace_id"`
+	RepositoryID string `json:"repository_id,omitempty"`
+	Provider     string `json:"provider"`
+	EntityType   string `json:"entity_type"`
+	LocalID      string `json:"local_id"`
+	ExternalID   string `json:"external_id"`
+	MetaJSON     string `json:"meta_json"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 type TrackerIntegration struct {
@@ -232,20 +250,21 @@ type WebhookDelivery struct {
 }
 
 type Job struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
-	Kind        string `json:"kind"`
-	Status      string `json:"status"`
-	PayloadJSON string `json:"payload_json"`
-	RunID       string `json:"run_id,omitempty"`
-	Attempts    int    `json:"attempts"`
-	MaxAttempts int    `json:"max_attempts"`
-	LeaseOwner  string `json:"lease_owner,omitempty"`
-	LeaseUntil  string `json:"lease_until,omitempty"`
-	AvailableAt string `json:"available_at"`
-	LastError   string `json:"last_error,omitempty"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID           string `json:"id"`
+	WorkspaceID  string `json:"workspace_id"`
+	RepositoryID string `json:"repository_id,omitempty"`
+	Kind         string `json:"kind"`
+	Status       string `json:"status"`
+	PayloadJSON  string `json:"payload_json"`
+	RunID        string `json:"run_id,omitempty"`
+	Attempts     int    `json:"attempts"`
+	MaxAttempts  int    `json:"max_attempts"`
+	LeaseOwner   string `json:"lease_owner,omitempty"`
+	LeaseUntil   string `json:"lease_until,omitempty"`
+	AvailableAt  string `json:"available_at"`
+	LastError    string `json:"last_error,omitempty"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 type OutboxMessage struct {

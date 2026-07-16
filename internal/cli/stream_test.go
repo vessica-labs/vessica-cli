@@ -29,7 +29,7 @@ func TestResolveStreamCompatibilityFlags(t *testing.T) {
 
 func TestEpicJSONLStreamContractAndReconnect(t *testing.T) {
 	dir := t.TempDir()
-	runCLI(t, dir, "init", "--profile", "solo", "--runner", "codex", "--repo", "github", "--json")
+	runCLI(t, dir, "dev", "up", "--profile", "solo", "--runner", "codex", "--repo", "github", "--json")
 	runCLI(t, dir, "pack", "install", "--json")
 	runCLI(t, dir, "harness", "sync", "--yes", "--json")
 	created := runCLI(t, dir, "epic", "add", "--title", "Machine stream", "--body", "Verify JSONL", "--yes", "--json")

@@ -11,7 +11,7 @@ import (
 
 func TestEpicListShowsAllItems(t *testing.T) {
 	dir := t.TempDir()
-	runCLI(t, dir, "init", "--profile", "solo", "--runner", "codex", "--repo", "github", "--json")
+	runCLI(t, dir, "dev", "up", "--profile", "solo", "--runner", "codex", "--repo", "github", "--json")
 	for _, title := range []string{"One", "Two", "Three"} {
 		runCLI(t, dir, "epic", "add", "--title", title, "--body", strings.ToLower(title), "--yes", "--json")
 	}

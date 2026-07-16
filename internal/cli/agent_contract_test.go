@@ -11,7 +11,7 @@ import (
 
 func TestCapabilitiesAndEpicSpecAgentContract(t *testing.T) {
 	dir := t.TempDir()
-	runCLI(t, dir, "init", "--profile", "solo", "--json")
+	runCLI(t, dir, "dev", "up", "--profile", "solo", "--json")
 	raw := runCLI(t, dir, "capabilities", "--json")
 	var caps struct {
 		Schema string `json:"schema"`

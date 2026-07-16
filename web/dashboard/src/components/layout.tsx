@@ -11,6 +11,8 @@ import {
   Sun,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 
 const nav = [
   ["/", "Overview", LayoutDashboard],
@@ -18,7 +20,7 @@ const nav = [
   ["/sandboxes", "Sandboxes", Box],
   ["/knowledge", "Knowledge", Brain],
   ["/docs", "Documentation", BookOpen],
-  ["/hosting", "Hosting", Cloud],
+  ["/workspace", "Workspace", Cloud],
   ["/access", "Access", ShieldCheck],
 ] as const;
 
@@ -51,6 +53,24 @@ function ThemeToggle() {
 }
 
 export function Layout() {
+  const queryClient = useQueryClient();
+  const repositories = useQuery({
+    queryKey: ["layout-repositories"],
+    queryFn: () => api<{ repositories: Array<{ id: string; display_name: string }> }>("/api/v1/system"),
+  });
+  const [repositoryID, setRepositoryID] = useState(localStorage.getItem("vessica-repository-id") || "");
+  useEffect(() => {
+    const available = repositories.data?.repositories || [];
+    if (available.length && !available.some((repository) => repository.id === repositoryID)) {
+      setRepositoryID(available[0].id);
+      localStorage.setItem("vessica-repository-id", available[0].id);
+    }
+  }, [repositories.data, repositoryID]);
+  const selectRepository = (value: string) => {
+    setRepositoryID(value);
+    localStorage.setItem("vessica-repository-id", value);
+    void queryClient.invalidateQueries();
+  };
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -61,6 +81,16 @@ export function Layout() {
             <span>Control surface</span>
           </div>
         </div>
+        {!!repositories.data?.repositories.length && (
+          <label className="repository-switcher">
+            <span>Repository</span>
+            <select value={repositoryID} onChange={(event) => selectRepository(event.target.value)}>
+              {repositories.data.repositories.map((repository) => (
+                <option key={repository.id} value={repository.id}>{repository.display_name}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <nav aria-label="Primary">
           {nav.map(([to, label, Icon]) => (
             <NavLink key={to} to={to} end={to === "/"}>

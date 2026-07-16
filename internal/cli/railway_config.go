@@ -13,26 +13,30 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/auth"
 	"github.com/vessica-labs/vessica-cli/internal/config"
 	"github.com/vessica-labs/vessica-cli/internal/dashboard"
+	"github.com/vessica-labs/vessica-cli/internal/toolchain"
 	"github.com/vessica-labs/vessica-cli/internal/tracker"
 )
 
-func configureRailwayService(ctx context.Context, root string, cfg config.Config, secrets railwaySecrets, linearToken, linearOAuth, railwayOAuth, githubToken, openAIKey, codexAuthB64, previewOrigin string) error {
-	reference := "$" + "{{Postgres.DATABASE_URL}}"
-	privateKey, err := os.ReadFile(railwaySSHPrivateKeyPath(root))
+func configureRailwayService(ctx context.Context, cfg config.Config, secrets railwaySecrets, controlDatabaseURL, linearToken, linearOAuth, railwayOAuth, githubToken, openAIKey, codexAuthB64, previewOrigin string) error {
+	privateKeyPath, err := railwaySSHUserKeyPath(cfg)
+	if err != nil {
+		return err
+	}
+	privateKey, err := os.ReadFile(privateKeyPath)
 	if err != nil {
 		return fmt.Errorf("read Railway SSH identity: %w", err)
 	}
 	variables := map[string]string{
-		"DATABASE_URL": reference, "VES_DB_URL": reference, "VES_STATE_BACKEND": "postgres-url",
+		"VES_CONTROL_DATABASE_URL": controlDatabaseURL, "VES_STATE_BACKEND": "postgres-url",
 		"VES_SANDBOX": "railway", "VES_HOSTED_PROVIDER": "railway", "VES_CONTROL_PLANE_URL": cfg.Hosted.ControlPlaneURL,
 		"VES_RAILWAY_CHECKPOINT": cfg.Hosted.WorkerCheckpoint,
-		"VES_REPO_REMOTE":        cfg.Repo.Remote, "VES_RUNNER": cfg.Runner.Default, "VES_RUNNER_MODEL": cfg.Runner.Model,
-		"VES_RUNNER_REASONING_EFFORT": cfg.Runner.ReasoningEffort, "VES_TRACKER_PROVIDER": "linear",
+		"VES_RUNNER":             cfg.Runner.Default, "VES_RUNNER_MODEL": cfg.Runner.Model,
+		"VES_RUNNER_REASONING_EFFORT": cfg.Runner.ReasoningEffort, "VES_TRACKER_PROVIDER": cfg.Tracker.Provider,
 		"VES_LINEAR_TEAM_ID": cfg.Tracker.TeamID, "VES_LINEAR_TODO_STATE_ID": cfg.Tracker.TodoStateID,
 		"VES_LINEAR_WIP_STATE_ID": cfg.Tracker.WIPStateID, "VES_LINEAR_DONE_STATE_ID": cfg.Tracker.DoneStateID,
 		"VES_LINEAR_BLOCKED_STATE_ID": cfg.Tracker.BlockedStateID, "VES_LINEAR_TRIGGER_LABEL": cfg.Tracker.TriggerLabel,
 		"VES_RAILWAY_POSTGRES_SERVICE_ID": cfg.Hosted.PostgresServiceID,
-		"VES_WORKER_DOWNLOAD_TOKEN":       secrets.WorkerToken, "VES_CONTROL_PLANE_API_TOKEN": secrets.APIToken,
+		"VES_WORKER_DOWNLOAD_TOKEN":       secrets.WorkerToken, "VES_CONTROL_PLANE_API_TOKEN": secrets.ServiceToken,
 		"VES_LINEAR_WEBHOOK_SECRET": secrets.WebhookSecret, "LINEAR_API_KEY": linearToken,
 		"GITHUB_TOKEN": githubToken, "OPENAI_API_KEY": openAIKey, "RAILWAY_TOKEN": secrets.RuntimeToken,
 		"VES_LINEAR_OAUTH_JSON": linearOAuth, "VES_RAILWAY_OAUTH_JSON": railwayOAuth,
@@ -116,6 +120,47 @@ func railwayPath() string {
 		}
 	}
 	return "railway"
+}
+
+func ensureRailwayCLI(ctx context.Context) error {
+	if railwayPath() != "railway" {
+		return verifyRailwayCLIVersion(ctx, railwayPath())
+	}
+	if path, err := exec.LookPath("railway"); err == nil && path != "" {
+		return verifyRailwayCLIVersion(ctx, path)
+	}
+	tmp, err := os.MkdirTemp("", "vessica-railway-bootstrap-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	installer := filepath.Join(tmp, "install.sh")
+	download := exec.CommandContext(ctx, "curl", "-fsSL", "https://railway.com/install.sh", "-o", installer)
+	if out, err := download.CombinedOutput(); err != nil {
+		return fmt.Errorf("download Railway CLI installer: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	install := exec.CommandContext(ctx, "sh", installer)
+	if out, err := install.CombinedOutput(); err != nil {
+		return fmt.Errorf("install Railway CLI: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	if railwayPath() == "railway" {
+		if _, err := exec.LookPath("railway"); err != nil {
+			return fmt.Errorf("Railway CLI installer completed but railway was not found")
+		}
+	}
+	return verifyRailwayCLIVersion(ctx, railwayPath())
+}
+
+func verifyRailwayCLIVersion(ctx context.Context, path string) error {
+	output, err := exec.CommandContext(ctx, path, "--version").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("read Railway CLI version: %w", err)
+	}
+	fields := strings.Fields(string(output))
+	if len(fields) < 2 || !strings.HasPrefix(fields[1], toolchain.RailwayCLIMajor+".") {
+		return fmt.Errorf("unsupported Railway CLI version %q; Vessica requires tested major version %s", strings.TrimSpace(string(output)), toolchain.RailwayCLIMajor)
+	}
+	return nil
 }
 
 func runRailway(ctx context.Context, dir string, stdin io.Reader, args ...string) ([]byte, error) {

@@ -8,6 +8,7 @@ Vessica is currently open source and single tenant, but the hosted control plane
 - Linear webhooks require signature verification before persistence or job creation.
 - Agent-generated code and output are untrusted. Execute them only in a sandbox and redact output before returning it through APIs or logs.
 - Postgres, Railway, GitHub, Linear, OpenAI/Codex, and the knowledge service are separate credential boundaries.
+- Onboarding journals, repository attachment files, harness artifacts, and receipts contain identifiers and sanitized diagnostics only. Provider tokens remain in the OS credential store or Railway secrets.
 
 ## Secret isolation
 
@@ -20,8 +21,10 @@ Repository build, validation, and preview commands use the same unprivileged bou
 ## Operational requirements
 
 - Configure a strong `VES_CONTROL_PLANE_API_TOKEN`, webhook secret, credential-encryption key, worker-download token, and OAuth credentials through Railway secrets.
+- Keep the generated control-plane and knowledge database roles distinct. Only the control-plane service receives `VES_CONTROL_DATABASE_URL`; only the knowledge service receives `VES_KNOWLEDGE_DATABASE_URL`. The orchestration worker receives the control URL long enough to open durable state and removes it before starting the coding agent. The knowledge URL never enters a sandbox. Neither URL belongs in repository configuration, logs, or receipts.
 - Keep the control-plane service private except for intentional public HTTP routes; keep Postgres private.
 - Rotate credentials after suspected exposure. Open-source history is permanent, so revoke first and clean history second.
+- Embeddings are opt-in. `ves knowledge embeddings enable` accepts only an environment-variable reference, writes the value directly to Railway, and never includes it in command output or repository configuration.
 - Keep dependencies and build actions pinned, run vulnerability scanning in CI, and review lockfile changes.
 - Do not enable multiple control-plane replicas until the scale-out work listed in `ARCHITECTURE.md` is complete.
 

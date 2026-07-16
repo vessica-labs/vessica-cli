@@ -1,20 +1,32 @@
 {
   "name": "vessica",
-  "version": "0.3.0",
-  "description": "Install, operate, plan, dispatch, monitor, review, and share durable Vessica knowledge through the ves CLI.",
-  "author": { "name": "Vessica Labs", "url": "https://github.com/vessica-labs" },
+  "version": "0.4.0+codex.20260716180856",
+  "description": "Set up and operate hosted Vessica workspaces, repositories, sandboxes, and durable knowledge through the ves CLI.",
+  "author": {
+    "name": "Vessica Labs",
+    "url": "https://github.com/vessica-labs"
+  },
   "homepage": "https://github.com/vessica-labs/vessica-cli",
   "repository": "https://github.com/vessica-labs/vessica-cli",
   "license": "Apache-2.0",
-  "keywords": ["coding-agents", "cli", "dark-factory", "linear", "knowledge"],
+  "keywords": [
+    "coding-agents",
+    "cli",
+    "dark-factory",
+    "linear",
+    "knowledge"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Vessica",
-    "shortDescription": "Drive local and cloud coding factories through ves.",
-    "longDescription": "Use the ves Go CLI to install and diagnose Vessica, manage engineering harnesses, create epics and tickets, dispatch cloud coding runs, retrieve shared knowledge, promote to Railway, refine previews, and review evidence.",
+    "shortDescription": "Set up and drive hosted coding factories through ves.",
+    "longDescription": "Use the ves Go CLI to create a Railway-hosted Vessica workspace, attach repositories, generate engineering harnesses, dispatch cloud coding runs, retrieve shared knowledge, refine previews, and review evidence.",
     "developerName": "Vessica Labs",
     "category": "Productivity",
-    "capabilities": ["Interactive", "Write"],
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
     "websiteURL": "https://github.com/vessica-labs/vessica-cli",
     "defaultPrompt": [
       "Set up Vessica in this repository.",

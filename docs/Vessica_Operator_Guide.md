@@ -12,7 +12,7 @@ Vessica has one user-facing control surface: `ves`. The CLI owns repository acce
 
 Never infer permission to dispatch from task size. Confirm harness changes, persistent work objects, run lifecycle changes, refinement prompts, approval, rollback, and merge.
 
-## Install and initialize
+## Install and set up hosted Vessica
 
 Before initializing or dispatching an epic, the repository must have a reachable
 GitHub `origin`. Vessica uses it for isolated sandbox clones, branch pushes, and
@@ -27,16 +27,15 @@ git ls-remote origin
 ```
 
 ```bash
-ves version
-ves init --profile solo --runner codex --repo github
-ves pack install @vessica/engineering-harness
-ves harness sync
-ves setup codex --plugin
-ves capabilities --json
-ves doctor --json
+ves up --dry-run --json
+ves up --yes --stream jsonl
+ves workspace status --json
+ves repo list --json
 ```
 
-Solo mode creates `.vessica/state/vessica.db` for workplans and `.vessica/state/knowledge.db` for authoritative knowledge. It requires no cloud account, model download, or embedding key.
+`ves up` authenticates Railway and GitHub when necessary, discovers or creates the one Vessica installation in the selected Railway workspace, attaches the repository, creates a missing engineering harness, and maps the pushed commit in a read-only cloud sandbox. Hosted lexical retrieval is healthy without an embeddings key. Local-only development is available separately through `ves dev up`.
+
+The hosted installation uses one Railway Postgres service with two isolated databases: `vessica_control` for workflow state and `vessica_knowledge` for durable knowledge. They use different roles, URLs, and migration histories; pgvector exists only in the knowledge database.
 
 ## Agent-safe command contract
 
@@ -67,7 +66,7 @@ Knowledge objects:
 - **Memories** are retrieval-oriented instructions, facts, decisions, and episodes.
 - **Relationships** are immutable assertions connecting knowledge and external references.
 
-Context responses expose the ranking version, weights, artifact selection policy, component scores, artifact reasons, provenance, and source references. Solo mode reports `lexical`; hosted mode normally reports `semantic_hybrid`.
+Context responses expose the ranking version, weights, artifact selection policy, component scores, artifact reasons, provenance, and source references. Hosted workspaces report `lexical` until the owner explicitly enables embeddings; during and after backfill they report `semantic_hybrid` with backlog status.
 
 Create durable knowledge only after confirmation:
 
@@ -117,46 +116,33 @@ ves run rollback <run_id> --yes --idempotency-key rollback-<unique> --json
 
 Meaningful epic, run, ticket, blocker, follow-up, refinement, receipt, PR, and commit events become queryable episode memories. Heartbeats and polling noise do not.
 
-## Promote to Railway
+## Optional semantic retrieval
 
-Hosted knowledge requires an embedding provider credential in an environment variable:
+No embeddings credential is used during quickstart. To opt in later, place the provider key in a local environment variable and name that variable to Vessica:
 
 ```bash
-export EMBEDDING_API_KEY='...'
-ves railway up \
-  --workspace <railway-workspace> \
-  --linear-team <team> \
-  --source /path/to/vessica-cli \
-  --embedding-api-key-env EMBEDDING_API_KEY \
-  --dry-run --json
-
-ves railway up \
-  --workspace <railway-workspace> \
-  --linear-team <team> \
-  --source /path/to/vessica-cli \
-  --embedding-api-key-env EMBEDDING_API_KEY \
-  --yes --idempotency-key railway-up-<unique> --json
+export OPENAI_API_KEY='...'
+ves knowledge embeddings enable --provider openai --api-key-env OPENAI_API_KEY --yes
+ves knowledge embeddings status --json
 ```
 
-`ves railway up` deploys the compatible public knowledge-server image by immutable digest, provisions isolated Postgres, configures ordinary and export credentials, waits for `SUCCESS` and readiness, promotes knowledge, then configures the control plane to use the hosted authority.
+The CLI sends the secret directly to Railway, waits for deployment success and readiness, and starts an idempotent backfill. Changing provider or model re-embeds current versions; rotating only the key does not. `ves knowledge embeddings disable --yes` returns to lexical retrieval while retaining unused vectors.
 
 Keep the Railway control-plane service at one replica. This release intentionally rejects a second replica from the same deployment with a database-backed singleton lease. Worker sandboxes remain independently scalable; control-plane scale-out is deferred until preview coordination, scheduled loops, and all remaining process-local ownership are distributed.
 
-After promotion:
+Optional Linear setup is separate:
 
 ```bash
-ves knowledge status --json
-ves railway status --json
-ves knowledge context --query "recent work" --json
+ves integration connect linear
 ```
 
 Never switch to writable local knowledge during a hosted outage. Retry the hosted operation or restore service availability.
 
 ## Diagnose common failures
 
-### `not_initialized`
+### `repository_required`
 
-Run `ves init` in the repository root or pass `--cwd` explicitly.
+Run `ves up` in a pushed Git repository root or pass `--cwd` explicitly.
 
 ### `confirmation_required`
 
@@ -196,7 +182,7 @@ Inspect `ranking`, per-memory `explanation`, `artifact_explanations`, `retrieval
 The hosted implementation and operational details live in the public `vessica-knowledge-server` repository:
 
 - `README.md`: server overview and development.
-- `docs/OPERATIONS.md`: runtime, secrets, readiness, promotion, and troubleshooting.
+- `docs/OPERATIONS.md`: runtime, secrets, readiness, embeddings, and troubleshooting.
 - `openapi.yaml`: complete authenticated HTTP contract.
 
 Normal developers and coding agents should continue to call `ves`, not the HTTP API directly.

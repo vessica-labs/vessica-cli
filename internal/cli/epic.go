@@ -327,7 +327,7 @@ func (a *App) publishEpic(ctx context.Context, localEpicID string, spec state.Ep
 	}
 	var result map[string]any
 	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/epics"
-	body := map[string]any{"spec": spec, "source_epic_id": localEpicID}
+	body := map[string]any{"spec": spec, "repository_id": a.Config.Attachment.RepositoryID, "source_epic_id": localEpicID}
 	if ws, wsErr := a.DB.GetWorkspace(ctx); wsErr == nil {
 		body["source_workspace_id"] = ws.ID
 	}

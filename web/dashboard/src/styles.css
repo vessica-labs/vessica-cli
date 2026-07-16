@@ -127,6 +127,21 @@ select {
   font-size: 0.72rem;
   color: var(--muted);
 }
+
+.repository-switcher {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0 0.75rem 0.75rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.repository-switcher select {
+  width: 100%;
+  min-width: 0;
+  padding: 0.5rem;
+  font-size: 0.78rem;
+}
 nav {
   display: flex;
   flex-direction: column;

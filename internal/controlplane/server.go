@@ -72,6 +72,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /webhooks/linear", s.handleLinearWebhook)
 	mux.HandleFunc("GET /internal/worker/ves", s.handleWorkerBinary)
 	mux.HandleFunc("GET /api/v1/status", s.requireAPIAuth(s.handleStatus))
+	mux.HandleFunc("POST /api/v1/cli-credentials", s.requireServiceAuth(s.handleCreateCLICredential))
+	mux.HandleFunc("GET /api/v1/repositories", s.requireAPIAuth(s.handleRepositories))
+	mux.HandleFunc("POST /api/v1/repositories", s.requireAPIAuth(s.handleAttachRepository))
+	mux.HandleFunc("POST /api/v1/onboarding/operations", s.requireAPIAuth(s.handleUpsertOnboarding))
+	mux.HandleFunc("GET /api/v1/onboarding/operations/{operation_id}", s.requireAPIAuth(s.handleOnboarding))
+	mux.HandleFunc("POST /api/v1/onboarding/operations/{operation_id}/resume", s.requireAPIAuth(s.handleOnboarding))
+	mux.HandleFunc("GET /api/v1/onboarding/operations/{operation_id}/events", s.requireAPIAuth(s.handleOnboarding))
 	mux.HandleFunc("GET /api/v1/jobs", s.requireAPIAuth(s.handleJobs))
 	mux.HandleFunc("GET /api/v1/runs", s.requireAPIAuth(s.handleRuns))
 	mux.HandleFunc("GET /api/v1/runs/{run_id}", s.requireAPIAuth(s.handleRun))
@@ -151,6 +158,12 @@ func dashboardRoute(r *http.Request) bool {
 	}
 	if strings.HasPrefix(p, "/api/v1/runs") {
 		return !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") || r.Header.Get("Accept") == "application/vnd.vessica.dashboard+json"
+	}
+	if strings.HasPrefix(p, "/api/v1/repositories") {
+		return !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ")
+	}
+	if strings.HasPrefix(p, "/api/v1/onboarding") {
+		return !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ")
 	}
 	for _, prefix := range []string{"/healthz", "/readyz", "/webhooks/", "/internal/", "/review/", "/previews/", "/api/v1/status", "/api/v1/jobs", "/api/v1/receipts", "/api/v1/epics"} {
 		if strings.HasPrefix(p, prefix) {
@@ -239,13 +252,19 @@ func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	result := map[string]any{"ok": true, "installation_id": s.Config.Hosted.ProjectID}
+	if workspace, err := s.DB.GetWorkspace(r.Context()); err == nil {
+		result["workspace_id"] = workspace.ID
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	integration, _ := s.DB.GetTrackerIntegration(r.Context(), "linear")
 	jobs, _ := s.DB.ListJobs(r.Context(), 20)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "integration": integration, "jobs": jobs})
+	workspace, _ := s.DB.GetWorkspace(r.Context())
+	repositories, _ := s.DB.ListRepositories(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "workspace": workspace, "repositories": repositories, "integration": integration, "jobs": jobs})
 }
 
 func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
@@ -258,7 +277,14 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
-	runs, err := s.DB.ListRuns(r.Context())
+	repositoryID := strings.TrimSpace(r.URL.Query().Get("repository_id"))
+	var runs []state.Run
+	var err error
+	if repositoryID != "" {
+		runs, err = s.DB.ListRunsForRepository(r.Context(), repositoryID)
+	} else {
+		runs, err = s.DB.ListRuns(r.Context())
+	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
@@ -361,8 +387,19 @@ func (s *Server) handleWorkerBinary(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) requireAPIAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !constantToken(r.Header.Get("Authorization"), s.APIToken) {
+		provided := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+		if !constantToken(r.Header.Get("Authorization"), s.APIToken) && (provided == "" || !s.DB.HasCLICredential(r.Context(), cliTokenHash(provided))) {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *Server) requireServiceAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !constantToken(r.Header.Get("Authorization"), s.APIToken) {
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "service authorization required"})
 			return
 		}
 		next(w, r)

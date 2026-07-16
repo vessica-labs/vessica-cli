@@ -95,14 +95,6 @@ paths:
     post: {$ref: '#/components/pathItems/Mutation'}
   /api/v1/audit:
     get: {operationId: listAudit, responses: {'200': {$ref: '#/components/responses/Success'}}}
-  /api/v1/hosting/promotions:
-    post: {$ref: '#/components/pathItems/Mutation'}
-  /api/v1/hosting/promotions/{id}:
-    get: {operationId: getPromotion, parameters: [{$ref: '#/components/parameters/ID'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
-  /api/v1/hosting/promotions/{id}/resume:
-    post: {$ref: '#/components/pathItems/ResourceMutation'}
-  /api/v1/hosting/promotions/{id}/stream:
-    get: {operationId: streamPromotion, parameters: [{$ref: '#/components/parameters/ID'}, {$ref: '#/components/parameters/After'}], responses: {'200': {description: Resumable promotion event stream, content: {text/event-stream: {schema: {type: string}}}}}}
 components:
   securitySchemes:
     browserSession: {type: apiKey, in: cookie, name: ves_dashboard}

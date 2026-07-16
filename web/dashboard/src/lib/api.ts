@@ -15,6 +15,8 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = (init.method || "GET").toUpperCase();
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
+  const repositoryID = localStorage.getItem("vessica-repository-id");
+  if (repositoryID) headers.set("X-Vessica-Repository-ID", repositoryID);
   if (init.body) headers.set("Content-Type", "application/json");
   if (!["GET", "HEAD"].includes(method)) {
     headers.set("X-CSRF-Token", csrfToken);

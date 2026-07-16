@@ -11,13 +11,13 @@ ves prime --for codex --json
 
 Vessica exposes one operational interface: `ves`. The plugin supplies guidance only. Never access Vessica databases or the knowledge HTTP API directly.
 
-## Modes
+## Work modes
 
 - Interactive: edit the current tree directly.
 - Dispatch: create approved Vessica work and start a run.
 - Hybrid: discover and plan interactively, then dispatch after confirmation.
-- Solo knowledge: embedded SQLite plus FTS5/BM25, no API key, `retrieval_mode: lexical`.
-- Hosted knowledge: workspace service plus Postgres/pgvector and embeddings, normally `retrieval_mode: semantic_hybrid`.
+- Hosted knowledge starts with Postgres lexical retrieval and no embeddings key.
+- Semantic-hybrid retrieval is an optional user-funded upgrade.
 
 Never infer dispatch permission from task size. Never create a writable local fallback during a hosted outage.
 
@@ -55,21 +55,23 @@ ves receipt view <receipt_id> --json
 
 Confirm run start, resume, cancel, refinement, approval, rollback, and merge. Meaningful workflow outcomes become episode memories with epic, ticket, artifact, receipt, PR, commit, Linear, and run references.
 
-## Railway promotion
+## Hosted setup
 
 ```bash
-export EMBEDDING_API_KEY='...'
-ves railway up --embedding-api-key-env EMBEDDING_API_KEY --source /path/to/vessica-cli --dry-run --json
-ves railway up --embedding-api-key-env EMBEDDING_API_KEY --source /path/to/vessica-cli --yes --idempotency-key <key> --json
+ves up --dry-run --json
+ves up --yes --stream jsonl
+ves up resume <operation-id> --yes --stream jsonl
 ```
 
-The command resolves a compatible public knowledge image to an immutable digest, provisions the service and isolated Postgres, configures secrets, waits for `SUCCESS` and readiness, imports and verifies SQLite, saves a read-only recovery copy, then changes authority to hosted.
+The command resolves compatible release images to immutable digests, provisions the control plane and lexical knowledge service, prepares the runner checkpoint, attaches the repository, creates a starting harness when absent, and persists a repository map.
 
-If promotion fails, local SQLite remains authoritative and the command can be retried. Do not manually flip configuration.
+One Railway Postgres service contains two isolated logical databases. The control plane uses `vessica_control`; the knowledge service uses `vessica_knowledge`, which alone has pgvector. Their credentials, URLs, migration histories, and application access remain separate.
+
+There is no local fallback. Resume the same hosted onboarding operation after correcting a typed failure.
 
 ## Failure routing
 
-- `not_initialized`: run `ves init` in the repository or pass `--cwd`.
+- `not_initialized`: run `ves up` in the repository or pass `--cwd`.
 - `confirmation_required`: review and repeat with `--yes` and an idempotency key.
 - Harness drift: run `ves harness audit --json`, preview sync, then confirm.
 - Hosted unauthorized: run `ves auth status --json`; reconnect or rerun Railway setup.
@@ -80,6 +82,6 @@ If promotion fails, local SQLite remains authoritative and the command can be re
 
 ## Server details
 
-Hosted server variables are `DATABASE_URL`, `KNOWLEDGE_API_TOKEN`, `KNOWLEDGE_EXPORT_TOKEN`, `KNOWLEDGE_WORKSPACE_ID`, and `EMBEDDING_API_KEY`. `/healthz` checks process health; `/readyz` reports database, migration, embedding worker, and index state.
+The control plane uses only `VES_CONTROL_DATABASE_URL`; the knowledge server uses only `VES_KNOWLEDGE_DATABASE_URL`. Knowledge server variables include `KNOWLEDGE_API_TOKEN`, `KNOWLEDGE_EXPORT_TOKEN`, and `KNOWLEDGE_WORKSPACE_ID`; `EMBEDDING_API_KEY` is optional. `/healthz` checks process health; `/readyz` reports database, migration, embedding worker, and index state.
 
 The API uses `vessica.knowledge/v1`. Writes require bearer auth, idempotency, actor headers, and provenance. Export/import use a separate token. Direct API use is for Vessica services and integrations, not normal developer workflows.

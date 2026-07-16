@@ -276,7 +276,9 @@ func (s *Server) handleReviewPrompt(w http.ResponseWriter, r *http.Request) {
 	if runRecord.PRURL != "" {
 		if number, err := repo.ParsePRNumber(runRecord.PRURL); err == nil {
 			body := fmt.Sprintf("Vessica applied a preview refinement.\n\n**Request**\n%s\n\n**Result**\n%s", prompt, result.Output)
-			_ = repo.CommentPullRequest(r.Context(), s.Config.Repo.Remote, number, body)
+			if remote, remoteErr := s.repositoryRemote(r.Context(), runRecord); remoteErr == nil {
+				_ = repo.CommentPullRequest(r.Context(), remote, number, body)
+			}
 		}
 	}
 	s.respondReview(w, r, data)

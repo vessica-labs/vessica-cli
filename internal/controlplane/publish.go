@@ -3,7 +3,6 @@ package controlplane
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -13,6 +12,7 @@ import (
 
 type publishEpicRequest struct {
 	Spec              state.EpicSpec `json:"spec"`
+	RepositoryID      string         `json:"repository_id"`
 	SourceWorkspaceID string         `json:"source_workspace_id,omitempty"`
 	SourceEpicID      string         `json:"source_epic_id,omitempty"`
 }
@@ -53,7 +53,11 @@ func (s *Server) handlePublishEpic(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		result, err := s.DB.CreateEpicFromSpec(ctx, request.Spec)
+		if strings.TrimSpace(request.RepositoryID) == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "repository_id required"})
+			return
+		}
+		result, err := s.DB.CreateEpicFromSpecForRepository(ctx, request.RepositoryID, request.Spec)
 		if err != nil {
 			writeJSON(w, 400, map[string]any{"error": err.Error()})
 			return
@@ -79,15 +83,19 @@ func (s *Server) handleStartEpicRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
 		return
 	}
-	mapping, err := s.DB.GetExternalMapping(ctx, "linear", "epic", epicID)
-	if err != nil {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": "epic is not projected to Linear"})
-		return
-	}
-	integration, err := s.DB.GetTrackerIntegration(ctx, "linear")
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": err.Error()})
-		return
+	var externalIssue, integrationID string
+	if s.Linear != nil && s.Config.Tracker.Provider == "linear" {
+		mapping, err := s.DB.GetExternalMapping(ctx, "linear", "epic", epicID)
+		if err != nil {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "epic is not projected to Linear"})
+			return
+		}
+		integration, err := s.DB.GetTrackerIntegration(ctx, "linear")
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": err.Error()})
+			return
+		}
+		externalIssue, integrationID = mapping.ExternalID, integration.ID
 	}
 	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	if key == "" {
@@ -106,7 +114,7 @@ func (s *Server) handleStartEpicRun(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 500, map[string]any{"error": err.Error()})
 		return
 	}
-	job, err := s.DB.EnqueueJob(ctx, "run_epic", runJobPayload{EpicID: epicID, ExternalIssue: mapping.ExternalID, IntegrationID: integration.ID}, runRecord.ID)
+	job, err := s.DB.EnqueueJob(ctx, "run_epic", runJobPayload{EpicID: epicID, ExternalIssue: externalIssue, IntegrationID: integrationID}, runRecord.ID)
 	if err != nil {
 		writeJSON(w, 500, map[string]any{"error": err.Error()})
 		return
@@ -117,7 +125,7 @@ func (s *Server) handleStartEpicRun(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) projectPublishedEpic(ctx context.Context, created *state.CreatedEpicSpec) (*publishEpicResponse, error) {
 	if s.Linear == nil {
-		return nil, fmt.Errorf("Linear client is not configured")
+		return &publishEpicResponse{Epic: created.Epic, Tickets: created.Tickets}, nil
 	}
 	label, err := s.Linear.EnsureIssueLabel(ctx, s.Config.Tracker.TeamID, s.Config.Tracker.TriggerLabel)
 	if err != nil {

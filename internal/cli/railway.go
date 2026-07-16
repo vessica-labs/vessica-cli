@@ -9,24 +9,33 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/vessica-labs/vessica-cli/internal/auth"
 	"github.com/vessica-labs/vessica-cli/internal/config"
+	"github.com/vessica-labs/vessica-cli/internal/toolchain"
+	"github.com/vessica-labs/vessica-cli/internal/version"
 )
 
 type railwaySecrets struct {
-	RuntimeToken, APIToken, WorkerToken, WebhookSecret, WebhookID, CredentialKey, KnowledgeToken, KnowledgeAdminToken string
+	RuntimeToken, ServiceToken, APIToken, WorkerToken, WebhookSecret, WebhookID, CredentialKey, KnowledgeToken, KnowledgeAdminToken string
+	ControlDatabasePassword, KnowledgeDatabasePassword                                                                              string
 }
 
 type railwayUpOptions struct {
 	Name, Workspace, Source, Image, RuntimeToken, LinearToken, GitHubToken, OpenAIKey, PreviewOrigin string
 	Team, TodoState, WIPState, DoneState, BlockedState, TriggerLabel, WorkerCheckpoint               string
 	KnowledgeImage, KnowledgeSource, EmbeddingAPIKey, EmbeddingAPIKeyEnv                             string
+	EnableLinear                                                                                     bool
+}
+
+func defaultControlPlaneImage() string {
+	return "ghcr.io/vessica-labs/vessica-cli:" + version.Version
 }
 
 func newRailwayCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "railway", Short: "Provision and operate the hosted Railway control plane"}
 	var opts railwayUpOptions
 	up := &cobra.Command{
-		Use: "up", Short: "Provision the control plane, Postgres, Linear webhook, and Railway sandbox access",
+		Use: "up", Short: "Provision the hosted control plane, lexical knowledge, and Railway sandbox access", Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := app.loadWorkspaceWithoutGC(cmd.Context()); err != nil {
 				return app.Printer.Fail("not_initialized", err.Error(), "run ves init first")
@@ -42,7 +51,7 @@ func newRailwayCmd(app *App) *cobra.Command {
 					"knowledge_source":        opts.KnowledgeSource,
 					"embedding_key_env":       opts.EmbeddingAPIKeyEnv,
 					"linear_team":             opts.Team,
-					"worker_checkpoint":       opts.WorkerCheckpoint,
+					"worker_checkpoint":       firstNonEmpty(opts.WorkerCheckpoint, "vessica-worker-toolchain-"+toolchain.Fingerprint()),
 					"preserves_local_on_fail": true,
 				})
 			}
@@ -59,7 +68,7 @@ func newRailwayCmd(app *App) *cobra.Command {
 	up.Flags().StringVar(&opts.Name, "name", "vessica-control-plane", "Railway project name")
 	up.Flags().StringVar(&opts.Workspace, "workspace", "", "Railway workspace id or name")
 	up.Flags().StringVar(&opts.Source, "source", "", "deploy control-plane source from this directory")
-	up.Flags().StringVar(&opts.Image, "image", "", "published control-plane image")
+	up.Flags().StringVar(&opts.Image, "image", defaultControlPlaneImage(), "published control-plane image")
 	up.Flags().StringVar(&opts.RuntimeToken, "railway-token", "", "headless fallback project token for the hosted service")
 	up.Flags().StringVar(&opts.LinearToken, "linear-token", "", "headless fallback Linear API key")
 	up.Flags().StringVar(&opts.GitHubToken, "github-token", "", "GitHub token with repository and PR access")
@@ -70,12 +79,11 @@ func newRailwayCmd(app *App) *cobra.Command {
 	up.Flags().StringVar(&opts.DoneState, "done-state", "Done", "Linear Done state id or name")
 	up.Flags().StringVar(&opts.BlockedState, "blocked-state", "", "optional Linear blocked state id or name")
 	up.Flags().StringVar(&opts.TriggerLabel, "trigger-label", "", "only process issues with this label")
-	up.Flags().StringVar(&opts.WorkerCheckpoint, "worker-checkpoint", "", "Railway sandbox checkpoint with worker prerequisites")
+	up.Flags().StringVar(&opts.WorkerCheckpoint, "worker-checkpoint", "", "override the managed Railway sandbox toolchain checkpoint")
 	up.Flags().StringVar(&opts.PreviewOrigin, "preview-origin", "", "separate HTTPS origin for hosted previews")
 	up.Flags().StringVar(&opts.KnowledgeImage, "knowledge-image", "", "knowledge-server OCI image override (resolved to an immutable digest)")
 	up.Flags().StringVar(&opts.KnowledgeSource, "knowledge-source", "", "development-only knowledge-server source directory")
-	up.Flags().StringVar(&opts.EmbeddingAPIKey, "embedding-api-key", "", "embedding provider key required by hosted knowledge")
-	up.Flags().StringVar(&opts.EmbeddingAPIKeyEnv, "embedding-api-key-env", "EMBEDDING_API_KEY", "environment variable containing the hosted embedding provider key")
+	up.Flags().StringVar(&opts.EmbeddingAPIKeyEnv, "embedding-api-key-env", "", "optional environment variable containing an embedding provider key")
 	cmd.AddCommand(up, newRailwayStatusCmd(app), newRailwayLogsCmd(app), newRailwayApproveCmd(app), newRailwayDownCmd(app))
 	return cmd
 }
@@ -186,7 +194,7 @@ func newRailwayDownCmd(app *App) *cobra.Command {
 		if err := config.Save(app.Root, app.Config); err != nil {
 			return err
 		}
-		_ = os.Remove(railwaySecretsPath(app.Root))
+		_ = auth.DeleteSecret(railwaySecretsReference(app.Root))
 		return app.Printer.Success(map[string]any{"deleted": true, "project_id": projectID})
 	}}
 }

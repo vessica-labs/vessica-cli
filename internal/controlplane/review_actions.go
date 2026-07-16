@@ -29,7 +29,11 @@ func (s *Server) approveRun(ctx context.Context, runID string) (map[string]any, 
 	if err != nil {
 		return nil, err
 	}
-	details, err := repo.GetPullRequest(ctx, s.Config.Repo.Remote, number)
+	remote, err := s.repositoryRemote(ctx, runRecord)
+	if err != nil {
+		return nil, err
+	}
+	details, err := repo.GetPullRequest(ctx, remote, number)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +42,7 @@ func (s *Server) approveRun(ctx context.Context, runID string) (map[string]any, 
 			return nil, err
 		}
 	}
-	merged, err := repo.MergePullRequest(ctx, s.Config.Repo.Remote, number, "squash", details.Head.SHA)
+	merged, err := repo.MergePullRequest(ctx, remote, number, "squash", details.Head.SHA)
 	if err != nil {
 		return nil, err
 	}
@@ -75,11 +79,15 @@ func (s *Server) rollbackRun(ctx context.Context, runID string) error {
 	if err != nil {
 		return err
 	}
-	comment := fmt.Sprintf("Rolled back through Vessica review controls for run `%s`. The retained preview sandbox was stopped.", runID)
-	if err := repo.CommentPullRequest(ctx, s.Config.Repo.Remote, number, comment); err != nil {
+	remote, err := s.repositoryRemote(ctx, runRecord)
+	if err != nil {
 		return err
 	}
-	if err := repo.ClosePullRequest(ctx, s.Config.Repo.Remote, number); err != nil {
+	comment := fmt.Sprintf("Rolled back through Vessica review controls for run `%s`. The retained preview sandbox was stopped.", runID)
+	if err := repo.CommentPullRequest(ctx, remote, number, comment); err != nil {
+		return err
+	}
+	if err := repo.ClosePullRequest(ctx, remote, number); err != nil {
 		return err
 	}
 	runRecord.PRMode = "rolled_back"

@@ -26,7 +26,7 @@ func ModelEnvironment(extra map[string]string) []string {
 
 func environment(extra map[string]string, model bool) []string {
 	allowed := []string{
-		"PATH", "LANG", "LC_ALL", "TERM", "TMPDIR", "NODE_PATH",
+		"PATH", "LANG", "LC_ALL", "TERM", "TMPDIR", "NODE_PATH", "PLAYWRIGHT_BROWSERS_PATH",
 	}
 	if model {
 		allowed = append(allowed, "OPENAI_API_KEY", "VES_CODEX_EXTERNAL_SANDBOX")

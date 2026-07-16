@@ -15,7 +15,7 @@ import (
 )
 
 func newKnowledgeCmd(app *App) *cobra.Command {
-	cmd := &cobra.Command{Use: "knowledge", Short: "Inspect, retrieve, and promote the Vessica knowledge layer"}
+	cmd := &cobra.Command{Use: "knowledge", Short: "Inspect and manage the durable Vessica knowledge layer"}
 	var query, outFile, inFile, endpoint, token string
 	var budget int
 	cmd.AddCommand(&cobra.Command{Use: "status", RunE: func(cmd *cobra.Command, args []string) error {
@@ -53,7 +53,7 @@ func newKnowledgeCmd(app *App) *cobra.Command {
 	contextCmd.Flags().StringVar(&query, "query", "", "task or retrieval query")
 	contextCmd.Flags().IntVar(&budget, "token-budget", 12000, "maximum assembled context tokens")
 	cmd.AddCommand(contextCmd)
-	exportCmd := &cobra.Command{Use: "export", RunE: func(cmd *cobra.Command, args []string) error {
+	exportCmd := &cobra.Command{Use: "export", Hidden: true, RunE: func(cmd *cobra.Command, args []string) error {
 		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
 		}
@@ -78,7 +78,7 @@ func newKnowledgeCmd(app *App) *cobra.Command {
 	}}
 	exportCmd.Flags().StringVar(&outFile, "file", "", "write snapshot JSON to file")
 	cmd.AddCommand(exportCmd)
-	importCmd := &cobra.Command{Use: "import", RunE: func(cmd *cobra.Command, args []string) error {
+	importCmd := &cobra.Command{Use: "import", Hidden: true, RunE: func(cmd *cobra.Command, args []string) error {
 		if inFile == "" {
 			return app.Printer.Fail("missing_file", "--file required", "")
 		}
@@ -112,7 +112,7 @@ func newKnowledgeCmd(app *App) *cobra.Command {
 	}}
 	importCmd.Flags().StringVar(&inFile, "file", "", "snapshot JSON file")
 	cmd.AddCommand(importCmd)
-	promote := &cobra.Command{Use: "promote", Short: "Promote local knowledge to an existing hosted service", RunE: func(cmd *cobra.Command, args []string) error {
+	promote := &cobra.Command{Use: "promote", Short: "Promote local knowledge to an existing hosted service", Hidden: true, RunE: func(cmd *cobra.Command, args []string) error {
 		if endpoint == "" || token == "" {
 			return app.Printer.Fail("missing_hosted_knowledge", "--endpoint and --token required", "")
 		}
@@ -196,6 +196,7 @@ func newKnowledgeCmd(app *App) *cobra.Command {
 	promote.Flags().StringVar(&endpoint, "endpoint", "", "hosted knowledge API endpoint")
 	promote.Flags().StringVar(&token, "token", "", "hosted knowledge bearer token")
 	cmd.AddCommand(promote)
+	cmd.AddCommand(newKnowledgeEmbeddingsCmd(app))
 	return cmd
 }
 

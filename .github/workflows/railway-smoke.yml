@@ -1,0 +1,50 @@
+name: Disposable Railway onboarding smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      railway_workspace:
+        description: Railway workspace id for the disposable installation
+        required: true
+        type: string
+      cleanup:
+        description: Destroy the Railway project after verification
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  hosted-quickstart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.VESSICA_SMOKE_GITHUB_TOKEN }}
+      VES_CODEX_AUTH_B64: ${{ secrets.VESSICA_SMOKE_CODEX_AUTH_B64 }}
+      VES_AUTH_STORE: file
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install Railway CLI
+        run: curl -fsSL https://railway.com/install.sh | sh
+      - name: Build ves
+        run: go build -o "$RUNNER_TEMP/ves" ./cmd/ves
+      - name: Inspect hosted plan
+        run: |
+          "$RUNNER_TEMP/ves" up --workspace "${{ inputs.railway_workspace }}" --dry-run --json
+      - name: Provision, attach, map, and verify
+        run: |
+          "$RUNNER_TEMP/ves" up --workspace "${{ inputs.railway_workspace }}" --yes --stream jsonl | tee "$RUNNER_TEMP/onboarding.jsonl"
+      - name: Verify receipt
+        run: |
+          jq -e 'select(.status == "ready") | .receipt.retrieval_mode == "lexical" and .receipt.repository_id != "" and .receipt.mapped_commit != ""' "$RUNNER_TEMP/onboarding.jsonl"
+      - name: Destroy disposable project
+        if: ${{ always() && inputs.cleanup }}
+        run: |
+          "$RUNNER_TEMP/ves" railway down --yes || true

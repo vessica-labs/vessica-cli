@@ -139,10 +139,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/access/owner-claims", s.withMutation("owner", s.handleOwnerClaim))
 	mux.HandleFunc("GET /api/v1/audit", s.withRole("owner", s.handleAudit))
 	mux.HandleFunc("GET /internal/dashboard/metrics", s.withRole("owner", s.metrics.serve))
-	mux.HandleFunc("POST /api/v1/hosting/promotions", s.withMutation("owner", s.handleStartPromotion))
-	mux.HandleFunc("GET /api/v1/hosting/promotions/{id}", s.withRole("owner", s.handlePromotion))
-	mux.HandleFunc("POST /api/v1/hosting/promotions/{id}/resume", s.withMutation("owner", s.handleResumePromotion))
-	mux.HandleFunc("GET /api/v1/hosting/promotions/{id}/stream", s.withRole("owner", s.handlePromotionStream))
 	mux.Handle("/", s.spa())
 	return s.security(mux)
 }

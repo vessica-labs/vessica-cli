@@ -16,12 +16,12 @@ func TestRailwayWorkerBootstrapUsesOuterSandbox(t *testing.T) {
 	if !strings.Contains(script, "worker_bin=$(mktemp ") || strings.Contains(script, "-o /tmp/ves\n") {
 		t.Fatalf("bootstrap does not download workers atomically:\n%s", script)
 	}
-	for _, required := range []string{"export NODE_PATH=$(npm root -g)", "npm install -g playwright@" + toolchain.PlaywrightVersion, "npm install -g @openai/codex@" + toolchain.CodexVersion, "useradd --create-home", "command -v runuser", "command -v find", "playwright install --with-deps chromium"} {
+	for _, required := range []string{"export NODE_PATH=$(npm root -g)", "export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright", "useradd --create-home", "command -v runuser", "command -v find", toolchain.YQVersion, toolchain.PlaywrightVersion, "command -v", "runuser --user vessica-agent"} {
 		if !strings.Contains(script, required) {
-			t.Fatalf("bootstrap is missing managed Playwright setup %q:\n%s", required, script)
+			t.Fatalf("bootstrap is missing toolchain preflight %q:\n%s", required, script)
 		}
 	}
-	for _, forbidden := range []string{"npm view @openai/codex version", "@openai/codex@latest", "playwright@latest", "deb.nodesource.com"} {
+	for _, forbidden := range []string{"npm install -g", "playwright install", "npm view @openai/codex version", "@openai/codex@latest", "playwright@latest", "deb.nodesource.com"} {
 		if strings.Contains(script, forbidden) {
 			t.Fatalf("bootstrap contains mutable dependency %q:\n%s", forbidden, script)
 		}
@@ -43,10 +43,16 @@ func TestRailwayPromptBootstrapEncodesPrompt(t *testing.T) {
 
 func TestRailwayWorkerEnvironmentIncludesHostedKnowledgeAuthority(t *testing.T) {
 	launcher := &RailwayLauncher{Config: config.Config{Hosted: config.HostedConfig{WorkerCheckpoint: "checkpoint"}}}
-	env := launcher.workerEnvironment("run_test")
+	env := launcher.workerEnvironment("run_test", "https://github.com/acme/demo.git")
 	for _, key := range []string{"VES_KNOWLEDGE_MODE", "VES_KNOWLEDGE_ENDPOINT", "VES_KNOWLEDGE_TOKEN", "VES_KNOWLEDGE_WORKSPACE_ID"} {
 		if env[key] != "control-plane."+key {
 			t.Fatalf("%s=%q", key, env[key])
 		}
+	}
+	if env["VES_CONTROL_DATABASE_URL"] != "control-plane.VES_CONTROL_DATABASE_URL" {
+		t.Fatalf("VES_CONTROL_DATABASE_URL=%q", env["VES_CONTROL_DATABASE_URL"])
+	}
+	if _, ok := env["VES_KNOWLEDGE_DATABASE_URL"]; ok {
+		t.Fatal("worker must not receive the knowledge database URL")
 	}
 }

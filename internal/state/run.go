@@ -19,6 +19,19 @@ func (db *DB) CreateRun(ctx context.Context, epicID, ticketID, runner, model, re
 	if err != nil {
 		return nil, err
 	}
+	var repository *Repository
+	if epicID != "" {
+		epic, epicErr := db.GetEpic(ctx, epicID)
+		if epicErr != nil {
+			return nil, epicErr
+		}
+		repository, err = db.GetRepository(ctx, epic.RepositoryID)
+	} else {
+		repository, err = db.GetRepository(ctx, "")
+	}
+	if err != nil {
+		return nil, err
+	}
 	if concurrency <= 0 {
 		concurrency = 3
 	}
@@ -29,6 +42,7 @@ func (db *DB) CreateRun(ctx context.Context, epicID, ticketID, runner, model, re
 	r := &Run{
 		ID:              id.New(id.Run),
 		WorkspaceID:     ws.ID,
+		RepositoryID:    repository.ID,
 		EpicID:          epicID,
 		TicketID:        ticketID,
 		Workflow:        "software_epic",
@@ -49,9 +63,9 @@ func (db *DB) CreateRun(ctx context.Context, epicID, ticketID, runner, model, re
 	if preview {
 		previewInt = 1
 	}
-	_, err = db.Exec(ctx, `INSERT INTO runs(id, workspace_id, epic_id, ticket_id, workflow, status, start_phase, stop_after, concurrency, runner, model, reasoning_effort, sandbox_backend, preview, pr_mode, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		r.ID, r.WorkspaceID, nullStr(r.EpicID), nullStr(r.TicketID), r.Workflow, r.Status, nullStr(r.StartPhase), nullStr(r.StopAfter),
+	_, err = db.Exec(ctx, `INSERT INTO runs(id, workspace_id, repository_id, epic_id, ticket_id, workflow, status, start_phase, stop_after, concurrency, runner, model, reasoning_effort, sandbox_backend, preview, pr_mode, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		r.ID, r.WorkspaceID, r.RepositoryID, nullStr(r.EpicID), nullStr(r.TicketID), r.Workflow, r.Status, nullStr(r.StartPhase), nullStr(r.StopAfter),
 		r.Concurrency, nullStr(r.Runner), nullStr(r.Model), nullStr(r.ReasoningEffort), nullStr(r.SandboxBackend), previewInt, r.PRMode, r.CreatedAt, r.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -66,9 +80,9 @@ func (db *DB) GetRun(ctx context.Context, runID string) (*Run, error) {
 	var r Run
 	var epicID, ticketID, cur, start, stop, runner, model, reasoningEffort, sb, previewURL, prURL, receiptID, aset, errStr, started, finished sql.NullString
 	var preview int
-	err := db.QueryRow(ctx, `SELECT id, workspace_id, epic_id, ticket_id, workflow, status, current_phase, start_phase, stop_after, concurrency, runner, model, reasoning_effort, sandbox_backend, preview, pr_mode, preview_url, pr_url, receipt_id, artifact_set_id, error, created_at, updated_at, started_at, finished_at
+	err := db.QueryRow(ctx, `SELECT id, workspace_id, repository_id, epic_id, ticket_id, workflow, status, current_phase, start_phase, stop_after, concurrency, runner, model, reasoning_effort, sandbox_backend, preview, pr_mode, preview_url, pr_url, receipt_id, artifact_set_id, error, created_at, updated_at, started_at, finished_at
 		FROM runs WHERE id=?`, runID).
-		Scan(&r.ID, &r.WorkspaceID, &epicID, &ticketID, &r.Workflow, &r.Status, &cur, &start, &stop, &r.Concurrency, &runner, &model, &reasoningEffort, &sb, &preview, &r.PRMode, &previewURL, &prURL, &receiptID, &aset, &errStr, &r.CreatedAt, &r.UpdatedAt, &started, &finished)
+		Scan(&r.ID, &r.WorkspaceID, &r.RepositoryID, &epicID, &ticketID, &r.Workflow, &r.Status, &cur, &start, &stop, &r.Concurrency, &runner, &model, &reasoningEffort, &sb, &preview, &r.PRMode, &previewURL, &prURL, &receiptID, &aset, &errStr, &r.CreatedAt, &r.UpdatedAt, &started, &finished)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("run not found: %s", runID)
 	}
@@ -112,6 +126,27 @@ func (db *DB) ListRuns(ctx context.Context) ([]Run, error) {
 			return nil, err
 		}
 		out = append(out, *r)
+	}
+	return out, rows.Err()
+}
+
+func (db *DB) ListRunsForRepository(ctx context.Context, repositoryID string) ([]Run, error) {
+	rows, err := db.Query(ctx, `SELECT id FROM runs WHERE repository_id=? ORDER BY created_at DESC`, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Run
+	for rows.Next() {
+		var runID string
+		if err := rows.Scan(&runID); err != nil {
+			return nil, err
+		}
+		runRecord, err := db.GetRun(ctx, runID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *runRecord)
 	}
 	return out, rows.Err()
 }

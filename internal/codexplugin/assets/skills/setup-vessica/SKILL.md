@@ -3,11 +3,12 @@ name: setup-vessica
 description: Set up or diagnose Vessica and its engineering harness in the current repository using the ves CLI.
 ---
 
-# Setup Vessica
+# Setup hosted Vessica
 
-1. Run `ves capabilities --cwd "$PWD" --json` and parse only the JSON envelope.
-2. If uninitialized, explain the proposed profile and run `ves init ... --dry-run --json`; obtain confirmation before the real command.
-3. Inspect `ves doctor --json`. Never place credentials in command arguments; use `ves auth login <provider>` or documented environment references.
-4. Preview harness installation with `ves harness install --dry-run --json`. After confirmation run it with `--yes --idempotency-key setup-<unique> --json`, then `ves harness audit --json`.
-5. Report failed checks and exact recovery commands. Do not edit Vessica state files directly.
-6. Run `ves knowledge status --json` and a small `ves knowledge context --query "repository setup" --token-budget 1000 --json`. Lexical mode without an embedding key is healthy for a solo workspace.
+1. Use `../../scripts/ensure-ves.sh up --cwd "$PWD" --dry-run --json` so plugin-only installs bootstrap the compatible CLI and verify its release checksum.
+2. Parse the `vessica.cli/v1` plan. Explain the selected Railway workspace, resources, repository scan, harness action, and healthy zero-key lexical retrieval.
+3. Obtain one confirmation, then run `../../scripts/ensure-ves.sh up --cwd "$PWD" --yes --stream jsonl`.
+4. If setup returns a resumable operation, use `ves up resume <operation-id> --yes --stream jsonl`. For `sandbox_feature_disabled`, present the Railway Priority Boarding action before resuming.
+5. Report the final receipt: workspace, repository, dashboard, retrieval mode, harness result, repository-map artifact, and sandbox verification.
+
+Never request an embeddings API key during quickstart. Never place provider credentials in arguments or edit Vessica state files directly.

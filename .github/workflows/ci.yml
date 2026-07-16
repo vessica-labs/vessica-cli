@@ -13,15 +13,15 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17@sha256:39fb82e41109483c81ac15422a302500b4a753777b47f8431038703536bc6c52
+        image: pgvector/pgvector:pg17@sha256:d2ef61f42ef767baa5a1475393303cc235bcd92febd9d7014eddb48b41f3bad0
         env:
-          POSTGRES_USER: vessica
-          POSTGRES_PASSWORD: vessica
-          POSTGRES_DB: vessica_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U vessica -d vessica_test"
+          --health-cmd "pg_isready -U postgres -d postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -38,6 +38,8 @@ jobs:
           cache-dependency-path: web/dashboard/package-lock.json
       - run: npm ci
         working-directory: web/dashboard
+      - name: Initialize isolated control and knowledge databases
+        run: ./scripts/init-postgres.sh
       - run: ./scripts/embed-dashboard-docs.sh
       - run: npm run generate:api && npm test && npm run build
         working-directory: web/dashboard
@@ -51,10 +53,11 @@ jobs:
       - run: ./scripts/lint-arch.sh
       - run: go test ./...
         env:
-          TEST_POSTGRES_URL: postgres://vessica:vessica@127.0.0.1:5432/vessica_test?sslmode=disable
+          TEST_POSTGRES_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+          TEST_POSTGRES_URL: postgres://vessica_control_user:vessica_control_dev@127.0.0.1:5432/vessica_control?sslmode=disable
       - run: go test -race ./internal/state ./internal/app ./internal/run ./internal/controlplane
         env:
-          TEST_POSTGRES_URL: postgres://vessica:vessica@127.0.0.1:5432/vessica_test?sslmode=disable
+          TEST_POSTGRES_URL: postgres://vessica_control_user:vessica_control_dev@127.0.0.1:5432/vessica_control?sslmode=disable
       - run: go vet ./...
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
       - run: go build ./cmd/ves

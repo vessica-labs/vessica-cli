@@ -8,6 +8,7 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/auth"
 	"github.com/vessica-labs/vessica-cli/internal/config"
 	"github.com/vessica-labs/vessica-cli/internal/output"
+	"github.com/vessica-labs/vessica-cli/internal/toolchain"
 	"github.com/vessica-labs/vessica-cli/internal/version"
 )
 
@@ -19,17 +20,18 @@ func newCapabilitiesCmd(app *App) *cobra.Command {
 				"product": "vessica-cli", "version": version.Version,
 				"schema": output.EnvelopeSchema, "stream_schema": "vessica.stream/v1",
 				"commands": []string{
-					"capabilities", "doctor", "prime", "harness install", "harness status", "harness audit", "harness sync",
+					"up", "up status", "up resume", "workspace status", "repo list", "integration connect linear",
+					"capabilities", "doctor", "toolchain verify", "prime", "harness install", "harness status", "harness audit", "harness sync",
 					"epic draft", "epic add", "epic view", "epic list", "epic update",
 					"ticket add", "ticket list", "ticket update", "ticket block", "ticket unblock",
 					"run epic", "run view", "run list", "run watch", "run cancel", "run resume", "run prompt", "run approve", "run rollback",
 					"receipt view",
-					"knowledge status", "knowledge context", "knowledge promote", "knowledge export", "knowledge import",
+					"knowledge status", "knowledge context", "knowledge embeddings status", "knowledge embeddings enable", "knowledge embeddings disable",
 					"entity create", "entity resolve", "entity search", "artifact create", "artifact get", "artifact list", "artifact activate", "artifact supersede",
 					"memory add", "memory get", "memory list", "memory search", "memory supersede", "memory archive",
 				},
 				"contract":       map[string]any{"json": true, "jsonl": true, "dry_run": true, "idempotency_keys": true, "structured_confirmation": true},
-				"tools":          map[string]bool{"ves": true, "codex": commandAvailable("codex"), "git": commandAvailable("git"), "docker": commandAvailable("docker")},
+				"tools":          capabilityTools(),
 				"authentication": auth.StatusAll([]string{"github", "linear", "railway", "codex", "knowledge"}),
 				"workspace":      map[string]any{"initialized": false, "root": app.Root},
 			}
@@ -47,7 +49,6 @@ func newCapabilitiesCmd(app *App) *cobra.Command {
 						defer db.Close()
 						if ws, wsErr := db.GetWorkspace(cmd.Context()); wsErr == nil {
 							workspace["workspace_id"] = ws.ID
-							workspace["profile"] = ws.Profile
 						}
 					}
 					result["workspace"] = workspace
@@ -56,6 +57,14 @@ func newCapabilitiesCmd(app *App) *cobra.Command {
 			return app.Printer.Success(result)
 		},
 	}
+}
+
+func capabilityTools() map[string]bool {
+	tools := map[string]bool{"ves": true, "docker": commandAvailable("docker")}
+	for _, tool := range toolchain.RequiredTools() {
+		tools[tool.Name] = commandAvailable(tool.Executable)
+	}
+	return tools
 }
 
 func commandAvailable(name string) bool {

@@ -13,7 +13,12 @@ The local CLI, persistent control plane, and sandbox worker are roles of the sam
       -> transactional outbox
       -> Linear comments, sub-issues, and status updates
 
-Postgres is the shared source of truth. Webhook delivery IDs, jobs, and outbound tracker operations are idempotent and recover stale leases after service restarts.
+One Railway Postgres service hosts two deliberately separate logical stores:
+
+- `vessica_control`, owned by `vessica_control_user`, is the workflow and control-plane authority.
+- `vessica_knowledge`, owned by `vessica_knowledge_user`, is the knowledge authority and is the only database with pgvector enabled.
+
+Each service receives its own generated credential and private-network connection URL. The stores have separate migration histories and application interfaces; there are no cross-database joins, foreign keys, shared tables, or distributed transactions. Webhook delivery IDs, jobs, and outbound tracker operations remain idempotent and recover stale leases after service restarts.
 
 ## Current replica constraint
 
@@ -27,15 +32,16 @@ Railway worker sandboxes remain independently scalable. Before increasing the co
 
 ## Provision
 
-From an initialized repository:
+From a repository with a reachable GitHub origin:
 
-    ves auth login github
-    ves auth login railway
-    ves auth login linear
-    ves auth login codex
-    ves railway up
+    ves up --dry-run --json
+    ves up --yes --stream jsonl
 
-Running `ves auth login` with no provider performs those four logins in sequence. Railway and Linear open a PKCE browser flow and return to a loopback callback on `127.0.0.1:8765`. GitHub uses `gh auth login --web`; Codex uses the official `codex login` browser flow.
+`ves up` opens provider authentication only when a valid existing session is unavailable. Linear is not part of quickstart and can be connected later with `ves integration connect linear`. Codex authentication remains owned by Codex and is provisioned to sandboxes without asking for an OpenAI API key.
+
+Provisioning creates only one managed Postgres service. It waits for the service variables, connects through the public bootstrap endpoint without logging the URL, creates or reconciles both fixed database roles and databases under an advisory lock, enables `vector` in `vessica_knowledge`, and then configures the application services. Repeating or resuming the operation reuses the same Railway service and logical databases.
+
+The control plane receives only `VES_CONTROL_DATABASE_URL`. The knowledge service receives only `VES_KNOWLEDGE_DATABASE_URL`. No service receives the other store's URL, and there is no generic database variable that can silently point a process at the wrong store.
 
 ## OAuth Application Setup
 
@@ -49,7 +55,7 @@ The official Vessica Railway and Linear client IDs are compiled into the CLI, so
 4. Save the app and configure its client ID as the Vessica application default. Forks can instead set `VES_RAILWAY_OAUTH_CLIENT_ID`.
 5. Vessica requests `openid profile email offline_access workspace:member project:member`; `offline_access` enables refresh-token rotation for the persistent control plane.
 
-Railway's SSH-key endpoint does not currently accept OAuth access tokens. Vessica uses the Railway CLI's local browser-login session only to register the dedicated preview-forwarding key, while OAuth remains the credential for provisioning and the hosted control plane. If no Railway CLI session exists, run `railway login` once and retry `ves railway up`.
+Railway's SSH-key endpoint does not currently accept OAuth access tokens. Vessica uses the Railway CLI's local browser-login session only to register the dedicated preview-forwarding key, while OAuth remains the credential for provisioning and the hosted control plane. If authentication is interrupted, complete `railway login` and resume with `ves up resume <operation-id> --yes`.
 
 ### Linear
 
@@ -57,7 +63,7 @@ Railway's SSH-key endpoint does not currently accept OAuth access tokens. Vessic
 2. Add the exact callback URL `http://127.0.0.1:8765/oauth/linear/callback` and enable the authorization-code/PKCE flow.
 3. Configure the client ID as the Vessica application default. Forks can instead set `VES_LINEAR_OAUTH_CLIENT_ID`. The native CLI does not require the app secret.
 4. Authorize Vessica as a Linear workspace administrator. Vessica requests `read`, `write`, `issues:create`, `comments:create`, and `admin`; the `admin` grant is needed to create the issue webhook after Railway assigns the control-plane URL.
-5. Do not hard-code a webhook URL in the app: each user receives a different Railway domain, and `ves railway up` creates the webhook after deployment.
+5. Do not hard-code a webhook URL in the app: each installation receives a different Railway domain, and the optional Linear connection creates the webhook after deployment.
 
 Linear authentication intentionally uses the authorizing user as the OAuth actor. Linear app actors cannot request `admin`, while Vessica needs that scope to create a different webhook for each deployed control plane. As a result, Vessica's issue, comment, and status mutations are attributed to the authorizing user in Linear.
 
@@ -70,7 +76,7 @@ secret is deployed or retained. The dashboard discards the GitHub access token
 after resolving the authenticated identity.
 
 The first authenticated GitHub identity to present the expiring owner-claim URL
-created during promotion becomes the workspace owner. Owners can invite members
+created during onboarding becomes the workspace owner. Owners can invite members
 by GitHub username. Invitations and owner claims are single-use and expire.
 
 The CLI continues to use the installed `gh` CLI for GitHub repository operations,
@@ -86,26 +92,9 @@ with `VES_DASHBOARD_ENABLED=1`. Configure two HTTPS origins:
 
 The preview origin routes to the same service but receives only expiring,
 run-scoped preview capabilities. Preview cookies cannot authorize dashboard API
-requests. The guided local workflow provisions and verifies these values:
-
-    ves railway up --preview-origin https://preview.example.com
-
-The local dashboard can run the same durable promotion workflow from its Hosting
-screen. It snapshots local state first, streams resumable operation progress,
-keeps local authority on failure, and returns an expiring owner-claim URL only
-after the hosted state and knowledge service verify successfully.
-
-Useful selectors:
-
-    ves railway up \
-      --workspace <railway-workspace-id> \
-      --linear-team <team-name-or-id> \
-      --todo-state Todo \
-      --wip-state "In Progress" \
-      --done-state Done \
-      --trigger-label Vessica
-
-For source development, add --source /path/to/vessica-cli. Released builds should set --image to the published control-plane image.
+requests. Production onboarding uses released, digest-pinned images. Source
+deployment is reserved for contributor workflows and is never a quickstart
+fallback.
 
 ## Operate
 

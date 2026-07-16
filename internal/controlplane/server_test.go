@@ -88,6 +88,43 @@ func TestControlPlaneAPIRequiresBearerToken(t *testing.T) {
 	}
 }
 
+func TestServiceIssuesSeparateUserScopedCLICredential(t *testing.T) {
+	root := t.TempDir()
+	db, err := state.Open("sqlite", filepath.Join(root, "state.db"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.EnsureWorkspace(context.Background(), root, "hosted"); err != nil {
+		t.Fatal(err)
+	}
+	handler := (&Server{DB: db, APIToken: "internal-service-token"}).Handler()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/cli-credentials", bytes.NewBufferString(`{"subject":"octocat"}`))
+	request.Header.Set("Authorization", "Bearer internal-service-token")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("issue status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var credential struct {
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &credential); err != nil || credential.Token == "" || credential.Token == "internal-service-token" {
+		t.Fatalf("credential=%#v err=%v", credential, err)
+	}
+	var stored string
+	if err := db.QueryRow(context.Background(), `SELECT token_hash FROM cli_credentials`).Scan(&stored); err != nil || stored == credential.Token {
+		t.Fatalf("CLI credential was not stored as a hash: stored=%q err=%v", stored, err)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	request.Header.Set("Authorization", "Bearer "+credential.Token)
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("user credential status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestRunTerminalStatus(t *testing.T) {
 	for _, status := range []string{"completed", "failed", "cancelled", "stopped"} {
 		if !runTerminalStatus(status) {

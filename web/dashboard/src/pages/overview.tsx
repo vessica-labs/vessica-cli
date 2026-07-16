@@ -19,6 +19,7 @@ type System = {
   integrations: Array<Record<string, string>>;
   counts: Record<string, number>;
   warnings: Array<{ code: string; message: string }>;
+  repositories: Array<{ id: string }>;
 };
 export function Overview() {
   const query = useQuery({
@@ -38,7 +39,7 @@ export function Overview() {
   return (
     <>
       <PageHeader
-        eyebrow={`${titleCase(s.mode)} workspace`}
+        eyebrow={`${titleCase(s.mode)} authority · ${s.repositories?.length || 0} repositories`}
         title="Operational overview"
         description="Runs, infrastructure, integrations, and knowledge health in one place."
       />

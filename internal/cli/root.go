@@ -52,7 +52,7 @@ func NewRoot() *cobra.Command {
 	app := &App{}
 	root := &cobra.Command{
 		Use:           "ves",
-		Short:         "Vessica — local-first harness engineering CLI",
+		Short:         "Vessica — hosted engineering control plane for coding agents",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -86,9 +86,13 @@ func NewRoot() *cobra.Command {
 	f.BoolVar(&app.Flags.DryRun, "dry-run", false, "show actions without mutating")
 	f.StringVar(&app.Flags.IdempotencyKey, "idempotency-key", "", "idempotency key for mutating commands")
 
-	root.AddCommand(newInitCmd(app))
+	root.AddCommand(newUpCmd(app))
+	root.AddCommand(newDevCmd(app))
+	root.AddCommand(newWorkspaceCmd(app))
+	root.AddCommand(newIntegrationCmd(app))
 	root.AddCommand(newStatusCmd(app))
 	root.AddCommand(newDoctorCmd(app))
+	root.AddCommand(newToolchainCmd(app))
 	root.AddCommand(newCapabilitiesCmd(app))
 	root.AddCommand(newConfigCmd(app))
 	root.AddCommand(newAuthCmd(app))

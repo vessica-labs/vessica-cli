@@ -26,6 +26,10 @@ func TestPublishEpicCreatesHostedGraphAndRealLinearIssues(t *testing.T) {
 	if _, err := db.EnsureWorkspace(ctx, root, "hosted"); err != nil {
 		t.Fatal(err)
 	}
+	repository, err := db.GetRepository(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.UpsertTrackerIntegration(ctx, "linear", "connected", map[string]string{"team": "team_1"}, "", "oauth:linear"); err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +56,7 @@ func TestPublishEpicCreatesHostedGraphAndRealLinearIssues(t *testing.T) {
 	cfg.Tracker.TodoStateID = "todo"
 	cfg.Tracker.TriggerLabel = "Vessica"
 	server := &Server{DB: db, Config: cfg, Linear: linear, APIToken: "secret"}
-	body := []byte(`{"spec":{"title":"Epic","body":"Body","tickets":[{"key":"child","title":"Child"}]}}`)
+	body := []byte(`{"repository_id":"` + repository.ID + `","spec":{"title":"Epic","body":"Body","tickets":[{"key":"child","title":"Child"}]}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/epics", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer secret")
 	req.Header.Set("Idempotency-Key", "publish-1")

@@ -5,12 +5,16 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/vessica-labs/vessica-cli/internal/config"
 )
 
 func TestHostedRunReadersUseAuthenticatedControlPlaneAPI(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("VES_AUTH_STORE", "file")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-token" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -37,6 +41,9 @@ func TestHostedRunReadersUseAuthenticatedControlPlaneAPI(t *testing.T) {
 	root := t.TempDir()
 	if err := saveRailwaySecrets(root, railwaySecrets{APIToken: "test-token"}); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".vessica", "secrets", "railway.json")); !os.IsNotExist(err) {
+		t.Fatalf("Railway credential was written inside the repository: %v", err)
 	}
 	app := &App{Root: root, Config: config.Config{Hosted: config.HostedConfig{ControlPlaneURL: server.URL}}}
 	runs, err := app.listHostedRuns(context.Background())

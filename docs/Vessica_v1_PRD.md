@@ -121,7 +121,7 @@ Needs:
 Default mode:
 
 ```bash
-ves init --profile team --state postgres-url --db-url "$DATABASE_URL" --sandbox docker --runner codex --tracker linear --repo github
+VES_CONTROL_DATABASE_URL='postgres://...' ves control-plane migrate
 ```
 
 ### 4.3 Coding Agent

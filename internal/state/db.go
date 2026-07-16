@@ -16,10 +16,11 @@ import (
 
 // DB wraps a SQL database with dialect helpers.
 type DB struct {
-	SQL       *sql.DB
-	Dialect   string // sqlite | postgres
-	Root      string
-	Workspace *Workspace
+	SQL        *sql.DB
+	Dialect    string // sqlite | postgres
+	Root       string
+	Workspace  *Workspace
+	Repository *Repository
 }
 
 // OpenOptions controls lifecycle work performed while opening a database.
@@ -158,6 +159,17 @@ func (db *DB) migrate(ctx context.Context) error {
 		return err
 	}
 	if err := db.ensureColumn(ctx, "runs", "reasoning_effort", "TEXT"); err != nil {
+		return err
+	}
+	// Repository scoping is the clean hosted-first authority model. These
+	// guards only make developer databases easier to reset while iterating;
+	// production deployments are created from the current schema.
+	for _, table := range []string{"epics", "artifacts", "runs", "external_mappings", "jobs"} {
+		if err := db.ensureColumn(ctx, table, "repository_id", "TEXT"); err != nil {
+			return err
+		}
+	}
+	if err := db.ensureColumn(ctx, "repositories", "remote", "TEXT"); err != nil {
 		return err
 	}
 	if err := db.ensureColumn(ctx, "sandboxes", "last_accessed_at", "TEXT"); err != nil {

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/config"
 	"github.com/vessica-labs/vessica-cli/internal/knowledgegateway"
 	"github.com/vessica-labs/vessica-cli/internal/state"
+	"github.com/vessica-labs/vessica-cli/internal/toolchain"
 )
 
 func newInitCmd(app *App) *cobra.Command {
@@ -217,37 +217,12 @@ func newDoctorCmd(app *App) *cobra.Command {
 				}
 			}
 
-			if _, err := exec.LookPath("node"); err != nil {
-				add("node", false, "node not found in PATH")
-			} else {
-				add("node", true, "available")
-				playwright := exec.Command("node", "-e", "require('playwright')")
-				playwright.Dir = root
-				if out, err := playwright.CombinedOutput(); err != nil {
-					add("playwright", false, strings.TrimSpace(string(out)))
-				} else {
-					add("playwright", true, "available")
+			for _, check := range toolchain.Verify(cmd.Context(), root) {
+				detail := check.Version
+				if !check.OK {
+					detail = check.Error
 				}
-			}
-			if _, err := exec.LookPath("pnpm"); err != nil {
-				add("pnpm", false, "pnpm not found in PATH")
-			} else {
-				out, err := exec.Command("pnpm", "--version").CombinedOutput()
-				if err != nil {
-					add("pnpm", false, strings.TrimSpace(string(out)))
-				} else {
-					add("pnpm", true, strings.TrimSpace(string(out)))
-				}
-			}
-
-			runner := app.Config.Runner.Default
-			if runner == "" {
-				runner = "codex"
-			}
-			if _, err := exec.LookPath(runner); err != nil {
-				add("runner", false, fmt.Sprintf("%s not found in PATH", runner))
-			} else {
-				add("runner", true, runner)
+				add("toolchain."+check.Name, check.OK, detail)
 			}
 
 			add("pack_lock", fileExists(filepath.Join(root, app.Config.Pack.Lockfile)), app.Config.Pack.Lockfile)

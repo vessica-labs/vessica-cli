@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"net/http"
+	"strings"
+
 	"github.com/spf13/cobra"
 	"github.com/vessica-labs/vessica-cli/internal/repo"
 	"github.com/vessica-labs/vessica-cli/internal/tracker"
@@ -9,6 +12,29 @@ import (
 func newRepoCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "repo", Short: "Repository integrations"}
 	var runID string
+	cmd.AddCommand(&cobra.Command{Use: "list", RunE: func(command *cobra.Command, args []string) error {
+		if err := app.loadWorkspaceWithoutGC(command.Context()); err != nil {
+			return err
+		}
+		defer app.closeDB()
+		if app.Config.Hosted.ControlPlaneURL != "" {
+			secrets, err := loadRailwaySecrets(app.Root)
+			if err != nil {
+				return err
+			}
+			var hosted any
+			endpoint := strings.TrimRight(app.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/repositories"
+			if err := hostedRequest(command.Context(), http.MethodGet, endpoint, secrets.APIToken, nil, &hosted); err != nil {
+				return err
+			}
+			return app.Printer.Success(hosted)
+		}
+		repositories, err := app.DB.ListRepositories(command.Context())
+		if err != nil {
+			return err
+		}
+		return app.Printer.Success(map[string]any{"repositories": repositories})
+	}})
 
 	cmd.AddCommand(&cobra.Command{
 		Use: "connect <provider>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {

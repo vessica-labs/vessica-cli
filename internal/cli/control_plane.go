@@ -34,10 +34,10 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 			cfg := config.TeamDefaults()
 			config.ApplyEnv(&cfg)
 			if cfg.State.DBURL == "" {
-				cfg.State.DBURL = os.Getenv("DATABASE_URL")
+				cfg.State.DBURL = os.Getenv("VES_CONTROL_DATABASE_URL")
 			}
 			if cfg.State.DBURL == "" {
-				return fmt.Errorf("DATABASE_URL or VES_DB_URL is required")
+				return fmt.Errorf("VES_CONTROL_DATABASE_URL is required")
 			}
 			db, err := state.OpenWithOptions("postgres-url", cfg.State.DBURL, "/var/lib/vessica", state.OpenOptions{})
 			if err != nil {
@@ -56,10 +56,10 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 			cfg := config.TeamDefaults()
 			config.ApplyEnv(&cfg)
 			if cfg.State.DBURL == "" {
-				cfg.State.DBURL = os.Getenv("DATABASE_URL")
+				cfg.State.DBURL = os.Getenv("VES_CONTROL_DATABASE_URL")
 			}
 			if cfg.State.DBURL == "" {
-				return fmt.Errorf("DATABASE_URL or VES_DB_URL is required")
+				return fmt.Errorf("VES_CONTROL_DATABASE_URL is required")
 			}
 			if err := configureHostedAuth(); err != nil {
 				return err
@@ -92,14 +92,12 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 				linear = tracker.NewLinearClientWithTokenSource(func(ctx context.Context) (string, error) {
 					return credentialManager.Token(ctx, "linear")
 				})
-			} else {
-				return fmt.Errorf("Linear OAuth credential or LINEAR_API_KEY is required")
 			}
-			integration, err := db.UpsertTrackerIntegration(cmd.Context(), "linear", "connected", cfg.Tracker, os.Getenv("VES_LINEAR_WEBHOOK_ID"), "oauth:linear")
-			if err != nil {
-				return err
+			if linear != nil && cfg.Tracker.Provider == "linear" {
+				if _, err := db.UpsertTrackerIntegration(cmd.Context(), "linear", "connected", cfg.Tracker, os.Getenv("VES_LINEAR_WEBHOOK_ID"), "oauth:linear"); err != nil {
+					return err
+				}
 			}
-			_ = integration
 			broker := controlplane.NewPreviewBroker()
 			launcher := &controlplane.RailwayLauncher{
 				DB: db, Config: cfg, CLIPath: railwayPath(), PublicURL: cfg.Hosted.ControlPlaneURL,
@@ -221,7 +219,7 @@ func openHostedWorker(ctx context.Context) (*runengine.Engine, *state.DB, error)
 	cfg.State.Backend = "postgres-url"
 	cfg.Sandbox.Backend = "railway"
 	if cfg.State.DBURL == "" {
-		cfg.State.DBURL = os.Getenv("DATABASE_URL")
+		cfg.State.DBURL = os.Getenv("VES_CONTROL_DATABASE_URL")
 	}
 	if err := configureHostedAuth(); err != nil {
 		return nil, nil, err
@@ -252,7 +250,7 @@ func openHostedWorker(ctx context.Context) (*runengine.Engine, *state.DB, error)
 		return nil, nil, err
 	}
 	for _, key := range []string{
-		"DATABASE_URL", "VES_DB_URL", "GITHUB_TOKEN", "LINEAR_API_KEY",
+		"VES_CONTROL_DATABASE_URL", "VES_KNOWLEDGE_DATABASE_URL", "GITHUB_TOKEN", "LINEAR_API_KEY",
 		"RAILWAY_TOKEN", "RAILWAY_API_TOKEN", "VES_WORKER_DOWNLOAD_TOKEN",
 		"VES_RAILWAY_SSH_PRIVATE_KEY", "VES_CONTROL_PLANE_API_TOKEN",
 		"VES_CODEX_AUTH_B64",
@@ -309,7 +307,7 @@ func configureHostedAuth() error {
 }
 
 func hostedWorkspaceKey(cfg config.Config) string {
-	return "hosted://" + cfg.Hosted.ProjectID + "/" + strings.TrimSuffix(cfg.Repo.Remote, ".git")
+	return "hosted://" + cfg.Hosted.ProjectID
 }
 
 func ensureWorkerRepo(ctx context.Context, root, remote string) error {

@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -18,15 +16,23 @@ const (
 
 // Config is workspace configuration.
 type Config struct {
-	State     StateConfig     `yaml:"state" json:"state"`
-	Sandbox   SandboxConfig   `yaml:"sandbox" json:"sandbox"`
-	Runner    RunnerConfig    `yaml:"runner" json:"runner"`
-	Repo      RepoConfig      `yaml:"repo" json:"repo"`
-	Tracker   TrackerConfig   `yaml:"tracker" json:"tracker"`
-	Hosted    HostedConfig    `yaml:"hosted,omitempty" json:"hosted,omitempty"`
-	Knowledge KnowledgeConfig `yaml:"knowledge" json:"knowledge"`
-	Pack      PackConfig      `yaml:"pack" json:"pack"`
-	Preview   PreviewConfig   `yaml:"preview" json:"preview"`
+	APIVersion string           `yaml:"apiVersion,omitempty" json:"apiVersion,omitempty"`
+	Kind       string           `yaml:"kind,omitempty" json:"kind,omitempty"`
+	State      StateConfig      `yaml:"state" json:"state"`
+	Sandbox    SandboxConfig    `yaml:"sandbox" json:"sandbox"`
+	Runner     RunnerConfig     `yaml:"runner" json:"runner"`
+	Repo       RepoConfig       `yaml:"repo" json:"repo"`
+	Tracker    TrackerConfig    `yaml:"tracker" json:"tracker"`
+	Hosted     HostedConfig     `yaml:"hosted,omitempty" json:"hosted,omitempty"`
+	Knowledge  KnowledgeConfig  `yaml:"knowledge" json:"knowledge"`
+	Pack       PackConfig       `yaml:"pack" json:"pack"`
+	Preview    PreviewConfig    `yaml:"preview" json:"preview"`
+	Attachment AttachmentConfig `yaml:"attachment,omitempty" json:"attachment,omitempty"`
+}
+
+type AttachmentConfig struct {
+	WorkspaceID  string `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+	RepositoryID string `yaml:"repository_id,omitempty" json:"repository_id,omitempty"`
 }
 
 type StateConfig struct {
@@ -73,15 +79,15 @@ type HostedConfig struct {
 }
 
 type KnowledgeConfig struct {
-	Mode                string `yaml:"mode" json:"mode"`
-	WorkspaceID         string `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"`
-	Endpoint            string `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
-	LocalPath           string `yaml:"local_path,omitempty" json:"local_path,omitempty"`
-	ServiceID           string `yaml:"service_id,omitempty" json:"service_id,omitempty"`
-	PostgresServiceID   string `yaml:"postgres_service_id,omitempty" json:"postgres_service_id,omitempty"`
-	PostgresServiceName string `yaml:"postgres_service_name,omitempty" json:"postgres_service_name,omitempty"`
-	Version             string `yaml:"version,omitempty" json:"version,omitempty"`
-	Image               string `yaml:"image,omitempty" json:"image,omitempty"`
+	Mode              string `yaml:"mode" json:"mode"`
+	WorkspaceID       string `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+	Endpoint          string `yaml:"endpoint,omitempty" json:"endpoint,omitempty"`
+	LocalPath         string `yaml:"local_path,omitempty" json:"local_path,omitempty"`
+	ServiceID         string `yaml:"service_id,omitempty" json:"service_id,omitempty"`
+	Version           string `yaml:"version,omitempty" json:"version,omitempty"`
+	Image             string `yaml:"image,omitempty" json:"image,omitempty"`
+	EmbeddingProvider string `yaml:"embedding_provider,omitempty" json:"embedding_provider,omitempty"`
+	EmbeddingModel    string `yaml:"embedding_model,omitempty" json:"embedding_model,omitempty"`
 }
 
 type PackConfig struct {
@@ -97,14 +103,16 @@ type PreviewConfig struct {
 // Defaults returns solo-profile defaults.
 func Defaults() Config {
 	return Config{
-		State:     StateConfig{Backend: "sqlite"},
-		Sandbox:   SandboxConfig{Backend: "docker"},
-		Runner:    RunnerConfig{Default: "codex", Model: "gpt-5.6-terra", ReasoningEffort: "high"},
-		Repo:      RepoConfig{Provider: "github"},
-		Tracker:   TrackerConfig{Provider: "none", Mode: "best_efforts"},
-		Knowledge: KnowledgeConfig{Mode: "local", LocalPath: filepath.Join(DirName, "state", "knowledge.db")},
-		Pack:      PackConfig{Lockfile: filepath.Join(DirName, PackLockFile)},
-		Preview:   PreviewConfig{Port: 3000},
+		APIVersion: "vessica.dev/v1",
+		Kind:       "RepositoryAttachment",
+		State:      StateConfig{Backend: "sqlite"},
+		Sandbox:    SandboxConfig{Backend: "docker"},
+		Runner:     RunnerConfig{Default: "codex", Model: "gpt-5.6-terra", ReasoningEffort: "high"},
+		Repo:       RepoConfig{Provider: "github"},
+		Tracker:    TrackerConfig{Provider: "none", Mode: "best_efforts"},
+		Knowledge:  KnowledgeConfig{Mode: "local", LocalPath: filepath.Join(DirName, "state", "knowledge.db")},
+		Pack:       PackConfig{Lockfile: filepath.Join(DirName, PackLockFile)},
+		Preview:    PreviewConfig{Port: 3000},
 	}
 }
 
@@ -143,31 +151,6 @@ func Dir(root string) string {
 // Path returns the config file path.
 func Path(root string) string {
 	return filepath.Join(root, DirName, ConfigFile)
-}
-
-// Load reads workspace config from root.
-func Load(root string) (Config, error) {
-	c := Defaults()
-	b, err := os.ReadFile(Path(root))
-	if err != nil {
-		return c, err
-	}
-	if err := yaml.Unmarshal(b, &c); err != nil {
-		return c, fmt.Errorf("parse config: %w", err)
-	}
-	return c, nil
-}
-
-// Save writes workspace config.
-func Save(root string, c Config) error {
-	if err := os.MkdirAll(Dir(root), 0o755); err != nil {
-		return err
-	}
-	b, err := yaml.Marshal(c)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(Path(root), b, 0o644)
 }
 
 // Get returns a dotted key value as string.
@@ -239,10 +222,6 @@ func Set(c *Config, key, value string) error {
 		c.Knowledge.LocalPath = value
 	case "knowledge.service_id":
 		c.Knowledge.ServiceID = value
-	case "knowledge.postgres_service_id":
-		c.Knowledge.PostgresServiceID = value
-	case "knowledge.postgres_service_name":
-		c.Knowledge.PostgresServiceName = value
 	case "knowledge.version":
 		c.Knowledge.Version = value
 	case "knowledge.image":
@@ -289,42 +268,40 @@ func Flatten(c Config) map[string]string {
 
 func flatten(c Config) map[string]string {
 	return map[string]string{
-		"state.backend":                   c.State.Backend,
-		"state.db_url":                    c.State.DBURL,
-		"sandbox.backend":                 c.Sandbox.Backend,
-		"runner.default":                  c.Runner.Default,
-		"repo.provider":                   c.Repo.Provider,
-		"repo.remote":                     c.Repo.Remote,
-		"tracker.provider":                c.Tracker.Provider,
-		"tracker.mode":                    c.Tracker.Mode,
-		"tracker.team_id":                 c.Tracker.TeamID,
-		"tracker.todo_state_id":           c.Tracker.TodoStateID,
-		"tracker.wip_state_id":            c.Tracker.WIPStateID,
-		"tracker.done_state_id":           c.Tracker.DoneStateID,
-		"tracker.blocked_state_id":        c.Tracker.BlockedStateID,
-		"tracker.trigger_label":           c.Tracker.TriggerLabel,
-		"hosted.provider":                 c.Hosted.Provider,
-		"hosted.workspace_id":             c.Hosted.WorkspaceID,
-		"hosted.project_id":               c.Hosted.ProjectID,
-		"hosted.environment_id":           c.Hosted.EnvironmentID,
-		"hosted.service_id":               c.Hosted.ServiceID,
-		"hosted.postgres_service_id":      c.Hosted.PostgresServiceID,
-		"hosted.control_plane_url":        c.Hosted.ControlPlaneURL,
-		"hosted.control_plane_image":      c.Hosted.ControlPlaneImage,
-		"hosted.worker_checkpoint":        c.Hosted.WorkerCheckpoint,
-		"knowledge.mode":                  c.Knowledge.Mode,
-		"knowledge.workspace_id":          c.Knowledge.WorkspaceID,
-		"knowledge.endpoint":              c.Knowledge.Endpoint,
-		"knowledge.local_path":            c.Knowledge.LocalPath,
-		"knowledge.service_id":            c.Knowledge.ServiceID,
-		"knowledge.postgres_service_id":   c.Knowledge.PostgresServiceID,
-		"knowledge.postgres_service_name": c.Knowledge.PostgresServiceName,
-		"knowledge.version":               c.Knowledge.Version,
-		"knowledge.image":                 c.Knowledge.Image,
-		"pack.lockfile":                   c.Pack.Lockfile,
-		"preview.command":                 c.Preview.Command,
-		"preview.port":                    fmt.Sprintf("%d", c.Preview.Port),
-		"preview.healthcheck":             c.Preview.Healthcheck,
+		"state.backend":              c.State.Backend,
+		"state.db_url":               c.State.DBURL,
+		"sandbox.backend":            c.Sandbox.Backend,
+		"runner.default":             c.Runner.Default,
+		"repo.provider":              c.Repo.Provider,
+		"repo.remote":                c.Repo.Remote,
+		"tracker.provider":           c.Tracker.Provider,
+		"tracker.mode":               c.Tracker.Mode,
+		"tracker.team_id":            c.Tracker.TeamID,
+		"tracker.todo_state_id":      c.Tracker.TodoStateID,
+		"tracker.wip_state_id":       c.Tracker.WIPStateID,
+		"tracker.done_state_id":      c.Tracker.DoneStateID,
+		"tracker.blocked_state_id":   c.Tracker.BlockedStateID,
+		"tracker.trigger_label":      c.Tracker.TriggerLabel,
+		"hosted.provider":            c.Hosted.Provider,
+		"hosted.workspace_id":        c.Hosted.WorkspaceID,
+		"hosted.project_id":          c.Hosted.ProjectID,
+		"hosted.environment_id":      c.Hosted.EnvironmentID,
+		"hosted.service_id":          c.Hosted.ServiceID,
+		"hosted.postgres_service_id": c.Hosted.PostgresServiceID,
+		"hosted.control_plane_url":   c.Hosted.ControlPlaneURL,
+		"hosted.control_plane_image": c.Hosted.ControlPlaneImage,
+		"hosted.worker_checkpoint":   c.Hosted.WorkerCheckpoint,
+		"knowledge.mode":             c.Knowledge.Mode,
+		"knowledge.workspace_id":     c.Knowledge.WorkspaceID,
+		"knowledge.endpoint":         c.Knowledge.Endpoint,
+		"knowledge.local_path":       c.Knowledge.LocalPath,
+		"knowledge.service_id":       c.Knowledge.ServiceID,
+		"knowledge.version":          c.Knowledge.Version,
+		"knowledge.image":            c.Knowledge.Image,
+		"pack.lockfile":              c.Pack.Lockfile,
+		"preview.command":            c.Preview.Command,
+		"preview.port":               fmt.Sprintf("%d", c.Preview.Port),
+		"preview.healthcheck":        c.Preview.Healthcheck,
 	}
 }
 
@@ -346,7 +323,7 @@ func ApplyEnv(c *Config) {
 	if v := os.Getenv("VES_STATE_BACKEND"); v != "" {
 		c.State.Backend = v
 	}
-	if v := os.Getenv("VES_DB_URL"); v != "" {
+	if v := os.Getenv("VES_CONTROL_DATABASE_URL"); v != "" {
 		c.State.DBURL = v
 	}
 	if v := os.Getenv("VES_RUNNER"); v != "" {

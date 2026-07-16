@@ -28,19 +28,25 @@ func newSetupCmd(app *App) *cobra.Command {
 					status["ves_available"] = commandAvailable("ves")
 					return app.Printer.Success(status)
 				}
-				if err := app.loadWorkspace(cmd.Context()); err != nil {
-					return err
+				workspaceLoaded := app.loadWorkspace(cmd.Context()) == nil
+				if !workspaceLoaded && !(r == "codex" && installPlugin) {
+					return fmt.Errorf("repository is not attached; run ves up first")
 				}
-				defer app.closeDB()
-				path, err := setupTarget(app.Root, r)
-				if err != nil {
-					return err
+				if workspaceLoaded {
+					defer app.closeDB()
 				}
-				guidance := managedGuidance(r)
-				if err := upsertManagedSection(path, guidance); err != nil {
-					return err
+				result := map[string]any{"runner": r}
+				if workspaceLoaded {
+					path, err := setupTarget(app.Root, r)
+					if err != nil {
+						return err
+					}
+					guidance := managedGuidance(r)
+					if err := upsertManagedSection(path, guidance); err != nil {
+						return err
+					}
+					result["file"], result["updated"] = path, true
 				}
-				result := map[string]any{"runner": r, "file": path, "updated": true}
 				if r == "codex" && installPlugin {
 					installed, err := codexplugin.Install()
 					if err != nil {
@@ -48,7 +54,7 @@ func newSetupCmd(app *App) *cobra.Command {
 					}
 					result["plugin"] = installed
 				}
-				result["next_actions"] = []string{"ves capabilities --json", "ves doctor --json"}
+				result["next_actions"] = []string{"ves up --dry-run --json", "ves up --yes --stream jsonl"}
 				return app.Printer.Success(result)
 			},
 		}

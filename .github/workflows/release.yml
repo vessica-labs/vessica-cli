@@ -71,7 +71,20 @@ jobs:
             rm -rf "dist/$name"
           done
 
+          (cd dist && sha256sum ./vessica-cli_*.tar.gz ./vessica-cli_*.zip > cli-checksums.txt)
+          printf '%s\n' "$version" > internal/codexplugin/assets/scripts/cli-version.txt
+          cp dist/cli-checksums.txt internal/codexplugin/assets/scripts/cli-checksums.txt
+          tar -C internal/codexplugin/assets -czf "dist/vessica-codex-plugin_${version}.tar.gz" .
+          rm dist/cli-checksums.txt
           (cd dist && sha256sum ./*.tar.gz ./*.zip > checksums.txt)
+          cat > dist/compatibility.json <<EOF
+          {
+            "schema": "vessica.release/v1",
+            "cli": "$version",
+            "control_plane_image": "ghcr.io/${GITHUB_REPOSITORY}:$version",
+            "knowledge_server_image": "ghcr.io/vessica-labs/vessica-knowledge-server:v0.4.0"
+          }
+          EOF
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -110,7 +123,7 @@ jobs:
             ghcr.io/${{ github.repository }}:latest
           labels: |
             org.opencontainers.image.title=Vessica CLI
-            org.opencontainers.image.description=Local-first engineering control plane for coding agents
+            org.opencontainers.image.description=Hosted engineering control plane for coding agents
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ steps.version.outputs.value }}
             org.opencontainers.image.licenses=Apache-2.0

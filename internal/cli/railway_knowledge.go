@@ -16,7 +16,7 @@ import (
 	ks "github.com/vessica-labs/vessica-knowledge-server/knowledge"
 )
 
-func ensureRailwayKnowledge(ctx context.Context, workDir string, app *App, cfg *config.Config, opts railwayUpOptions, token, adminToken, embeddingKey string) error {
+func ensureRailwayKnowledge(ctx context.Context, workDir string, app *App, cfg *config.Config, opts railwayUpOptions, knowledgeDatabaseURL, token, adminToken, embeddingKey string) error {
 	image := opts.KnowledgeImage
 	if image == "" && opts.KnowledgeSource == "" {
 		image = "ghcr.io/vessica-labs/vessica-knowledge-server:v" + knowledgeServerVersion
@@ -43,33 +43,6 @@ func ensureRailwayKnowledge(ctx context.Context, workDir string, app *App, cfg *
 			return err
 		}
 	}
-	if cfg.Knowledge.PostgresServiceID == "" {
-		before, err := listRailwayServices(ctx, *cfg)
-		if err != nil {
-			return err
-		}
-		if candidate, ok := recoverKnowledgePostgres(before, *cfg); ok {
-			cfg.Knowledge.PostgresServiceID = candidate.ID
-			cfg.Knowledge.PostgresServiceName = candidate.Name
-		} else {
-			if _, err := runRailway(ctx, workDir, nil, "add", "--database", "postgres", "--json"); err != nil {
-				return err
-			}
-			after, err := listRailwayServices(ctx, *cfg)
-			if err != nil {
-				return err
-			}
-			candidate, err := newlyAddedRailwayService(before, after)
-			if err != nil {
-				return fmt.Errorf("identify knowledge Postgres service: %w", err)
-			}
-			cfg.Knowledge.PostgresServiceID = candidate.ID
-			cfg.Knowledge.PostgresServiceName = candidate.Name
-		}
-	}
-	if cfg.Knowledge.PostgresServiceName == "" {
-		return fmt.Errorf("knowledge Postgres service name is unavailable")
-	}
 	if err := config.Save(app.Root, *cfg); err != nil {
 		return err
 	}
@@ -92,12 +65,12 @@ func ensureRailwayKnowledge(ctx context.Context, workDir string, app *App, cfg *
 		cfg.Knowledge.WorkspaceID = ws.ID
 	}
 	variables := map[string]string{
-		"DATABASE_URL":           "$" + "{{" + cfg.Knowledge.PostgresServiceName + ".DATABASE_URL}}",
-		"KNOWLEDGE_API_TOKEN":    token,
-		"KNOWLEDGE_EXPORT_TOKEN": adminToken,
-		"KNOWLEDGE_WORKSPACE_ID": cfg.Knowledge.WorkspaceID,
-		"EMBEDDING_API_KEY":      embeddingKey,
-		"EMBEDDING_MODEL":        "text-embedding-3-small",
+		"VES_KNOWLEDGE_DATABASE_URL": knowledgeDatabaseURL,
+		"KNOWLEDGE_API_TOKEN":        token,
+		"KNOWLEDGE_EXPORT_TOKEN":     adminToken,
+		"KNOWLEDGE_WORKSPACE_ID":     cfg.Knowledge.WorkspaceID,
+		"EMBEDDING_API_KEY":          embeddingKey,
+		"EMBEDDING_MODEL":            "text-embedding-3-small",
 	}
 	for key, value := range variables {
 		if err := setRailwayVariableForService(ctx, *cfg, cfg.Knowledge.ServiceID, key, value); err != nil {

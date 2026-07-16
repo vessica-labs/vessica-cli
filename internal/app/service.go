@@ -45,6 +45,7 @@ type SystemStatus struct {
 	Integrations     []map[string]any    `json:"integrations"`
 	Counts           map[string]int      `json:"counts"`
 	Warnings         []map[string]string `json:"warnings"`
+	Repositories     []state.Repository  `json:"repositories"`
 }
 type RunDetail struct {
 	Run       *state.Run          `json:"run"`
@@ -76,6 +77,7 @@ func (s *Service) System(ctx context.Context) (*SystemStatus, error) {
 		return nil, err
 	}
 	result := &SystemStatus{Schema: APISchema, Mode: s.mode(), WorkspaceID: ws.ID, WorkspaceProfile: ws.Profile, Version: version.Version, DashboardVersion: version.Version, Database: map[string]any{"status": "ready", "backend": s.DB.Dialect, "migrations": "ready"}, Counts: map[string]int{}, Warnings: []map[string]string{}}
+	result.Repositories, _ = s.DB.ListRepositories(ctx)
 	if err := s.DB.Ping(ctx); err != nil {
 		result.Database = map[string]any{"status": "unavailable", "backend": s.DB.Dialect}
 		result.Warnings = append(result.Warnings, map[string]string{"code": "database_unavailable", "message": err.Error()})
@@ -122,6 +124,13 @@ func (s *Service) System(ctx context.Context) (*SystemStatus, error) {
 }
 func (s *Service) Runs(ctx context.Context, cursor string, limit int) (Page[state.Run], error) {
 	items, err := s.DB.ListRuns(ctx)
+	if err != nil {
+		return Page[state.Run]{}, err
+	}
+	return paginate(items, cursor, limit), nil
+}
+func (s *Service) RunsForRepository(ctx context.Context, repositoryID, cursor string, limit int) (Page[state.Run], error) {
+	items, err := s.DB.ListRunsForRepository(ctx, repositoryID)
 	if err != nil {
 		return Page[state.Run]{}, err
 	}

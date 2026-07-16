@@ -29,11 +29,19 @@ type dashboardRuntime struct {
 func newDashboardCmd(app *App) *cobra.Command {
 	var port int
 	var open bool
-	cmd := &cobra.Command{Use: "dashboard", Short: "Open the local Vessica dashboard", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "dashboard", Short: "Open the Vessica dashboard", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		if err := app.loadWorkspaceWithoutGC(cmd.Context()); err != nil {
 			return err
 		}
 		defer app.closeDB()
+		if app.Config.Hosted.ControlPlaneURL != "" {
+			if open {
+				if err := auth.OpenBrowser(app.Config.Hosted.ControlPlaneURL); err != nil {
+					return err
+				}
+			}
+			return app.Printer.Success(map[string]any{"mode": "hosted", "dashboard_url": app.Config.Hosted.ControlPlaneURL, "opened": open})
+		}
 		if open {
 			return openLocalDashboard(cmd.Context(), app, port)
 		}
@@ -196,7 +204,6 @@ func serveLocalDashboard(ctx context.Context, app *App, port int, printURL bool)
 	service := appservice.New(app.DB, app.Root, app.Config)
 	server := dashboard.New(service, "local")
 	server.Origin = fmt.Sprintf("http://127.0.0.1:%d", actual)
-	server.Promotion = dashboardPromotion(app)
 	server.PreviewAccess = func(ctx context.Context, runID string) (string, error) {
 		runRecord, err := app.DB.GetRun(ctx, runID)
 		if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -38,6 +39,9 @@ func (a *App) listHostedRuns(ctx context.Context) ([]*state.Run, error) {
 	}
 	var runs []*state.Run
 	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/runs"
+	if a.Config.Attachment.RepositoryID != "" {
+		endpoint += "?repository_id=" + url.QueryEscape(a.Config.Attachment.RepositoryID)
+	}
 	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &runs); err != nil {
 		return nil, err
 	}

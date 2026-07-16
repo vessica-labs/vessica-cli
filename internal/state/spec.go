@@ -88,6 +88,14 @@ func ValidateEpicSpec(spec EpicSpec) error {
 }
 
 func (db *DB) CreateEpicFromSpec(ctx context.Context, spec EpicSpec) (*CreatedEpicSpec, error) {
+	repository, err := db.GetRepository(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	return db.CreateEpicFromSpecForRepository(ctx, repository.ID, spec)
+}
+
+func (db *DB) CreateEpicFromSpecForRepository(ctx context.Context, repositoryID string, spec EpicSpec) (*CreatedEpicSpec, error) {
 	if err := ValidateEpicSpec(spec); err != nil {
 		return nil, err
 	}
@@ -95,15 +103,22 @@ func (db *DB) CreateEpicFromSpec(ctx context.Context, spec EpicSpec) (*CreatedEp
 	if err != nil {
 		return nil, err
 	}
+	repository, err := db.GetRepository(ctx, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	if repository.WorkspaceID != ws.ID {
+		return nil, fmt.Errorf("repository %s does not belong to workspace %s", repository.ID, ws.ID)
+	}
 	tx, err := db.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 	now := Now()
-	epic := &Epic{ID: id.New(id.Epic), WorkspaceID: ws.ID, Title: strings.TrimSpace(spec.Title), Body: spec.Body, Status: "draft", CreatedAt: now, UpdatedAt: now}
-	q := db.Rebind(`INSERT INTO epics(id, workspace_id, title, body, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`)
-	if _, err = tx.ExecContext(ctx, q, epic.ID, epic.WorkspaceID, epic.Title, epic.Body, epic.Status, epic.CreatedAt, epic.UpdatedAt); err != nil {
+	epic := &Epic{ID: id.New(id.Epic), WorkspaceID: ws.ID, RepositoryID: repository.ID, Title: strings.TrimSpace(spec.Title), Body: spec.Body, Status: "draft", CreatedAt: now, UpdatedAt: now}
+	q := db.Rebind(`INSERT INTO epics(id, workspace_id, repository_id, title, body, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`)
+	if _, err = tx.ExecContext(ctx, q, epic.ID, epic.WorkspaceID, epic.RepositoryID, epic.Title, epic.Body, epic.Status, epic.CreatedAt, epic.UpdatedAt); err != nil {
 		return nil, err
 	}
 	ids := map[string]string{}

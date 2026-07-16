@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -25,6 +26,21 @@ func TestInstallWritesPluginAndMarketplaceEntry(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(result.Path, "skills", "operate-vessica", "references", "operator-guide.md")); err != nil {
 		t.Fatal(err)
+	}
+	if info, err := os.Stat(filepath.Join(result.Path, "scripts", "ensure-ves.sh")); err != nil || info.Mode()&0o111 == 0 {
+		t.Fatalf("bootstrap script is not executable: info=%v err=%v", info, err)
+	}
+	bootstrap, err := os.ReadFile(filepath.Join(result.Path, "scripts", "ensure-ves.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(bootstrap), "$base/checksums.txt") || !strings.Contains(string(bootstrap), "cli-checksums.txt") {
+		t.Fatalf("bootstrap does not use the bundled checksum manifest: %s", bootstrap)
+	}
+	for _, name := range []string{"cli-version.txt", "cli-checksums.txt"} {
+		if _, err := os.Stat(filepath.Join(result.Path, "scripts", name)); err != nil {
+			t.Fatalf("missing bundled %s: %v", name, err)
+		}
 	}
 	raw, err := os.ReadFile(result.Marketplace)
 	if err != nil {

@@ -18,16 +18,32 @@ import (
 func TestRailwayCheckpointToolchainIsPinned(t *testing.T) {
 	command := railwayCheckpointInstallCommand()
 	for _, required := range []string{
-		"apt-get install -y --no-install-recommends util-linux",
+		"apt-get install -y --no-install-recommends",
+		"ripgrep",
+		"fd-find",
+		"jq",
+		"bat",
+		"gh",
+		"go" + toolchain.GoVersion + ".linux-${go_arch}.tar.gz",
+		toolchain.GoAMD64SHA256,
+		toolchain.GoARM64SHA256,
+		"node-v" + toolchain.NodeVersion + "-linux-${node_arch}.tar.xz",
+		toolchain.NodeAMD64SHA256,
+		toolchain.NodeARM64SHA256,
+		"yq_linux_${yq_arch}",
+		toolchain.YQAMD64SHA256,
+		toolchain.YQARM64SHA256,
 		"pnpm@" + toolchain.PNPMVersion,
 		"@openai/codex@" + toolchain.CodexVersion,
 		"playwright@" + toolchain.PlaywrightVersion,
+		"PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright",
+		"runuser --user vessica-agent",
 	} {
 		if !strings.Contains(command, required) {
 			t.Fatalf("checkpoint command missing %q: %s", required, command)
 		}
 	}
-	if strings.Contains(command, "@latest") {
+	if strings.Contains(command, "@latest") || strings.Contains(command, "/latest/") {
 		t.Fatalf("checkpoint command contains a mutable version: %s", command)
 	}
 }
@@ -45,7 +61,7 @@ func TestRailwayUpDryRunDoesNotCallRailway(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("VES_TEST_COMMAND_LOG", logPath)
-	runCLI(t, dir, "init", "--profile", "solo", "--runner", "codex", "--repo", "github", "--json")
+	runCLI(t, dir, "dev", "up", "--profile", "solo", "--runner", "codex", "--repo", "github", "--json")
 	raw := runCLI(t, dir, "railway", "up", "--name", "mvp-test", "--dry-run", "--json")
 	var envelope struct {
 		OK   bool `json:"ok"`
@@ -102,26 +118,80 @@ func TestLinkRailwayWorkDirUsesExistingProjectAndEnvironment(t *testing.T) {
 	}
 }
 
-func TestRecoverKnowledgePostgresAdoptsSingleUnassignedDatabase(t *testing.T) {
-	cfg := config.Config{Hosted: config.HostedConfig{ServiceID: "control", PostgresServiceID: "primary"}, Knowledge: config.KnowledgeConfig{ServiceID: "knowledge"}}
-	services := []railwayServiceRef{
-		{ID: "control", Name: "control-plane"},
-		{ID: "primary", Name: "Postgres"},
-		{ID: "knowledge", Name: "knowledge-server"},
-		{ID: "knowledge-db", Name: "Postgres-_CWk"},
+func TestCreateRailwayResourcesAdoptsExistingCoreServices(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	workDir := filepath.Join(home, "provision")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	got, ok := recoverKnowledgePostgres(services, cfg)
-	if !ok || got.ID != "knowledge-db" || got.Name != "Postgres-_CWk" {
-		t.Fatalf("candidate=%#v ok=%v", got, ok)
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(home, "commands.log")
+	script := filepath.Join(bin, "railway")
+	content := `#!/bin/sh
+printf '%s\n' "$*" >> "$VES_TEST_COMMAND_LOG"
+if [ "$1" = "service" ] && [ "$2" = "list" ]; then
+  printf '%s' '[{"id":"control-existing","name":"control-plane"},{"id":"postgres-existing","name":"Postgres"}]'
+else
+  printf '{}'
+fi
+`
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("VES_TEST_COMMAND_LOG", logPath)
+	t.Setenv("RAILWAY_TOKEN", "test-token")
+	cfg := config.Defaults()
+	cfg.Hosted.ProjectID = "project-existing"
+	cfg.Hosted.EnvironmentID = "production"
+	if err := createRailwayResources(context.Background(), workDir, home, &cfg, railwayUpOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Hosted.ServiceID != "control-existing" || cfg.Hosted.PostgresServiceID != "postgres-existing" {
+		t.Fatalf("hosted config=%#v", cfg.Hosted)
+	}
+	commands, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(commands), "add --service") || strings.Contains(string(commands), "add --database") {
+		t.Fatalf("existing resources were duplicated:\n%s", commands)
 	}
 }
 
-func TestNewlyAddedRailwayServiceUsesServiceListDiff(t *testing.T) {
-	before := []railwayServiceRef{{ID: "existing", Name: "Postgres"}}
-	after := append(before, railwayServiceRef{ID: "new-db", Name: "Postgres-random"})
-	got, err := newlyAddedRailwayService(before, after)
-	if err != nil || got.ID != "new-db" {
-		t.Fatalf("service=%#v err=%v", got, err)
+func TestDeriveRailwayDatabaseURLsUsesSeparateDatabasesAndCredentials(t *testing.T) {
+	urls, err := deriveRailwayDatabaseURLs("postgresql://postgres:admin@postgres.railway.internal:5432/railway?sslmode=disable", railwaySecrets{
+		ControlDatabasePassword:   "control-secret",
+		KnowledgeDatabasePassword: "knowledge-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"vessica_control_user:control-secret", "/vessica_control", "sslmode=disable"} {
+		if !strings.Contains(urls.Control, required) {
+			t.Fatalf("control URL missing %q", required)
+		}
+	}
+	for _, required := range []string{"vessica_knowledge_user:knowledge-secret", "/vessica_knowledge", "sslmode=disable"} {
+		if !strings.Contains(urls.Knowledge, required) {
+			t.Fatalf("knowledge URL missing %q", required)
+		}
+	}
+	if urls.Control == urls.Knowledge {
+		t.Fatal("logical database URLs must remain distinct")
+	}
+}
+
+func TestDatabasePasswordFromURLRequiresExpectedRole(t *testing.T) {
+	raw := "postgres://vessica_control_user:secret@localhost/vessica_control"
+	if got := databasePasswordFromURL(raw, controlDatabaseRole); got != "secret" {
+		t.Fatalf("password=%q", got)
+	}
+	if got := databasePasswordFromURL(raw, knowledgeDatabaseRole); got != "" {
+		t.Fatalf("unexpected password=%q", got)
 	}
 }
 
@@ -261,5 +331,21 @@ func TestSetRailwayVariableDeletesEmptyValues(t *testing.T) {
 	}
 	if got := string(commands); got != "variable delete RAILWAY_TOKEN --project project -e environment -s service --json\n" {
 		t.Fatalf("command=%q", got)
+	}
+}
+
+func TestVerifyRailwayCLIVersionRejectsUntestedMajor(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "railway")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho 'railway 4.9.0'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyRailwayCLIVersion(context.Background(), path); err == nil {
+		t.Fatal("expected unsupported Railway CLI major to be rejected")
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho 'railway 5.26.2'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyRailwayCLIVersion(context.Background(), path); err != nil {
+		t.Fatalf("tested Railway CLI was rejected: %v", err)
 	}
 }

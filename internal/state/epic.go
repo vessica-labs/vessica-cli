@@ -9,22 +9,38 @@ import (
 )
 
 func (db *DB) CreateEpic(ctx context.Context, title, body string) (*Epic, error) {
+	repository, err := db.GetRepository(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	return db.CreateEpicForRepository(ctx, repository.ID, title, body)
+}
+
+func (db *DB) CreateEpicForRepository(ctx context.Context, repositoryID, title, body string) (*Epic, error) {
 	ws, err := db.GetWorkspace(ctx)
 	if err != nil {
 		return nil, err
 	}
+	repository, err := db.GetRepository(ctx, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	if repository.WorkspaceID != ws.ID {
+		return nil, fmt.Errorf("repository %s does not belong to workspace %s", repository.ID, ws.ID)
+	}
 	now := Now()
 	e := &Epic{
-		ID:          id.New(id.Epic),
-		WorkspaceID: ws.ID,
-		Title:       title,
-		Body:        body,
-		Status:      "draft",
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:           id.New(id.Epic),
+		WorkspaceID:  ws.ID,
+		RepositoryID: repository.ID,
+		Title:        title,
+		Body:         body,
+		Status:       "draft",
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
-	_, err = db.Exec(ctx, `INSERT INTO epics(id, workspace_id, title, body, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)`,
-		e.ID, e.WorkspaceID, e.Title, e.Body, e.Status, e.CreatedAt, e.UpdatedAt)
+	_, err = db.Exec(ctx, `INSERT INTO epics(id, workspace_id, repository_id, title, body, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)`,
+		e.ID, e.WorkspaceID, e.RepositoryID, e.Title, e.Body, e.Status, e.CreatedAt, e.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -33,8 +49,8 @@ func (db *DB) CreateEpic(ctx context.Context, title, body string) (*Epic, error)
 
 func (db *DB) GetEpic(ctx context.Context, epicID string) (*Epic, error) {
 	var e Epic
-	err := db.QueryRow(ctx, `SELECT id, workspace_id, title, body, status, COALESCE(external_id,''), created_at, updated_at FROM epics WHERE id = ?`, epicID).
-		Scan(&e.ID, &e.WorkspaceID, &e.Title, &e.Body, &e.Status, &e.ExternalID, &e.CreatedAt, &e.UpdatedAt)
+	err := db.QueryRow(ctx, `SELECT id, workspace_id, repository_id, title, body, status, COALESCE(external_id,''), created_at, updated_at FROM epics WHERE id = ?`, epicID).
+		Scan(&e.ID, &e.WorkspaceID, &e.RepositoryID, &e.Title, &e.Body, &e.Status, &e.ExternalID, &e.CreatedAt, &e.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("epic not found: %s", epicID)
 	}
@@ -42,7 +58,7 @@ func (db *DB) GetEpic(ctx context.Context, epicID string) (*Epic, error) {
 }
 
 func (db *DB) ListEpics(ctx context.Context) ([]Epic, error) {
-	rows, err := db.Query(ctx, `SELECT id, workspace_id, title, body, status, COALESCE(external_id,''), created_at, updated_at FROM epics ORDER BY created_at DESC`)
+	rows, err := db.Query(ctx, `SELECT id, workspace_id, repository_id, title, body, status, COALESCE(external_id,''), created_at, updated_at FROM epics ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +66,7 @@ func (db *DB) ListEpics(ctx context.Context) ([]Epic, error) {
 	var out []Epic
 	for rows.Next() {
 		var e Epic
-		if err := rows.Scan(&e.ID, &e.WorkspaceID, &e.Title, &e.Body, &e.Status, &e.ExternalID, &e.CreatedAt, &e.UpdatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.WorkspaceID, &e.RepositoryID, &e.Title, &e.Body, &e.Status, &e.ExternalID, &e.CreatedAt, &e.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, e)

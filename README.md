@@ -2,7 +2,7 @@
 
 # Vessica CLI
 
-### A local-first engineering control plane for coding agents
+### A hosted engineering control plane for coding agents
 
 Turn a Git repository into a durable, inspectable workflow for planning, coding, validation, previews, pull requests, and evidence.
 
@@ -10,7 +10,7 @@ Turn a Git repository into a durable, inspectable workflow for planning, coding,
 [![Release](https://img.shields.io/github/v/release/vessica-labs/vessica-cli?style=flat-square&sort=semver)](https://github.com/vessica-labs/vessica-cli/releases/latest)
 [![Apache-2.0](https://img.shields.io/github/license/vessica-labs/vessica-cli?style=flat-square)](LICENSE)
 [![Go 1.25+](https://img.shields.io/badge/Go-1.25%2B-00ADD8?style=flat-square&logo=go&logoColor=white)](go.mod)
-[![Local first](https://img.shields.io/badge/architecture-local--first-2F855A?style=flat-square)](#how-vessica-works)
+[![Hosted first](https://img.shields.io/badge/architecture-hosted--first-2F855A?style=flat-square)](#how-vessica-works)
 [![Engineering harness](https://img.shields.io/badge/harness-forkable-6B46C1?style=flat-square)](https://github.com/vessica-labs/engineering-harness)
 
 [Quick start](#quick-start) · [How it works](#how-vessica-works) · [Harnesses](#engineering-harnesses) · [Command map](#command-map) · [Contributing](#contributing)
@@ -18,7 +18,7 @@ Turn a Git repository into a durable, inspectable workflow for planning, coding,
 </div>
 
 > [!IMPORTANT]
-> Vessica is pre-1.0 software. The local workflow is usable today, but command contracts, pack formats, and hosted behavior may evolve before the first stable release. Codex is the production runner in the current release.
+> Vessica is pre-1.0 software. Command contracts, pack formats, and hosted behavior may evolve before the first stable release. Codex is the production runner in the current release.
 
 ## What is Vessica?
 
@@ -38,7 +38,7 @@ Vessica orchestrates coding tools; it is not a model provider or a replacement f
 
 ## Quick start
 
-This path initializes an existing Git repository, installs the default engineering harness, creates an epic, and runs it with Codex.
+This path attaches an existing Git repository to a Railway-hosted Vessica workspace, creates a missing engineering harness, then runs work with Codex.
 
 ### 1. Install `ves`
 
@@ -74,30 +74,18 @@ git push -u origin "$(git branch --show-current)"
 You can use an HTTPS remote instead if that is how your GitHub credentials are
 configured. Make sure the remote is reachable with `git ls-remote origin`.
 
-### 3. Initialize your repository
+### 3. Bring up hosted Vessica
 
 ```bash
 cd your-repository
-ves init --profile solo --runner codex --repo github
-ves pack install @vessica/engineering-harness
-ves harness sync
-ves setup codex
+ves up
 ```
 
-This creates local SQLite workplan and knowledge stores, installs pinned agent definitions, detects the project stack, and materializes durable repository guidance. Solo knowledge retrieval uses FTS5/BM25 and requires no API key.
+`ves up` scans the repository, shows one Railway infrastructure plan, provisions the hosted control plane and lexical knowledge service, prepares the cloud runner checkpoint, attaches the repository, and creates a repository-specific harness when one is absent. Lexical retrieval is healthy immediately and requires no embeddings API key.
 
-### 4. Authenticate
+Provider authentication is part of `ves up` and opens only when a valid session is unavailable. Vessica reuses Codex authentication for cloud agents and never asks for an OpenAI API key during quickstart.
 
-```bash
-ves auth login github
-ves auth login codex
-ves auth status
-ves doctor
-```
-
-GitHub browser login delegates to the authenticated `gh` CLI. Codex login delegates to the installed `codex` CLI.
-
-### 5. Create and run an epic
+### 4. Create and run an epic
 
 ```bash
 cat > epic.md <<'EOF'
@@ -135,9 +123,8 @@ ves dashboard --open
 
 The dashboard is embedded in the `ves` binary and requires no separate Node.js
 runtime after installation. It provides run and sandbox monitoring, live event
-streams, isolated previews, review actions, knowledge search, offline
-documentation, access management, and guided Railway promotion. Run
-`ves dashboard status --json` to inspect the reusable local server process.
+streams, isolated previews, review actions, knowledge search, repository
+switching, workspace health, and access management.
 
 <details>
 <summary><strong>Try the workflow without calling a model</strong></summary>
@@ -200,25 +187,25 @@ flowchart TB
 
 | Area | What Vessica provides |
 |---|---|
-| Workspace | Solo SQLite or shared Postgres state, repository discovery, config, diagnostics |
+| Workspace | Hosted Postgres authority, multi-repository discovery, attachments, diagnostics |
 | Engineering harness | Agent definitions, repository docs, templates, workflow definitions, architecture lint |
 | Planning | Epics transformed into PRDs, ADRs, designs, test scenarios, and dependency-aware tickets |
 | Coordination | Atomic ticket claims, leases, heartbeats, blockers, readiness, and execution waves |
 | Execution | Phase controls, concurrent coding workers, integration branches, resume, cancellation |
 | Sandboxes | Docker execution, live previews, retained environments, direct refinement prompts |
 | Observability | Human streams, interactive TUI, versioned JSONL, raw Codex logs, traces, receipts |
-| Dashboard | Embedded local and hosted React UI, SSE run streams, review, knowledge, access, and promotion |
+| Dashboard | Hosted React UI for repositories, runs, sandboxes, review, knowledge, and access |
 | Integrations | GitHub authentication and PRs, best-effort Linear synchronization, Railway hosting |
 | Agent ergonomics | `ves prime`, stable JSON envelopes, idempotency keys, managed runner guidance |
-| Knowledge | Zero-key local retrieval, shared hosted semantic retrieval, immutable versions, workflow episodes, verified promotion |
+| Knowledge | Zero-key hosted lexical retrieval, optional user-funded semantic retrieval, immutable versions, and workflow episodes |
 
 ### Durable knowledge
 
 `ves knowledge context` assembles active artifacts, instructions, entities, decisions, facts, and work episodes with provenance and score explanations. Responses expose the ranking version, component weights, deterministic artifact policy, per-memory scores, and artifact selection reasons. `ves entity`, `ves artifact`, and `ves memory` manage the underlying knowledge objects. `ves prime --for codex` includes the same context for coding agents.
 
-Solo mode embeds the [Vessica Knowledge Server](https://github.com/vessica-labs/vessica-knowledge-server) core and writes `.vessica/state/knowledge.db`. Team mode uses the authenticated HTTP service with Postgres, pgvector, and asynchronous embeddings. `ves railway up --embedding-api-key-env EMBEDDING_API_KEY` provisions the service and promotes the local history only after counts, hashes, and the event watermark verify.
+The hosted [Vessica Knowledge Server](https://github.com/vessica-labs/vessica-knowledge-server) starts in lexical mode on Postgres without an embeddings key. Enable semantic-hybrid retrieval later with `ves knowledge embeddings enable --api-key-env OPENAI_API_KEY --yes`; the key is stored directly as a Railway secret and existing memories backfill asynchronously.
 
-See the [Vessica Operator Guide](docs/Vessica_Operator_Guide.md) for installation, command safety, knowledge, runs, Railway promotion, and troubleshooting. Deliberately deferred post-MVP work is recorded in [Knowledge Layer Follow-ups](docs/Knowledge_Layer_Followups.md).
+See the [Vessica Operator Guide](docs/Vessica_Operator_Guide.md) for installation, command safety, knowledge, runs, Railway operations, and troubleshooting.
 
 ## Requirements
 
@@ -229,12 +216,12 @@ The exact tools you need depend on the workflow you use.
 | Go 1.25+ | Installing or building `ves` | Uses the version declared in `go.mod` |
 | Git | Every workspace | The target repository should have an `origin` remote for sandbox cloning and PRs |
 | Codex CLI | Production agent runs | Install and authenticate it before a non-simulated run |
-| Docker | Local isolated runs and previews | The default sandbox backend |
+| Docker | Explicit `ves dev` workflows | Not part of hosted quickstart |
 | GitHub CLI (`gh`) | Browser-based GitHub login | A token can be supplied for headless use |
 | Node.js 24+ and npm | Building Vessica from source or Node repositories | Installed release archives embed the compiled dashboard and require no Node runtime |
 | `jq` | README shell examples | The CLI itself does not require it |
-| Postgres | Team or hosted state | SQLite is the default for solo workspaces |
-| Railway CLI | Hosted control plane | Needed only for `ves railway ...` |
+| Postgres | Hosted state and knowledge | Provisioned automatically on Railway |
+| Railway CLI | Hosted control plane and sandboxes | Used by `ves up` |
 
 Run `ves doctor` inside a workspace to see which dependencies are ready.
 
@@ -306,32 +293,17 @@ ves completion fish > ~/.config/fish/completions/ves.fish
 
 ## Workspace setup
 
-### Solo profile
-
-Solo mode stores durable state in an ignored SQLite database:
+One Vessica installation is created per Railway workspace and may contain many repositories:
 
 ```bash
-ves init --profile solo \
-  --state sqlite \
-  --sandbox docker \
-  --runner codex \
-  --repo github \
-  --tracker none
+ves up --dry-run --json
+ves up --yes --stream jsonl
+
+# In another repository, attach it to the same Railway workspace:
+ves up
 ```
 
-### Team profile
-
-Team mode uses Postgres so multiple users and agents can coordinate claims and run state:
-
-```bash
-ves init --profile team \
-  --state postgres-url \
-  --db-url "$DATABASE_URL" \
-  --sandbox docker \
-  --runner codex \
-  --repo github \
-  --tracker linear
-```
+Local SQLite and Docker execution are developer/test utilities under `ves dev`; they are not an onboarding mode.
 
 ### Files created in a target repository
 
@@ -366,7 +338,7 @@ Keep machine-local and sensitive runtime data ignored:
 .vessica/secrets/
 ```
 
-`ves init` updates the target repository's `.gitignore` with those runtime paths.
+`ves up` updates the target repository's `.gitignore` with those runtime paths.
 
 ## Engineering harnesses
 
@@ -602,7 +574,7 @@ ves epic draft --spec-file epic.json --json
 ves epic add --spec-file epic.json --yes --idempotency-key epic-<unique> --json
 ```
 
-When a hosted control plane is configured, spec creation also publishes the canonical graph to hosted Vessica and creates the corresponding Linear parent issue and subissues. Existing local epics can be promoted explicitly:
+When a hosted control plane is configured, spec creation publishes the canonical graph to the repository-scoped hosted workspace. If Linear is connected, Vessica also projects the parent issue and subissues there.
 
 ```bash
 ves epic publish <local_epic_id> --yes --idempotency-key publish-<unique> --json
@@ -670,20 +642,14 @@ sequenceDiagram
     V->>G: Merge after approval
 ```
 
-Provision from an initialized repository:
+Provision directly from a Git repository:
 
 ```bash
 ves auth login github
 ves auth login railway
-ves auth login linear
 ves auth login codex
 
-ves railway up \
-  --workspace <railway-workspace> \
-  --linear-team <team> \
-  --trigger-label Vessica \
-  --embedding-api-key-env EMBEDDING_API_KEY \
-  --source /path/to/vessica-cli
+ves up --workspace <railway-workspace>
 ```
 
 Operate the deployment:
@@ -743,7 +709,8 @@ Common environment overrides:
 | Variable | Purpose |
 |---|---|
 | `VES_STATE_BACKEND` | `sqlite` or `postgres-url` |
-| `VES_DB_URL` | Postgres connection URL |
+| `VES_CONTROL_DATABASE_URL` | Control-plane URL for the `vessica_control` database |
+| `VES_KNOWLEDGE_DATABASE_URL` | Knowledge-server URL for the `vessica_knowledge` database |
 | `VES_RUNNER` | Default runner |
 | `VES_RUNNER_MODEL` | Default model ID |
 | `VES_RUNNER_REASONING_EFFORT` | `low`, `medium`, `high`, or `xhigh` |
@@ -757,7 +724,10 @@ Common environment overrides:
 
 | Command | Purpose |
 |---|---|
-| `ves init` | Initialize solo or team workspace state |
+| `ves up` | Create or discover hosted Vessica and attach the current repository |
+| `ves up status`, `ves up resume` | Inspect or resume durable onboarding |
+| `ves workspace status`, `ves repo list` | Inspect the hosted workspace and repositories |
+| `ves dev` | Explicit local development and test utilities |
 | `ves status`, `ves doctor` | Inspect configuration and readiness |
 | `ves config` | Read and update workspace configuration |
 | `ves auth` | Login, logout, and inspect provider credentials |
@@ -770,6 +740,7 @@ Common environment overrides:
 | `ves memory`, `ves prime` | Preserve and retrieve durable context |
 | `ves run` | Execute, resume, watch, preview, approve, and inspect runs |
 | `ves sandbox` | Operate retained local or Railway environments |
+| `ves toolchain verify` | Verify the coding-agent tools and launch Playwright Chromium |
 | `ves repo` | Inspect repository and pull-request integration |
 | `ves tracker` | Connect and synchronize external trackers |
 | `ves receipt`, `ves trace` | Inspect evidence and diagnostics |
@@ -875,7 +846,7 @@ Vessica is actively developed and currently reports version `0.1.x`.
 
 Implemented today:
 
-- Local solo and shared Postgres workspaces
+- Hosted multi-repository Postgres workspaces with lexical retrieval by default
 - Git-backed, forkable engineering harnesses with SHA pinning
 - Epics, planning artifacts, dependency tickets, waves, leases, and memory
 - Codex-driven runs with concurrency, resume, previews, draft PRs, and approval

@@ -1,6 +1,6 @@
 # Vessica CLI architecture
 
-Vessica is a local-first Go application with an optional hosted control plane. The same domain and use-case code serves the CLI, dashboard, and hosted HTTP adapters; transport handlers must not reimplement lifecycle rules.
+Vessica is a hosted-first Go application. `ves up` attaches repositories to one durable control plane per Railway workspace; local SQLite and Docker adapters exist only for explicit development and testing. The same domain and use-case code serves the CLI, dashboard, and hosted HTTP adapters; transport handlers must not reimplement lifecycle rules.
 
 ## Package boundaries
 
@@ -18,6 +18,8 @@ Dependencies point inward: adapters may depend on use cases and infrastructure i
 
 Postgres or SQLite is the system of record for workflow state. Knowledge artifacts and memories are authoritative in the configured knowledge service. Process memory is only for disposable coordination such as active streams and preview connections.
 
+Hosted work is scoped by workspace and repository. Runs carry `repository_id`; launchers resolve the repository remote from durable state rather than a service-wide environment variable. A Vessica workspace may contain many repositories, while repository-owned epics, runs, artifacts, mappings, and jobs must never cross that boundary.
+
 - Event sequence allocation and ticket claims are database-atomic.
 - A state mutation is not successful if its required audit/event write failed.
 - Hosted processes verify the schema but never migrate it. `ves control-plane migrate` is the sole hosted migration role and holds a Postgres advisory lock.
@@ -25,6 +27,8 @@ Postgres or SQLite is the system of record for workflow state. Knowledge artifac
 - Request and command contexts propagate into database, runner, sandbox, and network calls.
 
 ## Hosted topology and current scale constraint
+
+Each Railway installation has one managed Postgres service and two logical databases. `vessica_control` is owned by `vessica_control_user`; `vessica_knowledge` is owned by `vessica_knowledge_user`. The services receive separate credentials and URLs, maintain independent migration histories, and never query across the database boundary. pgvector is installed only in `vessica_knowledge`.
 
 The hosted deployment currently supports exactly one control-plane replica. A database lease rejects a second replica from the same Railway deployment. Different deployment IDs may briefly overlap only for a controlled rolling-deployment handoff; the prior process detects lease loss and shuts down.
 

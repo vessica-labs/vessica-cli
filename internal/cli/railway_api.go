@@ -25,39 +25,6 @@ func listRailwayServices(ctx context.Context, cfg config.Config) ([]railwayServi
 	return services, nil
 }
 
-func recoverKnowledgePostgres(services []railwayServiceRef, cfg config.Config) (railwayServiceRef, bool) {
-	var candidates []railwayServiceRef
-	for _, service := range services {
-		if service.ID == cfg.Hosted.ServiceID || service.ID == cfg.Hosted.PostgresServiceID || service.ID == cfg.Knowledge.ServiceID {
-			continue
-		}
-		if strings.HasPrefix(strings.ToLower(service.Name), "postgres-") || strings.EqualFold(service.Name, "knowledge-postgres") {
-			candidates = append(candidates, service)
-		}
-	}
-	if len(candidates) == 1 {
-		return candidates[0], true
-	}
-	return railwayServiceRef{}, false
-}
-
-func newlyAddedRailwayService(before, after []railwayServiceRef) (railwayServiceRef, error) {
-	known := make(map[string]bool, len(before))
-	for _, service := range before {
-		known[service.ID] = true
-	}
-	var added []railwayServiceRef
-	for _, service := range after {
-		if !known[service.ID] {
-			added = append(added, service)
-		}
-	}
-	if len(added) != 1 {
-		return railwayServiceRef{}, fmt.Errorf("expected one new service, found %d", len(added))
-	}
-	return added[0], nil
-}
-
 func objectString(raw []byte, wanted string) (string, error) {
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {
@@ -88,6 +55,13 @@ func objectString(raw []byte, wanted string) (string, error) {
 		return result, nil
 	}
 	return "", fmt.Errorf("Railway response did not include %s", wanted)
+}
+
+func railwayCreatedServiceID(raw []byte) (string, error) {
+	if id, err := objectString(raw, "serviceId"); err == nil {
+		return id, nil
+	}
+	return objectID(raw)
 }
 
 func waitForHostedHealth(ctx context.Context, url string, timeout time.Duration) error {

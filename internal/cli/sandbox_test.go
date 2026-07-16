@@ -7,7 +7,7 @@ import (
 
 func TestSandboxPromptDryRunContract(t *testing.T) {
 	dir := t.TempDir()
-	runCLI(t, dir, "init", "--profile", "solo", "--runner", "codex", "--repo", "github", "--json")
+	runCLI(t, dir, "dev", "up", "--profile", "solo", "--runner", "codex", "--repo", "github", "--json")
 	raw := runCLI(t, dir, "sandbox", "prompt", "sbx_test", "Tighten the heading", "--no-push", "--stream", "events", "--dry-run", "--json")
 	var envelope struct {
 		OK   bool `json:"ok"`
@@ -34,7 +34,7 @@ func TestSandboxPromptDryRunContract(t *testing.T) {
 
 func TestRunApproveDryRunContract(t *testing.T) {
 	dir := t.TempDir()
-	runCLI(t, dir, "init", "--profile", "solo", "--runner", "codex", "--repo", "github", "--json")
+	runCLI(t, dir, "dev", "up", "--profile", "solo", "--runner", "codex", "--repo", "github", "--json")
 	raw := runCLI(t, dir, "run", "approve", "run_test", "--merge-method", "rebase", "--keep-preview", "--dry-run", "--json")
 	var envelope struct {
 		OK   bool `json:"ok"`

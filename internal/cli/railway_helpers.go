@@ -2,6 +2,7 @@ package cli
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -9,15 +10,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/vessica-labs/vessica-cli/internal/auth"
 	"github.com/vessica-labs/vessica-cli/internal/config"
 )
 
-func railwaySecretsPath(root string) string {
-	return filepath.Join(root, config.DirName, "secrets", "railway.json")
-}
-
-func railwaySSHPrivateKeyPath(root string) string {
-	return filepath.Join(root, config.DirName, "secrets", "railway_ed25519")
+func railwaySecretsReference(root string) string {
+	absolute, _ := filepath.Abs(root)
+	sum := sha256.Sum256([]byte(absolute))
+	return "railway-workspace-" + hex.EncodeToString(sum[:8])
 }
 
 func railwaySSHUserKeyPath(cfg config.Config) (string, error) {
@@ -32,16 +32,13 @@ func railwaySSHUserKeyPath(cfg config.Config) (string, error) {
 }
 
 func saveRailwaySecrets(root string, secrets railwaySecrets) error {
-	if err := os.MkdirAll(filepath.Dir(railwaySecretsPath(root)), 0o700); err != nil {
-		return err
-	}
 	data, _ := json.MarshalIndent(secrets, "", "  ")
-	return os.WriteFile(railwaySecretsPath(root), data, 0o600)
+	return auth.StoreSecret(railwaySecretsReference(root), data)
 }
 
 func loadRailwaySecrets(root string) (railwaySecrets, error) {
 	var secrets railwaySecrets
-	data, err := os.ReadFile(railwaySecretsPath(root))
+	data, err := auth.LoadSecret(railwaySecretsReference(root))
 	if err != nil {
 		return secrets, err
 	}

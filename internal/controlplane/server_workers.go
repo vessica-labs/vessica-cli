@@ -101,7 +101,25 @@ func (s *Server) ImportLinearIssue(ctx context.Context, issueID string) error {
 	if err != nil {
 		return err
 	}
-	epic, err := s.DB.CreateEpic(ctx, issue.Title, issue.Description)
+	repositories, err := s.DB.ListRepositories(ctx)
+	if err != nil {
+		return err
+	}
+	workspace, err := s.DB.GetWorkspace(ctx)
+	if err != nil {
+		return err
+	}
+	attached := repositories[:0]
+	for i := range repositories {
+		if repositories[i].CanonicalRemote != state.CanonicalRepositoryRemote(workspace.RootPath) {
+			attached = append(attached, repositories[i])
+		}
+	}
+	repository, err := resolveLinearRepository(issue, attached)
+	if err != nil {
+		return err
+	}
+	epic, err := s.DB.CreateEpicForRepository(ctx, repository.ID, issue.Title, issue.Description)
 	if err != nil {
 		return err
 	}
@@ -162,11 +180,17 @@ func (s *Server) SyncRunToLinear(ctx context.Context, runID string) error {
 	if err != nil {
 		return err
 	}
-	epicMapping, err := s.DB.GetExternalMapping(ctx, "linear", "epic", runRecord.EpicID)
-	if err != nil {
-		return err
+	integration, integrationErr := s.DB.GetTrackerIntegration(ctx, "linear")
+	if integrationErr != nil && s.Config.Tracker.Provider != "linear" {
+		if runTerminalStatus(runRecord.Status) {
+			return s.recordTerminalRunKnowledge(ctx, runRecord, "")
+		}
+		return nil
 	}
-	integration, err := s.DB.GetTrackerIntegration(ctx, "linear")
+	if integrationErr != nil {
+		return integrationErr
+	}
+	epicMapping, err := s.DB.GetExternalMapping(ctx, "linear", "epic", runRecord.EpicID)
 	if err != nil {
 		return err
 	}
@@ -237,7 +261,11 @@ func (s *Server) recordTerminalRunKnowledge(ctx context.Context, runRecord *stat
 		return err
 	}
 	defer gateway.Close()
-	scope, err := gateway.EnsureRepositoryScope(ctx, knowledgegateway.CanonicalRepository(s.Config.Repo.Remote, "."), s.Config.Repo.Remote)
+	remote, err := s.repositoryRemote(ctx, runRecord)
+	if err != nil {
+		return err
+	}
+	scope, err := gateway.EnsureRepositoryScope(ctx, knowledgegateway.CanonicalRepository(remote, "."), remote)
 	if err != nil {
 		return err
 	}

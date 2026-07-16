@@ -14,6 +14,7 @@ func (db *DB) EnsureWorkspace(ctx context.Context, root, profile string) (*Works
 		Scan(&ws.ID, &ws.RootPath, &ws.Profile, &ws.CreatedAt, &ws.UpdatedAt)
 	if err == nil {
 		db.Workspace = &ws
+		_, _ = db.EnsureRepository(ctx, ws.ID, root)
 		return &ws, nil
 	}
 	if err != sql.ErrNoRows {
@@ -33,6 +34,9 @@ func (db *DB) EnsureWorkspace(ctx context.Context, root, profile string) (*Works
 		return nil, fmt.Errorf("insert workspace: %w", err)
 	}
 	db.Workspace = &ws
+	if _, repoErr := db.EnsureRepository(ctx, ws.ID, root); repoErr != nil {
+		return nil, repoErr
+	}
 	return &ws, nil
 }
 

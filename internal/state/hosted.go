@@ -124,9 +124,24 @@ func (db *DB) EnqueueJob(ctx context.Context, kind string, payload any, runID st
 		return nil, err
 	}
 	b, _ := json.Marshal(payload)
+	var repositoryID string
+	if runID != "" {
+		if runRecord, runErr := db.GetRun(ctx, runID); runErr == nil {
+			repositoryID = runRecord.RepositoryID
+		}
+	} else {
+		var routed struct {
+			EpicID string `json:"epic_id"`
+		}
+		if json.Unmarshal(b, &routed) == nil && routed.EpicID != "" {
+			if epic, epicErr := db.GetEpic(ctx, routed.EpicID); epicErr == nil {
+				repositoryID = epic.RepositoryID
+			}
+		}
+	}
 	now := Now()
-	job := &Job{ID: id.New("job"), WorkspaceID: ws.ID, Kind: kind, Status: "pending", PayloadJSON: string(b), RunID: runID, MaxAttempts: 5, AvailableAt: now, CreatedAt: now, UpdatedAt: now}
-	_, err = db.Exec(ctx, `INSERT INTO jobs(id, workspace_id, kind, status, payload_json, run_id, attempts, max_attempts, available_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, job.ID, job.WorkspaceID, job.Kind, job.Status, job.PayloadJSON, nullStr(job.RunID), 0, job.MaxAttempts, job.AvailableAt, job.CreatedAt, job.UpdatedAt)
+	job := &Job{ID: id.New("job"), WorkspaceID: ws.ID, RepositoryID: repositoryID, Kind: kind, Status: "pending", PayloadJSON: string(b), RunID: runID, MaxAttempts: 5, AvailableAt: now, CreatedAt: now, UpdatedAt: now}
+	_, err = db.Exec(ctx, `INSERT INTO jobs(id, workspace_id, repository_id, kind, status, payload_json, run_id, attempts, max_attempts, available_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, job.ID, job.WorkspaceID, nullStr(job.RepositoryID), job.Kind, job.Status, job.PayloadJSON, nullStr(job.RunID), 0, job.MaxAttempts, job.AvailableAt, job.CreatedAt, job.UpdatedAt)
 	return job, err
 }
 
@@ -137,13 +152,13 @@ func (db *DB) ClaimJob(ctx context.Context, owner string, lease time.Duration) (
 	}
 	defer tx.Rollback()
 	now := Now()
-	query := `SELECT id, workspace_id, kind, status, payload_json, COALESCE(run_id,''), attempts, max_attempts, COALESCE(lease_owner,''), COALESCE(lease_until,''), available_at, COALESCE(last_error,''), created_at, updated_at
+	query := `SELECT id, workspace_id, COALESCE(repository_id,''), kind, status, payload_json, COALESCE(run_id,''), attempts, max_attempts, COALESCE(lease_owner,''), COALESCE(lease_until,''), available_at, COALESCE(last_error,''), created_at, updated_at
 		FROM jobs WHERE status IN ('pending','retry','running') AND available_at<=? AND (status!='running' OR lease_until IS NULL OR lease_until='' OR lease_until<?) ORDER BY created_at LIMIT 1`
 	if db.Dialect == "postgres" {
 		query += " FOR UPDATE SKIP LOCKED"
 	}
 	var job Job
-	err = tx.QueryRowContext(ctx, db.Rebind(query), now, now).Scan(&job.ID, &job.WorkspaceID, &job.Kind, &job.Status, &job.PayloadJSON, &job.RunID, &job.Attempts, &job.MaxAttempts, &job.LeaseOwner, &job.LeaseUntil, &job.AvailableAt, &job.LastError, &job.CreatedAt, &job.UpdatedAt)
+	err = tx.QueryRowContext(ctx, db.Rebind(query), now, now).Scan(&job.ID, &job.WorkspaceID, &job.RepositoryID, &job.Kind, &job.Status, &job.PayloadJSON, &job.RunID, &job.Attempts, &job.MaxAttempts, &job.LeaseOwner, &job.LeaseUntil, &job.AvailableAt, &job.LastError, &job.CreatedAt, &job.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -170,7 +185,11 @@ func (db *DB) CompleteJob(ctx context.Context, jobID string) error {
 }
 
 func (db *DB) SetJobRunID(ctx context.Context, jobID, runID string) error {
-	_, err := db.Exec(ctx, `UPDATE jobs SET run_id=?, updated_at=? WHERE id=?`, nullStr(runID), Now(), jobID)
+	repositoryID := ""
+	if runRecord, err := db.GetRun(ctx, runID); err == nil {
+		repositoryID = runRecord.RepositoryID
+	}
+	_, err := db.Exec(ctx, `UPDATE jobs SET run_id=?, repository_id=?, updated_at=? WHERE id=?`, nullStr(runID), nullStr(repositoryID), Now(), jobID)
 	return err
 }
 
@@ -192,7 +211,7 @@ func (db *DB) ListJobs(ctx context.Context, limit int) ([]Job, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := db.Query(ctx, `SELECT id, workspace_id, kind, status, payload_json, COALESCE(run_id,''), attempts, max_attempts, COALESCE(lease_owner,''), COALESCE(lease_until,''), available_at, COALESCE(last_error,''), created_at, updated_at FROM jobs ORDER BY created_at DESC LIMIT ?`, limit)
+	rows, err := db.Query(ctx, `SELECT id, workspace_id, COALESCE(repository_id,''), kind, status, payload_json, COALESCE(run_id,''), attempts, max_attempts, COALESCE(lease_owner,''), COALESCE(lease_until,''), available_at, COALESCE(last_error,''), created_at, updated_at FROM jobs ORDER BY created_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +219,7 @@ func (db *DB) ListJobs(ctx context.Context, limit int) ([]Job, error) {
 	var jobs []Job
 	for rows.Next() {
 		var job Job
-		if err := rows.Scan(&job.ID, &job.WorkspaceID, &job.Kind, &job.Status, &job.PayloadJSON, &job.RunID, &job.Attempts, &job.MaxAttempts, &job.LeaseOwner, &job.LeaseUntil, &job.AvailableAt, &job.LastError, &job.CreatedAt, &job.UpdatedAt); err != nil {
+		if err := rows.Scan(&job.ID, &job.WorkspaceID, &job.RepositoryID, &job.Kind, &job.Status, &job.PayloadJSON, &job.RunID, &job.Attempts, &job.MaxAttempts, &job.LeaseOwner, &job.LeaseUntil, &job.AvailableAt, &job.LastError, &job.CreatedAt, &job.UpdatedAt); err != nil {
 			return nil, err
 		}
 		jobs = append(jobs, job)
@@ -318,8 +337,8 @@ func (db *DB) GetControlPlaneDeployment(ctx context.Context, provider string) (*
 
 func (db *DB) GetExternalMappingByExternal(ctx context.Context, provider, entityType, externalID string) (*ExternalMapping, error) {
 	var mapping ExternalMapping
-	err := db.QueryRow(ctx, `SELECT id, workspace_id, provider, entity_type, local_id, external_id, meta_json, created_at, updated_at FROM external_mappings WHERE provider=? AND entity_type=? AND external_id=?`, provider, entityType, externalID).
-		Scan(&mapping.ID, &mapping.WorkspaceID, &mapping.Provider, &mapping.EntityType, &mapping.LocalID, &mapping.ExternalID, &mapping.MetaJSON, &mapping.CreatedAt, &mapping.UpdatedAt)
+	err := db.QueryRow(ctx, `SELECT id, workspace_id, COALESCE(repository_id,''), provider, entity_type, local_id, external_id, meta_json, created_at, updated_at FROM external_mappings WHERE provider=? AND entity_type=? AND external_id=?`, provider, entityType, externalID).
+		Scan(&mapping.ID, &mapping.WorkspaceID, &mapping.RepositoryID, &mapping.Provider, &mapping.EntityType, &mapping.LocalID, &mapping.ExternalID, &mapping.MetaJSON, &mapping.CreatedAt, &mapping.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("mapping not found")
 	}
@@ -328,8 +347,8 @@ func (db *DB) GetExternalMappingByExternal(ctx context.Context, provider, entity
 
 func (db *DB) GetExternalMapping(ctx context.Context, provider, entityType, localID string) (*ExternalMapping, error) {
 	var mapping ExternalMapping
-	err := db.QueryRow(ctx, `SELECT id, workspace_id, provider, entity_type, local_id, external_id, meta_json, created_at, updated_at FROM external_mappings WHERE provider=? AND entity_type=? AND local_id=?`, provider, entityType, localID).
-		Scan(&mapping.ID, &mapping.WorkspaceID, &mapping.Provider, &mapping.EntityType, &mapping.LocalID, &mapping.ExternalID, &mapping.MetaJSON, &mapping.CreatedAt, &mapping.UpdatedAt)
+	err := db.QueryRow(ctx, `SELECT id, workspace_id, COALESCE(repository_id,''), provider, entity_type, local_id, external_id, meta_json, created_at, updated_at FROM external_mappings WHERE provider=? AND entity_type=? AND local_id=?`, provider, entityType, localID).
+		Scan(&mapping.ID, &mapping.WorkspaceID, &mapping.RepositoryID, &mapping.Provider, &mapping.EntityType, &mapping.LocalID, &mapping.ExternalID, &mapping.MetaJSON, &mapping.CreatedAt, &mapping.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("mapping not found")
 	}
@@ -345,10 +364,25 @@ func (db *DB) UpsertExternalMapping(ctx context.Context, provider, entityType, l
 		syncStatus = "synced"
 	}
 	b, _ := json.Marshal(meta)
+	repositoryID := ""
+	switch entityType {
+	case "epic":
+		if epic, getErr := db.GetEpic(ctx, localID); getErr == nil {
+			repositoryID = epic.RepositoryID
+		}
+	case "run":
+		if runRecord, getErr := db.GetRun(ctx, localID); getErr == nil {
+			repositoryID = runRecord.RepositoryID
+		}
+	case "artifact":
+		if artifact, getErr := db.GetArtifact(ctx, localID); getErr == nil {
+			repositoryID = artifact.RepositoryID
+		}
+	}
 	now := Now()
 	mappingID := id.New("map")
-	_, err = db.Exec(ctx, `INSERT INTO external_mappings(id, workspace_id, provider, entity_type, local_id, external_id, meta_json, created_at, updated_at, sync_status, last_synced_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(provider, entity_type, local_id) DO UPDATE SET external_id=excluded.external_id, meta_json=excluded.meta_json, updated_at=excluded.updated_at, sync_status=excluded.sync_status, last_synced_at=excluded.last_synced_at, last_error=NULL`, mappingID, ws.ID, provider, entityType, localID, externalID, string(b), now, now, syncStatus, now)
+	_, err = db.Exec(ctx, `INSERT INTO external_mappings(id, workspace_id, repository_id, provider, entity_type, local_id, external_id, meta_json, created_at, updated_at, sync_status, last_synced_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(provider, entity_type, local_id) DO UPDATE SET repository_id=excluded.repository_id, external_id=excluded.external_id, meta_json=excluded.meta_json, updated_at=excluded.updated_at, sync_status=excluded.sync_status, last_synced_at=excluded.last_synced_at, last_error=NULL`, mappingID, ws.ID, nullStr(repositoryID), provider, entityType, localID, externalID, string(b), now, now, syncStatus, now)
 	if err != nil {
 		return nil, err
 	}

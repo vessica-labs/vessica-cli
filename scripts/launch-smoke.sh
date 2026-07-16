@@ -13,7 +13,7 @@ cd "$WORKDIR"
 git init -q
 git add -A
 git -c user.email=t@t.com -c user.name=t commit -qm init
-"$VES" init --profile solo --runner codex --repo github --json >/dev/null
+"$VES" dev up --profile solo --runner codex --repo github --json >/dev/null
 "$VES" pack install --json >/dev/null
 "$VES" harness sync --json >/dev/null
 echo "Reset password via email token" > epic.md

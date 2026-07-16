@@ -91,5 +91,12 @@ func newTraceCmd(app *App) *cobra.Command {
 }
 
 func saveWorkspaceConfig(app *App) error {
+	if app.Config.Attachment.RepositoryID != "" && app.Config.Hosted.ProjectID != "" {
+		if secrets, err := loadRailwaySecrets(app.Root); err == nil {
+			if err := saveHostedClientConfig(app.Config, secrets); err != nil {
+				return err
+			}
+		}
+	}
 	return config.Save(app.Root, app.Config)
 }

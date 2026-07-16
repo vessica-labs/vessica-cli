@@ -29,10 +29,30 @@ func (db *DB) CreateArtifact(ctx context.Context, typ, title, body, epicID, runI
 	if err != nil {
 		return nil, err
 	}
+	var repository *Repository
+	if runID != "" {
+		runRecord, runErr := db.GetRun(ctx, runID)
+		if runErr != nil {
+			return nil, runErr
+		}
+		repository, err = db.GetRepository(ctx, runRecord.RepositoryID)
+	} else if epicID != "" {
+		epic, epicErr := db.GetEpic(ctx, epicID)
+		if epicErr != nil {
+			return nil, epicErr
+		}
+		repository, err = db.GetRepository(ctx, epic.RepositoryID)
+	} else {
+		repository, err = db.GetRepository(ctx, "")
+	}
+	if err != nil {
+		return nil, err
+	}
 	now := Now()
 	a := &Artifact{
 		ID:              id.New(artifactPrefix(typ)),
 		WorkspaceID:     ws.ID,
+		RepositoryID:    repository.ID,
 		EpicID:          epicID,
 		Type:            typ,
 		Title:           title,
@@ -45,9 +65,9 @@ func (db *DB) CreateArtifact(ctx context.Context, typ, title, body, epicID, runI
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
-	_, err = db.Exec(ctx, `INSERT INTO artifacts(id, workspace_id, epic_id, type, title, status, version, body, frontmatter_json, source_run_id, created_by_json, created_at, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		a.ID, a.WorkspaceID, nullStr(a.EpicID), a.Type, a.Title, a.Status, a.Version, a.Body, a.FrontmatterJSON, nullStr(a.SourceRunID), a.CreatedByJSON, a.CreatedAt, a.UpdatedAt)
+	_, err = db.Exec(ctx, `INSERT INTO artifacts(id, workspace_id, repository_id, epic_id, type, title, status, version, body, frontmatter_json, source_run_id, created_by_json, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		a.ID, a.WorkspaceID, a.RepositoryID, nullStr(a.EpicID), a.Type, a.Title, a.Status, a.Version, a.Body, a.FrontmatterJSON, nullStr(a.SourceRunID), a.CreatedByJSON, a.CreatedAt, a.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -60,9 +80,9 @@ func (db *DB) CreateArtifact(ctx context.Context, typ, title, body, epicID, runI
 func (db *DB) GetArtifact(ctx context.Context, artifactID string) (*Artifact, error) {
 	var a Artifact
 	var epicID, setID, runID sql.NullString
-	err := db.QueryRow(ctx, `SELECT id, workspace_id, epic_id, artifact_set_id, type, title, status, version, body, frontmatter_json, source_run_id, created_by_json, created_at, updated_at
+	err := db.QueryRow(ctx, `SELECT id, workspace_id, repository_id, epic_id, artifact_set_id, type, title, status, version, body, frontmatter_json, source_run_id, created_by_json, created_at, updated_at
 		FROM artifacts WHERE id=?`, artifactID).
-		Scan(&a.ID, &a.WorkspaceID, &epicID, &setID, &a.Type, &a.Title, &a.Status, &a.Version, &a.Body, &a.FrontmatterJSON, &runID, &a.CreatedByJSON, &a.CreatedAt, &a.UpdatedAt)
+		Scan(&a.ID, &a.WorkspaceID, &a.RepositoryID, &epicID, &setID, &a.Type, &a.Title, &a.Status, &a.Version, &a.Body, &a.FrontmatterJSON, &runID, &a.CreatedByJSON, &a.CreatedAt, &a.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("artifact not found: %s", artifactID)
 	}
@@ -76,7 +96,7 @@ func (db *DB) GetArtifact(ctx context.Context, artifactID string) (*Artifact, er
 }
 
 func (db *DB) ListArtifacts(ctx context.Context, epicID, typ string) ([]Artifact, error) {
-	q := `SELECT id, workspace_id, COALESCE(epic_id,''), COALESCE(artifact_set_id,''), type, title, status, version, body, frontmatter_json, COALESCE(source_run_id,''), created_by_json, created_at, updated_at FROM artifacts WHERE 1=1`
+	q := `SELECT id, workspace_id, repository_id, COALESCE(epic_id,''), COALESCE(artifact_set_id,''), type, title, status, version, body, frontmatter_json, COALESCE(source_run_id,''), created_by_json, created_at, updated_at FROM artifacts WHERE 1=1`
 	var args []any
 	if epicID != "" {
 		q += ` AND epic_id=?`
@@ -95,7 +115,7 @@ func (db *DB) ListArtifacts(ctx context.Context, epicID, typ string) ([]Artifact
 	var out []Artifact
 	for rows.Next() {
 		var a Artifact
-		if err := rows.Scan(&a.ID, &a.WorkspaceID, &a.EpicID, &a.ArtifactSetID, &a.Type, &a.Title, &a.Status, &a.Version, &a.Body, &a.FrontmatterJSON, &a.SourceRunID, &a.CreatedByJSON, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.WorkspaceID, &a.RepositoryID, &a.EpicID, &a.ArtifactSetID, &a.Type, &a.Title, &a.Status, &a.Version, &a.Body, &a.FrontmatterJSON, &a.SourceRunID, &a.CreatedByJSON, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, a)
@@ -108,7 +128,7 @@ func (db *DB) ListArtifactsForRun(ctx context.Context, runID string) ([]Artifact
 	if err != nil {
 		return nil, err
 	}
-	q := `SELECT id, workspace_id, COALESCE(epic_id,''), COALESCE(artifact_set_id,''), type, title, status, version, body, frontmatter_json, COALESCE(source_run_id,''), created_by_json, created_at, updated_at
+	q := `SELECT id, workspace_id, repository_id, COALESCE(epic_id,''), COALESCE(artifact_set_id,''), type, title, status, version, body, frontmatter_json, COALESCE(source_run_id,''), created_by_json, created_at, updated_at
 		FROM artifacts WHERE source_run_id=?`
 	args := []any{runID}
 	if r.ArtifactSetID != "" {
@@ -125,7 +145,7 @@ func (db *DB) ListArtifactsForRun(ctx context.Context, runID string) ([]Artifact
 	var out []Artifact
 	for rows.Next() {
 		var a Artifact
-		if err := rows.Scan(&a.ID, &a.WorkspaceID, &a.EpicID, &a.ArtifactSetID, &a.Type, &a.Title, &a.Status, &a.Version, &a.Body, &a.FrontmatterJSON, &a.SourceRunID, &a.CreatedByJSON, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.WorkspaceID, &a.RepositoryID, &a.EpicID, &a.ArtifactSetID, &a.Type, &a.Title, &a.Status, &a.Version, &a.Body, &a.FrontmatterJSON, &a.SourceRunID, &a.CreatedByJSON, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if seen[a.ID] {

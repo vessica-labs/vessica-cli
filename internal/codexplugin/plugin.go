@@ -50,7 +50,11 @@ func Install() (*installResult, error) {
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(target, body, 0o644)
+		mode := os.FileMode(0o644)
+		if filepath.Base(filepath.Dir(target)) == "scripts" || filepath.Ext(target) == ".sh" {
+			mode = 0o755
+		}
+		return os.WriteFile(target, body, mode)
 	})
 	if err != nil {
 		return nil, err

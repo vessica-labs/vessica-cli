@@ -28,7 +28,14 @@ func (s *Server) handleIntegrations(w http.ResponseWriter, r *http.Request) {
 }
 func queryLimit(r *http.Request) int { n, _ := strconv.Atoi(r.URL.Query().Get("limit")); return n }
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
-	v, err := s.App.Runs(r.Context(), r.URL.Query().Get("cursor"), queryLimit(r))
+	repositoryID := strings.TrimSpace(r.Header.Get("X-Vessica-Repository-ID"))
+	var v any
+	var err error
+	if repositoryID != "" {
+		v, err = s.App.RunsForRepository(r.Context(), repositoryID, r.URL.Query().Get("cursor"), queryLimit(r))
+	} else {
+		v, err = s.App.Runs(r.Context(), r.URL.Query().Get("cursor"), queryLimit(r))
+	}
 	s.respond(w, r, v, err)
 }
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {

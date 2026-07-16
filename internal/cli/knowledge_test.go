@@ -10,7 +10,7 @@ import (
 
 func TestSoloKnowledgeCLIAndEpicEpisode(t *testing.T) {
 	dir := t.TempDir()
-	runCLI(t, dir, "init", "--profile", "solo", "--json")
+	runCLI(t, dir, "dev", "up", "--profile", "solo", "--json")
 	runCLI(t, dir, "memory", "add", "--type", "decision", "--title", "Storage", "--body", "Use SQLite without an embedding key", "--yes", "--idempotency-key", "memory-1", "--json")
 	raw := runCLI(t, dir, "knowledge", "context", "--query", "SQLite embedding", "--token-budget", "1000", "--json")
 	var env struct {

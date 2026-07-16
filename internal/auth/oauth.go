@@ -279,6 +279,22 @@ func LoadOAuth(provider string) (*OAuthCredential, error) {
 
 func DeleteOAuth(provider string) error { return deleteSecret(strings.ToLower(provider)) }
 
+// StoreSecret writes non-OAuth client credentials to the platform credential
+// store. Callers persist only the returned reference in their own registries.
+func StoreSecret(reference string, data []byte) error {
+	return writeSecret(strings.ToLower(reference), data)
+}
+
+// LoadSecret resolves a client credential reference from the platform store.
+func LoadSecret(reference string) ([]byte, error) {
+	return readSecret(strings.ToLower(reference))
+}
+
+// DeleteSecret removes a non-OAuth client credential from the platform store.
+func DeleteSecret(reference string) error {
+	return deleteSecret(strings.ToLower(reference))
+}
+
 func MarshalOAuth(provider string) (string, error) {
 	credential, err := LoadOAuth(provider)
 	if err != nil {

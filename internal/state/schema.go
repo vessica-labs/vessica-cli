@@ -15,6 +15,23 @@ CREATE TABLE IF NOT EXISTS workspaces (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS repositories (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  provider TEXT NOT NULL DEFAULT 'github',
+  canonical_remote TEXT NOT NULL,
+  remote TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  default_branch TEXT NOT NULL DEFAULT 'main',
+  status TEXT NOT NULL DEFAULT 'active',
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(workspace_id, canonical_remote),
+  UNIQUE(workspace_id, id),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS provider_auth (
   provider TEXT PRIMARY KEY,
   account TEXT,
@@ -28,6 +45,17 @@ CREATE TABLE IF NOT EXISTS hosted_credentials (
   encrypted_json TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS cli_credentials (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  scopes_json TEXT NOT NULL DEFAULT '["workspace"]',
+  created_at TEXT NOT NULL,
+  revoked_at TEXT,
+  FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS packs (
@@ -53,18 +81,22 @@ CREATE TABLE IF NOT EXISTS harness_status (
 CREATE TABLE IF NOT EXISTS epics (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL,
+  repository_id TEXT NOT NULL,
   title TEXT NOT NULL,
   body TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'draft',
   external_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
+  FOREIGN KEY (workspace_id, repository_id) REFERENCES repositories(workspace_id, id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS artifacts (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL,
+  repository_id TEXT NOT NULL,
   epic_id TEXT,
   artifact_set_id TEXT,
   type TEXT NOT NULL,
@@ -78,6 +110,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
+  FOREIGN KEY (workspace_id, repository_id) REFERENCES repositories(workspace_id, id) ON DELETE CASCADE,
   FOREIGN KEY (epic_id) REFERENCES epics(id) ON DELETE SET NULL
 );
 
@@ -157,6 +191,7 @@ CREATE TABLE IF NOT EXISTS claims (
 CREATE TABLE IF NOT EXISTS runs (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL,
+  repository_id TEXT NOT NULL,
   epic_id TEXT,
   ticket_id TEXT,
   workflow TEXT NOT NULL DEFAULT 'software_epic',
@@ -181,6 +216,8 @@ CREATE TABLE IF NOT EXISTS runs (
   started_at TEXT,
   finished_at TEXT,
   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
+  FOREIGN KEY (workspace_id, repository_id) REFERENCES repositories(workspace_id, id) ON DELETE CASCADE,
   FOREIGN KEY (epic_id) REFERENCES epics(id) ON DELETE SET NULL
 );
 
@@ -267,6 +304,7 @@ CREATE TABLE IF NOT EXISTS traces (
 CREATE TABLE IF NOT EXISTS external_mappings (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL,
+  repository_id TEXT,
   provider TEXT NOT NULL,
   entity_type TEXT NOT NULL,
   local_id TEXT NOT NULL,
@@ -277,9 +315,11 @@ CREATE TABLE IF NOT EXISTS external_mappings (
 	  sync_status TEXT NOT NULL DEFAULT 'pending',
 	  external_version TEXT,
 	  last_synced_at TEXT,
-	  last_error TEXT,
+  last_error TEXT,
   UNIQUE(provider, entity_type, local_id),
-  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
+  FOREIGN KEY (workspace_id, repository_id) REFERENCES repositories(workspace_id, id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS tracker_integrations (
@@ -317,6 +357,7 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
 CREATE TABLE IF NOT EXISTS jobs (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL,
+  repository_id TEXT,
   kind TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   payload_json TEXT NOT NULL DEFAULT '{}',
@@ -330,6 +371,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
+  FOREIGN KEY (workspace_id, repository_id) REFERENCES repositories(workspace_id, id) ON DELETE CASCADE,
   FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE SET NULL
 );
 
@@ -348,6 +391,20 @@ CREATE TABLE IF NOT EXISTS outbox_messages (
   updated_at TEXT NOT NULL,
   FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
   FOREIGN KEY (integration_id) REFERENCES tracker_integrations(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS onboarding_operations (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL,
+  repository_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  current_stage TEXT NOT NULL,
+  document_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
+  FOREIGN KEY (workspace_id, repository_id) REFERENCES repositories(workspace_id, id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS control_plane_deployments (
@@ -375,12 +432,16 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 );
 
 CREATE INDEX IF NOT EXISTS idx_epics_workspace ON epics(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_repositories_workspace ON repositories(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_epics_repository ON epics(repository_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_epic ON tickets(epic_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
 CREATE INDEX IF NOT EXISTS idx_artifacts_epic ON artifacts(epic_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq);
 CREATE INDEX IF NOT EXISTS idx_run_evidence_run ON run_evidence(run_id);
 CREATE INDEX IF NOT EXISTS idx_runs_workspace ON runs(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_runs_repository ON runs(repository_id);
+CREATE INDEX IF NOT EXISTS idx_onboarding_repository ON onboarding_operations(repository_id,updated_at);
 CREATE INDEX IF NOT EXISTS idx_claims_lease ON claims(lease_until);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_external_mappings_external ON external_mappings(provider, entity_type, external_id);
 CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status ON webhook_deliveries(status, created_at);

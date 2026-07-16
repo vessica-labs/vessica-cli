@@ -52,6 +52,17 @@ func (l *RailwayLauncher) Launch(ctx context.Context, runRecord *state.Run) erro
 	if l.Logger == nil {
 		l.Logger = log.New(os.Stdout, "railway-launcher ", log.LstdFlags|log.LUTC)
 	}
+	repositoryRemote := l.Config.Repo.Remote
+	if runRecord.RepositoryID != "" {
+		if repository, repositoryErr := l.DB.GetRepository(ctx, runRecord.RepositoryID); repositoryErr != nil {
+			return fmt.Errorf("resolve run repository: %w", repositoryErr)
+		} else if repository.Remote != "" {
+			repositoryRemote = repository.Remote
+		}
+	}
+	if strings.TrimSpace(repositoryRemote) == "" {
+		return fmt.Errorf("run repository remote is required")
+	}
 
 	branch := fmt.Sprintf("vessica/%s/%s", runRecord.EpicID, runRecord.ID)
 	sbRecord, err := l.DB.GetSandboxForRun(ctx, runRecord.ID)
@@ -69,7 +80,7 @@ func (l *RailwayLauncher) Launch(ctx context.Context, runRecord *state.Run) erro
 		}
 		if err := rs.Create(ctx, sandbox.CreateOpts{
 			SandboxID: sbRecord.ID, WorkspaceID: sbRecord.WorkspaceID, RunID: runRecord.ID,
-			Branch: branch, Env: l.workerEnvironment(runRecord.ID), ExpiresAt: retention.EffectiveExpiry(sbRecord),
+			Branch: branch, Env: l.workerEnvironment(runRecord.ID, repositoryRemote), ExpiresAt: retention.EffectiveExpiry(sbRecord),
 		}); err != nil {
 			return err
 		}
@@ -137,23 +148,23 @@ func (l *RailwayLauncher) Launch(ctx context.Context, runRecord *state.Run) erro
 		_ = l.DB.UpdateSandbox(ctx, sbRecord)
 		if latest.PRURL != "" {
 			if number, err := repo.ParsePRNumber(latest.PRURL); err == nil {
-				_ = repo.UpdatePRBody(ctx, l.Config.Repo.Remote, number, receipt.PRBody(ctx, l.DB, latest))
+				_ = repo.UpdatePRBody(ctx, repositoryRemote, number, receipt.PRBody(ctx, l.DB, latest))
 			}
 		}
 	}
 	return nil
 }
 
-func (l *RailwayLauncher) workerEnvironment(runID string) map[string]string {
+func (l *RailwayLauncher) workerEnvironment(runID, repositoryRemote string) map[string]string {
 	service := "control-plane"
 	return map[string]string{
 		"VES_RAILWAY_CHECKPOINT":      l.Config.Hosted.WorkerCheckpoint,
 		"VES_RUN_ID":                  runID,
-		"VES_DB_URL":                  "Postgres.DATABASE_URL",
+		"VES_CONTROL_DATABASE_URL":    service + ".VES_CONTROL_DATABASE_URL",
 		"VES_STATE_BACKEND":           "postgres-url",
 		"VES_CONTROL_PLANE_URL":       l.PublicURL,
 		"VES_WORKER_DOWNLOAD_TOKEN":   service + ".VES_WORKER_DOWNLOAD_TOKEN",
-		"VES_REPO_REMOTE":             service + ".VES_REPO_REMOTE",
+		"VES_REPO_REMOTE":             repositoryRemote,
 		"VES_RUNNER_MODEL":            service + ".VES_RUNNER_MODEL",
 		"VES_RUNNER_REASONING_EFFORT": service + ".VES_RUNNER_REASONING_EFFORT",
 		"VES_KNOWLEDGE_MODE":          service + ".VES_KNOWLEDGE_MODE",
@@ -197,15 +208,12 @@ func railwayWorkerBootstrapCommand(workerURL, workerCommand string) string {
 		"export VES_CODEX_EXTERNAL_SANDBOX=1",
 		"export VES_RUNNER_USER=vessica-agent",
 		"export VES_RUNNER_HOME=/home/vessica-agent",
-		"command -v curl >/dev/null && command -v git >/dev/null && command -v node >/dev/null && command -v npm >/dev/null || { echo 'Railway worker checkpoint is missing curl, git, node, or npm' >&2; exit 1; }",
 		"id -u vessica-agent >/dev/null 2>&1 || useradd --create-home --shell /bin/bash vessica-agent",
 		"command -v runuser >/dev/null && command -v find >/dev/null && command -v chown >/dev/null && command -v chmod >/dev/null || { echo 'Railway worker checkpoint is missing isolation tools' >&2; exit 1; }",
 		"install -d -o vessica-agent -g vessica-agent -m 0700 /home/vessica-agent /home/vessica-agent/.codex",
-		"test \"$(pnpm --version 2>/dev/null || true)\" = \"" + toolchain.PNPMVersion + "\" || npm install -g pnpm@" + toolchain.PNPMVersion,
-		"current_codex=$(codex --version 2>/dev/null | awk '{print $2}' || true); test \"$current_codex\" = \"" + toolchain.CodexVersion + "\" || npm install -g @openai/codex@" + toolchain.CodexVersion,
 		"export NODE_PATH=$(npm root -g)",
-		"node -e \"const p=require('playwright/package.json'); process.exit(p.version==='" + toolchain.PlaywrightVersion + "'?0:1)\" >/dev/null 2>&1 || npm install -g playwright@" + toolchain.PlaywrightVersion,
-		"node -e \"const { chromium } = require('playwright'); require('node:fs').accessSync(chromium.executablePath())\" >/dev/null 2>&1 || playwright install --with-deps chromium",
+		"export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright",
+		toolchain.AgentShellVerifyCommand(),
 		"worker_bin=$(mktemp /tmp/ves-worker.XXXXXX)",
 		"trap 'rm -f \"$worker_bin\"' EXIT",
 		"curl -fsSL -H \"Authorization: Bearer $VES_WORKER_DOWNLOAD_TOKEN\" " + shellQuoteCP(workerURL) + " -o \"$worker_bin\"",
