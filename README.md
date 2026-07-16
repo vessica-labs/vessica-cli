@@ -100,7 +100,7 @@ EOF
 EPIC_ID=$(ves epic add \
   --title "Add password reset" \
   --body-file epic.md \
-  --json | jq -r '.data.id')
+  --json | jq -r '.data.epic.id')
 
 ves run epic "$EPIC_ID" \
   --concurrency 3 \
@@ -328,17 +328,11 @@ SECURITY.md
   lint-arch.sh
 ```
 
-Keep machine-local and sensitive runtime data ignored:
-
-```text
-.vessica/cache/
-.vessica/state/
-.vessica/runs/
-.vessica/sandboxes/
-.vessica/secrets/
-```
-
-`ves up` updates the target repository's `.gitignore` with those runtime paths.
+`ves up` does not create repository-local databases, run logs, sandboxes, caches,
+or credential directories. Hosted workflow state lives in the control plane,
+hosted knowledge lives in the knowledge service, and local onboarding resume
+metadata lives in `~/.vessica/client.db`. Credentials remain in the operating
+system credential store (or the protected user-level fallback).
 
 ## Engineering harnesses
 
@@ -663,9 +657,15 @@ ves railway down --yes
 
 Read [Hosted Railway](docs/Hosted_Railway.md) before provisioning. It covers OAuth application setup, scopes, webhook behavior, preview forwarding, credential encryption, and teardown.
 
-## Configuration
+## Local developer configuration
 
-Precedence is command flags, environment variables, `.vessica/config.yaml`, then built-in defaults.
+The configuration below applies only to the explicit `ves dev` workflow used by
+contributors and tests. A repository attached by `ves up` instead receives a
+small `RepositoryAttachment` descriptor with workspace, repository, endpoint,
+remote, and harness identity; it never contains a local datastore setting.
+
+Developer-mode precedence is command flags, environment variables,
+`.vessica/config.yaml`, then built-in defaults.
 
 ```yaml
 state:

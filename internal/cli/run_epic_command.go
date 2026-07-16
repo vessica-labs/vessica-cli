@@ -26,25 +26,17 @@ func newRunEpicCmd(app *App) *cobra.Command {
 			}
 			defer app.closeDB()
 			if app.Config.Hosted.ControlPlaneURL != "" {
-				hostedID := ""
-				if mapping, mapErr := app.DB.GetExternalMapping(cmd.Context(), "vessica-hosted", "epic", args[0]); mapErr == nil {
-					hostedID = mapping.ExternalID
-				} else if _, localErr := app.DB.GetEpic(cmd.Context(), args[0]); localErr != nil {
-					hostedID = args[0]
+				if app.Flags.DryRun {
+					return app.dryRun("run.epic.hosted", map[string]any{"epic_id": args[0], "sandbox": "railway"})
 				}
-				if hostedID != "" {
-					if app.Flags.DryRun {
-						return app.dryRun("run.epic.hosted", map[string]any{"local_epic_id": args[0], "hosted_epic_id": hostedID, "sandbox": "railway"})
-					}
-					if err := app.requireYes("start the hosted epic run"); err != nil {
-						return err
-					}
-					result, err := app.startHostedEpicRun(cmd.Context(), hostedID)
-					if err != nil {
-						return err
-					}
-					return app.Printer.Success(result)
+				if err := app.requireYes("start the hosted epic run"); err != nil {
+					return err
 				}
+				result, err := app.startHostedEpicRun(cmd.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				return app.Printer.Success(result)
 			}
 			mode, err := resolveStreamMode(streamMode, noStream, eventsOnly, app.Flags.JSON)
 			if err != nil {

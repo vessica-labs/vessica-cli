@@ -14,7 +14,6 @@ import (
 
 	"github.com/vessica-labs/vessica-cli/internal/auth"
 	"github.com/vessica-labs/vessica-cli/internal/config"
-	"github.com/vessica-labs/vessica-cli/internal/state"
 	"github.com/vessica-labs/vessica-cli/internal/toolchain"
 	"github.com/vessica-labs/vessica-cli/internal/tracker"
 	"github.com/vessica-labs/vessica-cli/internal/version"
@@ -250,11 +249,6 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		return nil, err
 	}
 	app.Config = cfg
-	_, _ = app.DB.UpsertControlPlaneDeployment(ctx, &state.ControlPlaneDeployment{
-		Provider: "railway", ProjectID: cfg.Hosted.ProjectID, EnvironmentID: cfg.Hosted.EnvironmentID,
-		ServiceID: cfg.Hosted.ServiceID, PostgresServiceID: cfg.Hosted.PostgresServiceID,
-		PublicURL: cfg.Hosted.ControlPlaneURL, Version: version.Version, Status: "running",
-	})
 	return map[string]any{"status": "running", "project_id": cfg.Hosted.ProjectID, "environment_id": cfg.Hosted.EnvironmentID,
 		"service_id": cfg.Hosted.ServiceID, "postgres_service_id": cfg.Hosted.PostgresServiceID,
 		"control_plane_url": cfg.Hosted.ControlPlaneURL, "webhook_id": secrets.WebhookID,

@@ -100,7 +100,9 @@ type PreviewConfig struct {
 	Healthcheck string `yaml:"healthcheck" json:"healthcheck"`
 }
 
-// Defaults returns solo-profile defaults.
+// Defaults returns local developer defaults. Product onboarding uses
+// HostedDefaults so repository attachments never inherit a writable local
+// state or knowledge backend.
 func Defaults() Config {
 	return Config{
 		APIVersion: "vessica.dev/v1",
@@ -114,6 +116,37 @@ func Defaults() Config {
 		Pack:       PackConfig{Lockfile: filepath.Join(DirName, PackLockFile)},
 		Preview:    PreviewConfig{Port: 3000},
 	}
+}
+
+// HostedDefaults returns the transient configuration used while creating a
+// hosted installation. It intentionally contains no repository-local storage
+// backend; hosted product state becomes available only through the control
+// plane and knowledge service.
+func HostedDefaults() Config {
+	c := Defaults()
+	c.State = StateConfig{Backend: "hosted"}
+	c.Sandbox.Backend = "railway"
+	c.Tracker = TrackerConfig{Provider: "none", Mode: "best_efforts"}
+	c.Knowledge = KnowledgeConfig{Mode: "hosted"}
+	return c
+}
+
+// IsHostedAttachment reports whether the configuration points at the hosted
+// product authority rather than a local developer datastore.
+func IsHostedAttachment(c Config) bool {
+	return c.Kind == "RepositoryAttachment" && c.Hosted.ControlPlaneURL != "" && c.Attachment.RepositoryID != ""
+}
+
+// EnforceHostedAuthority removes local runtime backends from a repository
+// attachment after registry and environment overlays have been applied.
+func EnforceHostedAuthority(c *Config) {
+	if !IsHostedAttachment(*c) {
+		return
+	}
+	c.State = StateConfig{Backend: "hosted"}
+	c.Sandbox.Backend = "railway"
+	c.Knowledge.Mode = "hosted"
+	c.Knowledge.LocalPath = ""
 }
 
 // TeamDefaults returns team-profile defaults.

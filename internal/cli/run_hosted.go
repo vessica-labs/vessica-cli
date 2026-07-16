@@ -32,6 +32,19 @@ func (a *App) startHostedEpicRun(ctx context.Context, hostedEpicID string) (map[
 	return result, nil
 }
 
+func (a *App) getHostedStatus(ctx context.Context) (map[string]any, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var status map[string]any
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/status"
+	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &status); err != nil {
+		return nil, err
+	}
+	return status, nil
+}
+
 func (a *App) listHostedRuns(ctx context.Context) ([]*state.Run, error) {
 	secrets, err := loadRailwaySecrets(a.Root)
 	if err != nil {
@@ -46,6 +59,45 @@ func (a *App) listHostedRuns(ctx context.Context) ([]*state.Run, error) {
 		return nil, err
 	}
 	return runs, nil
+}
+
+func (a *App) listHostedEpics(ctx context.Context) ([]state.Epic, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var epics []state.Epic
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/epics?repository_id=" + url.QueryEscape(a.Config.Attachment.RepositoryID)
+	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &epics); err != nil {
+		return nil, err
+	}
+	return epics, nil
+}
+
+func (a *App) getHostedEpic(ctx context.Context, epicID string) (*state.Epic, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var epic state.Epic
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/epics/" + url.PathEscape(epicID) + "?repository_id=" + url.QueryEscape(a.Config.Attachment.RepositoryID)
+	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &epic); err != nil {
+		return nil, err
+	}
+	return &epic, nil
+}
+
+func (a *App) approveHostedRun(ctx context.Context, runID string, options any) (map[string]any, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]any
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/runs/" + url.PathEscape(runID) + "/approve"
+	if err := hostedRequestWithKey(ctx, http.MethodPost, endpoint, secrets.APIToken, firstNonEmpty(a.Flags.IdempotencyKey, "approve-"+runID), options, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (a *App) getHostedRun(ctx context.Context, runID string) (*state.Run, error) {
@@ -72,6 +124,40 @@ func (a *App) listHostedRunEvents(ctx context.Context, runID string, after int64
 		return nil, err
 	}
 	return events, nil
+}
+
+func (a *App) printHostedRunLogs(ctx context.Context, runID, detail string, agentOnly, jsonl, raw bool) error {
+	if raw {
+		return a.Printer.Fail("hosted_raw_log_unavailable", "hosted runs expose sanitized events rather than repository-local raw logs", "use ves run logs <run_id> --json")
+	}
+	events, err := a.listHostedRunEvents(ctx, runID, 0)
+	if err != nil {
+		return err
+	}
+	if detail != "" {
+		for i := range events {
+			if events[i].ID == detail {
+				return a.Printer.Success(events[i])
+			}
+		}
+		return a.Printer.Fail("event_not_found", "event was not found in this hosted run", "")
+	}
+	if jsonl {
+		for i := range events {
+			if err := streaming.WriteEvent(os.Stdout, &events[i]); err != nil {
+				return err
+			}
+		}
+		runRecord, err := a.getHostedRun(ctx, runID)
+		if err != nil {
+			return err
+		}
+		return writeTerminalRunRecord(runRecord)
+	}
+	if !a.Flags.JSON {
+		return a.Printer.Success(formatRunEvents(events, agentOnly))
+	}
+	return a.Printer.Success(events)
 }
 
 func (a *App) watchHostedRun(ctx context.Context, runID string, after int64, jsonl bool) error {

@@ -5,15 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/vessica-labs/vessica-cli/internal/auth"
 	"github.com/vessica-labs/vessica-cli/internal/config"
-	"github.com/vessica-labs/vessica-cli/internal/knowledgegateway"
-	ks "github.com/vessica-labs/vessica-knowledge-server/knowledge"
+	"github.com/vessica-labs/vessica-cli/internal/id"
 )
 
 func ensureRailwayKnowledge(ctx context.Context, workDir string, app *App, cfg *config.Config, opts railwayUpOptions, knowledgeDatabaseURL, token, adminToken, embeddingKey string) error {
@@ -57,12 +53,8 @@ func ensureRailwayKnowledge(ctx context.Context, workDir string, app *App, cfg *
 		}
 		cfg.Knowledge.Endpoint = "https://" + strings.TrimPrefix(strings.TrimPrefix(domain, "https://"), "http://")
 	}
-	ws, err := app.DB.GetWorkspace(ctx)
-	if err != nil {
-		return err
-	}
 	if cfg.Knowledge.WorkspaceID == "" {
-		cfg.Knowledge.WorkspaceID = ws.ID
+		cfg.Knowledge.WorkspaceID = id.New(id.Workspace)
 	}
 	variables := map[string]string{
 		"VES_KNOWLEDGE_DATABASE_URL": knowledgeDatabaseURL,
@@ -98,72 +90,6 @@ func ensureRailwayKnowledge(ctx context.Context, workDir string, app *App, cfg *
 	}
 	cfg.Knowledge.Version = knowledgeServerVersion
 	cfg.Knowledge.Image = image
-	if cfg.Knowledge.Mode != "hosted" {
-		if err := promoteKnowledgeAuthority(ctx, app, cfg, token, adminToken); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func promoteKnowledgeAuthority(ctx context.Context, app *App, cfg *config.Config, token, adminToken string) error {
-	lockPath := filepath.Join(app.Root, ".vessica", "state", "knowledge.promote.lock")
-	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fmt.Errorf("another knowledge promotion is active")
-	}
-	_ = lock.Close()
-	defer os.Remove(lockPath)
-	ws, err := app.DB.GetWorkspace(ctx)
-	if err != nil {
-		return err
-	}
-	local, err := knowledgegateway.OpenForPromotion(app.Root, app.Config, ws.ID)
-	if err != nil {
-		return err
-	}
-	snap, err := local.Export(ctx)
-	_ = local.Close()
-	if err != nil {
-		return err
-	}
-	if err := auth.Login("knowledge", token, "Railway hosted knowledge"); err != nil {
-		return err
-	}
-	if err := auth.Login("knowledge-export", adminToken, "Railway hosted knowledge export"); err != nil {
-		return err
-	}
-	next := *cfg
-	next.Knowledge.Mode = "hosted"
-	remote, err := knowledgegateway.Open(app.Root, next, snap.WorkspaceID)
-	if err != nil {
-		return err
-	}
-	defer remote.Close()
-	if err := remote.Import(ctx, snap); err != nil {
-		return err
-	}
-	check, err := remote.Export(ctx)
-	if err != nil {
-		return err
-	}
-	if err := verifyKnowledgePromotion(snap, check); err != nil {
-		return err
-	}
-	if _, err := remote.Context(ctx, ks.ContextRequest{Query: "workspace knowledge", ArtifactSelectors: []ks.ArtifactSelector{{Status: "active"}}, TokenBudget: 1000}); err != nil {
-		return err
-	}
-	localPath := cfg.Knowledge.LocalPath
-	if localPath == "" {
-		localPath = filepath.Join(".vessica", "state", "knowledge.db")
-	}
-	if !filepath.IsAbs(localPath) {
-		localPath = filepath.Join(app.Root, localPath)
-	}
-	backup := filepath.Join(app.Root, ".vessica", "state", "knowledge-"+snap.HighWatermark+".readonly.db")
-	if err := copyReadOnly(localPath, backup); err != nil {
-		return err
-	}
 	cfg.Knowledge.Mode = "hosted"
 	return nil
 }

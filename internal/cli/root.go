@@ -32,11 +32,21 @@ type GlobalFlags struct {
 }
 
 func (a *App) openKnowledge(ctx context.Context) (*knowledgegateway.Gateway, error) {
-	ws, err := a.DB.GetWorkspace(ctx)
-	if err != nil {
-		return nil, err
+	workspaceID := a.Config.Knowledge.WorkspaceID
+	if workspaceID == "" {
+		workspaceID = a.Config.Attachment.WorkspaceID
 	}
-	return knowledgegateway.Open(a.Root, a.Config, ws.ID)
+	if workspaceID == "" && a.DB != nil {
+		ws, err := a.DB.GetWorkspace(ctx)
+		if err != nil {
+			return nil, err
+		}
+		workspaceID = ws.ID
+	}
+	if workspaceID == "" {
+		return nil, fmt.Errorf("knowledge workspace identity is not configured")
+	}
+	return knowledgegateway.Open(a.Root, a.Config, workspaceID)
 }
 
 // App is the CLI application context.
@@ -130,6 +140,32 @@ func (a *App) loadWorkspaceWithoutGC(ctx context.Context) error {
 }
 
 func (a *App) loadWorkspaceWithGC(ctx context.Context, autoGC bool) error {
+	if err := a.loadRepositoryConfig(); err != nil {
+		return err
+	}
+	if config.IsHostedAttachment(a.Config) {
+		// Hosted control-plane state is the sole product authority. Individual
+		// commands use the authenticated gateway and must never open a local
+		// fallback database merely because an attachment exists.
+		return nil
+	}
+	db, err := state.Open(a.Config.State.Backend, a.Config.State.DBURL, a.Root)
+	if err != nil {
+		return err
+	}
+	a.DB = db
+	if _, err = db.GetWorkspace(ctx); err != nil {
+		return err
+	}
+	if autoGC && !a.Flags.DryRun {
+		gcCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		_, _ = retention.GC(gcCtx, db, a.Root, retention.GCOptions{})
+		cancel()
+	}
+	return nil
+}
+
+func (a *App) loadRepositoryConfig() error {
 	root, err := config.FindRoot(a.Root)
 	if err != nil {
 		return err
@@ -140,20 +176,8 @@ func (a *App) loadWorkspaceWithGC(ctx context.Context, autoGC bool) error {
 		return err
 	}
 	config.ApplyEnv(&cfg)
+	config.EnforceHostedAuthority(&cfg)
 	a.Config = cfg
-	db, err := state.Open(cfg.State.Backend, cfg.State.DBURL, root)
-	if err != nil {
-		return err
-	}
-	a.DB = db
-	if _, err = db.GetWorkspace(ctx); err != nil {
-		return err
-	}
-	if autoGC && !a.Flags.DryRun {
-		gcCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		_, _ = retention.GC(gcCtx, db, root, retention.GCOptions{})
-		cancel()
-	}
 	return nil
 }
 

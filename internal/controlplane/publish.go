@@ -31,6 +31,34 @@ type publishEpicResponse struct {
 	LinearTickets    []publishedTicket `json:"linear_tickets"`
 }
 
+func (s *Server) handleEpics(w http.ResponseWriter, r *http.Request) {
+	repositoryID := strings.TrimSpace(r.URL.Query().Get("repository_id"))
+	if repositoryID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "repository_id required"})
+		return
+	}
+	epics, err := s.DB.ListEpicsForRepository(r.Context(), repositoryID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, epics)
+}
+
+func (s *Server) handleEpic(w http.ResponseWriter, r *http.Request) {
+	epic, err := s.DB.GetEpic(r.Context(), r.PathValue("epic_id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+		return
+	}
+	repositoryID := strings.TrimSpace(r.URL.Query().Get("repository_id"))
+	if repositoryID == "" || epic.RepositoryID != repositoryID {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "epic not found in repository"})
+		return
+	}
+	writeJSON(w, http.StatusOK, epic)
+}
+
 func (s *Server) handlePublishEpic(w http.ResponseWriter, r *http.Request) {
 	var request publishEpicRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&request); err != nil {

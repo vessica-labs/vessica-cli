@@ -43,6 +43,10 @@ func Load(root string) (Config, error) {
 		return c, fmt.Errorf("parse config: %w", err)
 	}
 	if attachment.Kind == "RepositoryAttachment" && attachment.Workspace.ID != "" && attachment.Repository.ID != "" {
+		// The committed descriptor is sufficient to identify hosted authority.
+		// Start from hosted-safe defaults so losing the nonauthoritative user
+		// registry can never turn an attachment into a local SQLite workspace.
+		c = HostedDefaults()
 		if known, found := loadKnownInstallation(attachment.Workspace.Endpoint); found {
 			c = known
 		}
@@ -52,6 +56,7 @@ func Load(root string) (Config, error) {
 		c.Hosted.Provider = attachment.Workspace.Provider
 		c.Hosted.ControlPlaneURL = attachment.Workspace.Endpoint
 		c.Repo.Remote = attachment.Repository.Remote
+		EnforceHostedAuthority(&c)
 		return c, nil
 	}
 	if err := yaml.Unmarshal(b, &c); err != nil {

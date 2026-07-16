@@ -58,7 +58,22 @@ func (db *DB) GetEpic(ctx context.Context, epicID string) (*Epic, error) {
 }
 
 func (db *DB) ListEpics(ctx context.Context) ([]Epic, error) {
-	rows, err := db.Query(ctx, `SELECT id, workspace_id, repository_id, title, body, status, COALESCE(external_id,''), created_at, updated_at FROM epics ORDER BY created_at DESC`)
+	return db.listEpics(ctx, "", nil)
+}
+
+// ListEpicsForRepository returns only epics owned by repositoryID. Hosted
+// transports use this method so records from sibling repositories in the same
+// workspace cannot leak into a repository-scoped client.
+func (db *DB) ListEpicsForRepository(ctx context.Context, repositoryID string) ([]Epic, error) {
+	if _, err := db.GetRepository(ctx, repositoryID); err != nil {
+		return nil, err
+	}
+	return db.listEpics(ctx, ` WHERE repository_id = ?`, []any{repositoryID})
+}
+
+func (db *DB) listEpics(ctx context.Context, where string, args []any) ([]Epic, error) {
+	query := `SELECT id, workspace_id, repository_id, title, body, status, COALESCE(external_id,''), created_at, updated_at FROM epics` + where + ` ORDER BY created_at DESC`
+	rows, err := db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

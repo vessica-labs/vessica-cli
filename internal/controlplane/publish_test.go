@@ -81,3 +81,44 @@ func TestPublishEpicCreatesHostedGraphAndRealLinearIssues(t *testing.T) {
 		t.Fatalf("start status=%d body=%s", startRec.Code, startRec.Body.String())
 	}
 }
+
+func TestEpicReadersRequireAndEnforceRepositoryScope(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	db, err := state.Open("sqlite", filepath.Join(root, "state.db"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace, err := db.EnsureWorkspace(ctx, root, "hosted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := db.GetRepository(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := db.EnsureRepository(ctx, workspace.ID, "https://github.com/acme/second.git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstEpic, _ := db.CreateEpicForRepository(ctx, first.ID, "First", "")
+	_, _ = db.CreateEpicForRepository(ctx, second.ID, "Second", "")
+	server := &Server{DB: db, APIToken: "secret"}
+
+	list := httptest.NewRequest(http.MethodGet, "/api/v1/epics?repository_id="+first.ID, nil)
+	list.Header.Set("Authorization", "Bearer secret")
+	listRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(listRecorder, list)
+	if listRecorder.Code != http.StatusOK || !strings.Contains(listRecorder.Body.String(), `"title":"First"`) || strings.Contains(listRecorder.Body.String(), `"title":"Second"`) {
+		t.Fatalf("status=%d body=%s", listRecorder.Code, listRecorder.Body.String())
+	}
+
+	wrongRepo := httptest.NewRequest(http.MethodGet, "/api/v1/epics/"+firstEpic.ID+"?repository_id="+second.ID, nil)
+	wrongRepo.Header.Set("Authorization", "Bearer secret")
+	wrongRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(wrongRecorder, wrongRepo)
+	if wrongRecorder.Code != http.StatusNotFound {
+		t.Fatalf("cross-repository epic read status=%d body=%s", wrongRecorder.Code, wrongRecorder.Body.String())
+	}
+}

@@ -45,7 +45,10 @@ func newCapabilitiesCmd(app *App) *cobra.Command {
 						"knowledge_mode": cfg.Knowledge.Mode, "knowledge_endpoint_configured": cfg.Knowledge.Endpoint != "",
 						"harness_installed": fileExists(filepath.Join(root, cfg.Pack.Lockfile)),
 					}
-					if db, openErr := openState(root, cfg); openErr == nil {
+					if config.IsHostedAttachment(cfg) {
+						workspace["workspace_id"] = cfg.Attachment.WorkspaceID
+						workspace["repository_id"] = cfg.Attachment.RepositoryID
+					} else if db, openErr := openState(root, cfg); openErr == nil {
 						defer db.Close()
 						if ws, wsErr := db.GetWorkspace(cmd.Context()); wsErr == nil {
 							workspace["workspace_id"] = ws.ID

@@ -38,6 +38,24 @@ func TestWorkspaceOwnsMultipleCanonicalRepositories(t *testing.T) {
 	}
 }
 
+func TestEnsureWorkspaceWithIDUsesExplicitHostedIdentity(t *testing.T) {
+	db, err := Open("sqlite", "", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	workspace, err := db.EnsureWorkspaceWithID(context.Background(), "ws_explicit", "hosted://project", "hosted")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspace.ID != "ws_explicit" {
+		t.Fatalf("workspace id = %q", workspace.ID)
+	}
+	if _, err := db.EnsureWorkspaceWithID(context.Background(), "ws_other", "hosted://project", "hosted"); err == nil {
+		t.Fatal("expected explicit workspace identity conflict")
+	}
+}
+
 func TestRunsAndArtifactsInheritEpicRepository(t *testing.T) {
 	db, err := Open("sqlite", "", t.TempDir())
 	if err != nil {

@@ -77,7 +77,8 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 				return err
 			}
 			workspaceKey := hostedWorkspaceKey(cfg)
-			if _, err := db.EnsureWorkspace(cmd.Context(), workspaceKey, "hosted"); err != nil {
+			workspaceID := firstNonEmpty(os.Getenv("VES_WORKSPACE_ID"), os.Getenv("VES_KNOWLEDGE_WORKSPACE_ID"))
+			if _, err := db.EnsureWorkspaceWithID(cmd.Context(), workspaceID, workspaceKey, "hosted"); err != nil {
 				return err
 			}
 			credentialManager, err := hostedCredentialManager(cmd.Context(), db)

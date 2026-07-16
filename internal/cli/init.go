@@ -139,9 +139,22 @@ func newStatusCmd(app *App) *cobra.Command {
 		Short: "Show workspace status",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := app.loadWorkspace(cmd.Context()); err != nil {
-				return app.Printer.Fail("not_initialized", err.Error(), "run ves init")
+				return app.Printer.Fail("not_initialized", err.Error(), "run ves up (or ves dev up for contributor-only local mode)")
 			}
 			defer app.closeDB()
+			if config.IsHostedAttachment(app.Config) {
+				hosted, err := app.getHostedStatus(cmd.Context())
+				if err != nil {
+					return err
+				}
+				return app.Printer.Success(map[string]any{
+					"hosted": hosted, "root": app.Root,
+					"workspace_id":  app.Config.Attachment.WorkspaceID,
+					"repository_id": app.Config.Attachment.RepositoryID,
+					"pack_lock":     fileExists(filepath.Join(app.Root, app.Config.Pack.Lockfile)),
+					"harness":       fileExists(filepath.Join(app.Root, "AGENTS.md")),
+				})
+			}
 			ws, _ := app.DB.GetWorkspace(cmd.Context())
 			packLock := fileExists(filepath.Join(app.Root, app.Config.Pack.Lockfile))
 			return app.Printer.Success(map[string]any{
@@ -182,38 +195,58 @@ func newDoctorCmd(app *App) *cobra.Command {
 				add("config", true, cfg.State.Backend)
 			}
 
-			db, err := openState(root, app.Config)
-			if err != nil {
-				add("state", false, err.Error())
+			if config.IsHostedAttachment(app.Config) {
+				if _, err := app.getHostedStatus(cmd.Context()); err != nil {
+					add("control_plane", false, err.Error())
+				} else {
+					add("control_plane", true, app.Config.Hosted.ControlPlaneURL)
+				}
+				gateway, err := app.openKnowledge(cmd.Context())
+				if err != nil {
+					add("knowledge", false, err.Error())
+				} else {
+					defer gateway.Close()
+					status, statusErr := gateway.Status(cmd.Context())
+					if statusErr != nil {
+						add("knowledge", false, statusErr.Error())
+					} else {
+						add("knowledge", true, status.RetrievalMode)
+					}
+				}
 			} else {
-				defer db.Close()
-				if err := db.Ping(cmd.Context()); err != nil {
+				db, err := openState(root, app.Config)
+				if err != nil {
 					add("state", false, err.Error())
 				} else {
-					add("state", true, app.Config.State.Backend)
-				}
-				if ws, wsErr := db.GetWorkspace(cmd.Context()); wsErr == nil {
-					if gateway, knowledgeErr := knowledgegateway.Open(root, app.Config, ws.ID); knowledgeErr != nil {
-						add("knowledge", false, knowledgeErr.Error())
+					defer db.Close()
+					if err := db.Ping(cmd.Context()); err != nil {
+						add("state", false, err.Error())
 					} else {
-						defer gateway.Close()
-						if _, exportErr := gateway.Export(cmd.Context()); exportErr != nil {
-							add("knowledge", false, exportErr.Error())
+						add("state", true, app.Config.State.Backend)
+					}
+					if ws, wsErr := db.GetWorkspace(cmd.Context()); wsErr == nil {
+						if gateway, knowledgeErr := knowledgegateway.Open(root, app.Config, ws.ID); knowledgeErr != nil {
+							add("knowledge", false, knowledgeErr.Error())
 						} else {
-							add("knowledge", true, gateway.Mode())
+							defer gateway.Close()
+							if _, exportErr := gateway.Export(cmd.Context()); exportErr != nil {
+								add("knowledge", false, exportErr.Error())
+							} else {
+								add("knowledge", true, gateway.Mode())
+							}
 						}
 					}
 				}
-			}
 
-			if _, err := exec.LookPath("docker"); err != nil {
-				add("docker", false, "docker not found in PATH")
-			} else {
-				out, err := exec.Command("docker", "info").CombinedOutput()
-				if err != nil {
-					add("docker", false, strings.TrimSpace(string(out)))
+				if _, err := exec.LookPath("docker"); err != nil {
+					add("docker", false, "docker not found in PATH")
 				} else {
-					add("docker", true, "available")
+					out, err := exec.Command("docker", "info").CombinedOutput()
+					if err != nil {
+						add("docker", false, strings.TrimSpace(string(out)))
+					} else {
+						add("docker", true, "available")
+					}
 				}
 			}
 

@@ -9,10 +9,20 @@ import (
 )
 
 func (db *DB) EnsureWorkspace(ctx context.Context, root, profile string) (*Workspace, error) {
+	return db.EnsureWorkspaceWithID(ctx, "", root, profile)
+}
+
+// EnsureWorkspaceWithID creates the workspace with desiredID when it does not
+// exist. Hosted provisioning uses one explicit identity across the control
+// plane and knowledge service instead of deriving identity from local state.
+func (db *DB) EnsureWorkspaceWithID(ctx context.Context, desiredID, root, profile string) (*Workspace, error) {
 	var ws Workspace
 	err := db.QueryRow(ctx, `SELECT id, root_path, profile, created_at, updated_at FROM workspaces WHERE root_path = ?`, root).
 		Scan(&ws.ID, &ws.RootPath, &ws.Profile, &ws.CreatedAt, &ws.UpdatedAt)
 	if err == nil {
+		if desiredID != "" && ws.ID != desiredID {
+			return nil, fmt.Errorf("workspace identity conflict: database has %s, expected %s", ws.ID, desiredID)
+		}
 		db.Workspace = &ws
 		_, _ = db.EnsureRepository(ctx, ws.ID, root)
 		return &ws, nil
@@ -21,8 +31,11 @@ func (db *DB) EnsureWorkspace(ctx context.Context, root, profile string) (*Works
 		return nil, err
 	}
 	now := Now()
+	if desiredID == "" {
+		desiredID = id.New(id.Workspace)
+	}
 	ws = Workspace{
-		ID:        id.New(id.Workspace),
+		ID:        desiredID,
 		RootPath:  root,
 		Profile:   profile,
 		CreatedAt: now,

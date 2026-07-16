@@ -78,6 +78,9 @@ func TestHostedSaveWritesOnlyRepositoryAttachmentDescriptor(t *testing.T) {
 	if loaded.Attachment != cfg.Attachment || loaded.Repo.Remote != cfg.Repo.Remote || loaded.Hosted.ControlPlaneURL != cfg.Hosted.ControlPlaneURL {
 		t.Fatalf("loaded=%#v", loaded)
 	}
+	if loaded.State.Backend != "hosted" || loaded.Knowledge.Mode != "hosted" {
+		t.Fatalf("attachment fell back to local authority: %#v", loaded)
+	}
 }
 
 func TestApplyEnvLoadsRailwayWorkerCheckpoint(t *testing.T) {
@@ -86,5 +89,18 @@ func TestApplyEnvLoadsRailwayWorkerCheckpoint(t *testing.T) {
 	ApplyEnv(&cfg)
 	if cfg.Hosted.WorkerCheckpoint != "vessica-worker-test" {
 		t.Fatalf("worker checkpoint=%q", cfg.Hosted.WorkerCheckpoint)
+	}
+}
+
+func TestHostedAuthorityRejectsLocalEnvironmentFallback(t *testing.T) {
+	cfg := HostedDefaults()
+	cfg.Attachment = AttachmentConfig{WorkspaceID: "ws_hosted", RepositoryID: "repo_hosted"}
+	cfg.Hosted.ControlPlaneURL = "https://control.example"
+	t.Setenv("VES_STATE_BACKEND", "sqlite")
+	t.Setenv("VES_KNOWLEDGE_MODE", "local")
+	ApplyEnv(&cfg)
+	EnforceHostedAuthority(&cfg)
+	if cfg.State.Backend != "hosted" || cfg.Knowledge.Mode != "hosted" || cfg.Knowledge.LocalPath != "" {
+		t.Fatalf("hosted authority = %#v", cfg)
 	}
 }

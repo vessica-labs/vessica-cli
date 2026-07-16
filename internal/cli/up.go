@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -261,8 +260,6 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 	if err := hostedRequestWithKey(cmd.Context(), "POST", attachEndpoint, secrets.APIToken, "attach:"+state.CanonicalRepositoryRemote(remote), map[string]string{"remote": remote}, &repository); err != nil {
 		return fail("repository_attach", "repository_attach_failed", err)
 	}
-	ws, _ := app.DB.GetWorkspace(cmd.Context())
-	_, _ = app.DB.EnsureRepository(cmd.Context(), ws.ID, remote)
 	app.Config.APIVersion = "vessica.dev/v1"
 	app.Config.Kind = "RepositoryAttachment"
 	app.Config.Attachment = config.AttachmentConfig{WorkspaceID: repository.WorkspaceID, RepositoryID: repository.ID}
@@ -432,35 +429,17 @@ func saveHostedClientConfig(cfg config.Config, secrets railwaySecrets) error {
 
 func ensureHostedBootstrap(ctx context.Context, app *App, remote string) error {
 	if _, err := config.FindRoot(app.Root); err == nil {
-		return app.loadWorkspaceWithoutGC(ctx)
+		return app.loadRepositoryConfig()
 	}
-	cfg := config.Defaults()
-	cfg.Sandbox.Backend = "railway"
-	cfg.Tracker.Provider = "none"
+	_ = ctx
+	cfg := config.HostedDefaults()
 	cfg.Repo.Remote = remote
-	for _, dir := range []string{"state", "cache", "runs", "sandboxes", "secrets"} {
-		if err := os.MkdirAll(filepath.Join(config.Dir(app.Root), dir), 0o755); err != nil {
-			return err
-		}
-	}
 	if err := config.Save(app.Root, cfg); err != nil {
 		return err
 	}
-	if err := config.EnsureGitignore(app.Root); err != nil {
-		return err
-	}
-	db, err := state.Open("sqlite", "", app.Root)
-	if err != nil {
-		return err
-	}
 	app.Config = cfg
-	app.DB = db
-	_, err = db.EnsureWorkspace(ctx, app.Root, "hosted")
-	if err != nil {
-		db.Close()
-		app.DB = nil
-	}
-	return err
+	app.DB = nil
+	return nil
 }
 
 func publishRepositoryMap(ctx context.Context, app *App, p onboarding.RepositoryProfile) (string, error) {

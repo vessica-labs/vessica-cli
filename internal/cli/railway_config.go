@@ -42,6 +42,7 @@ func configureRailwayService(ctx context.Context, cfg config.Config, secrets rai
 		"VES_LINEAR_OAUTH_JSON": linearOAuth, "VES_RAILWAY_OAUTH_JSON": railwayOAuth,
 		"VES_CREDENTIAL_ENCRYPTION_KEY": secrets.CredentialKey, "VES_CODEX_AUTH_B64": codexAuthB64,
 		"VES_RAILWAY_SSH_PRIVATE_KEY": string(privateKey),
+		"VES_WORKSPACE_ID":            cfg.Knowledge.WorkspaceID,
 		"VES_KNOWLEDGE_MODE":          "hosted", "VES_KNOWLEDGE_WORKSPACE_ID": cfg.Knowledge.WorkspaceID,
 		"VES_KNOWLEDGE_ENDPOINT": cfg.Knowledge.Endpoint, "VES_KNOWLEDGE_TOKEN": secrets.KnowledgeToken,
 		"VES_DASHBOARD_ENABLED": "true", "VES_DASHBOARD_ORIGIN": cfg.Hosted.ControlPlaneURL, "VES_PREVIEW_ORIGIN": previewOrigin,

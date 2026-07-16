@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	appservice "github.com/vessica-labs/vessica-cli/internal/app"
+	"github.com/vessica-labs/vessica-cli/internal/config"
 	"github.com/vessica-labs/vessica-cli/internal/output"
 	"github.com/vessica-labs/vessica-cli/internal/run"
 	"github.com/vessica-labs/vessica-cli/internal/state"
@@ -89,7 +90,7 @@ func newRunCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
-			if _, localErr := app.DB.GetRun(cmd.Context(), args[0]); localErr != nil && app.Config.Hosted.ControlPlaneURL != "" {
+			if config.IsHostedAttachment(app.Config) {
 				runRecord, err := app.getHostedRun(cmd.Context(), args[0])
 				if err != nil {
 					return err
@@ -110,6 +111,9 @@ func newRunCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
+			if config.IsHostedAttachment(app.Config) {
+				return app.printHostedRunLogs(cmd.Context(), args[0], logsDetail, logsAgentOnly, logsJSONL, logsRaw)
+			}
 			if logsDetail != "" {
 				event, err := app.DB.GetEvent(cmd.Context(), logsDetail)
 				if err != nil {
@@ -161,7 +165,7 @@ func newRunCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
-			if _, localErr := app.DB.GetRun(cmd.Context(), args[0]); localErr != nil && app.Config.Hosted.ControlPlaneURL != "" {
+			if config.IsHostedAttachment(app.Config) {
 				return app.watchHostedRun(cmd.Context(), args[0], watchAfter, jsonl)
 			}
 			if watchUI && isTTYOutput() {
@@ -295,6 +299,13 @@ func newRunCmd(app *App) *cobra.Command {
 			}
 			if replayed, replayErr := app.idempotencyReplay(cmd.Context()); replayErr != nil || replayed {
 				return replayErr
+			}
+			if config.IsHostedAttachment(app.Config) {
+				result, err := app.approveHostedRun(cmd.Context(), args[0], opts)
+				if err != nil {
+					return err
+				}
+				return app.Printer.Success(result)
 			}
 			eng := &run.Engine{DB: app.DB, Root: app.Root, Config: app.Config}
 			result, err := eng.ApproveRun(cmd.Context(), args[0], opts)
