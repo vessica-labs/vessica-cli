@@ -12,7 +12,7 @@ RUN rm -f internal/dashboard/docs/*.md \
     && npm run generate:api \
     && npm run build
 
-FROM golang:1.25-bookworm@sha256:ea341baa9bd5ba6784f6d7161ace70544349a6242d54d34a0fbfd2c4d51c9d58 AS build
+FROM golang:1.25.12-bookworm@sha256:ea341baa9bd5ba6784f6d7161ace70544349a6242d54d34a0fbfd2c4d51c9d58 AS build
 
 ARG VERSION=dev
 WORKDIR /src

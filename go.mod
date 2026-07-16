@@ -1,6 +1,6 @@
 module github.com/vessica-labs/vessica-cli
 
-go 1.25.0
+go 1.25.12
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
