@@ -21,6 +21,7 @@ import (
 	runengine "github.com/vessica-labs/vessica-cli/internal/run"
 	"github.com/vessica-labs/vessica-cli/internal/sandbox"
 	"github.com/vessica-labs/vessica-cli/internal/state"
+	"github.com/vessica-labs/vessica-cli/internal/toolchain"
 )
 
 type RailwayLauncher struct {
@@ -160,6 +161,8 @@ func (l *RailwayLauncher) workerEnvironment(runID string) map[string]string {
 		"VES_KNOWLEDGE_TOKEN":         service + ".VES_KNOWLEDGE_TOKEN",
 		"VES_KNOWLEDGE_WORKSPACE_ID":  service + ".VES_KNOWLEDGE_WORKSPACE_ID",
 		"VES_CODEX_EXTERNAL_SANDBOX":  "1",
+		"VES_RUNNER_USER":             "vessica-agent",
+		"VES_RUNNER_HOME":             "/home/vessica-agent",
 		"GITHUB_TOKEN":                service + ".GITHUB_TOKEN",
 		"OPENAI_API_KEY":              service + ".OPENAI_API_KEY",
 		"VES_CODEX_AUTH_B64":          service + ".VES_CODEX_AUTH_B64",
@@ -192,13 +195,16 @@ func railwayWorkerBootstrapCommand(workerURL, workerCommand string) string {
 	return strings.Join([]string{
 		"set -euo pipefail",
 		"export VES_CODEX_EXTERNAL_SANDBOX=1",
-		"command -v curl >/dev/null || (apt-get update && apt-get install -y curl ca-certificates git)",
-		"command -v git >/dev/null || (apt-get update && apt-get install -y git)",
-		"command -v node >/dev/null || (curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt-get install -y nodejs)",
-		"command -v pnpm >/dev/null || npm install -g pnpm@11.9.0",
-		"latest_codex=$(npm view @openai/codex version); current_codex=$(codex --version 2>/dev/null | awk '{print $2}' || true); test \"$current_codex\" = \"$latest_codex\" || npm install -g @openai/codex@latest",
+		"export VES_RUNNER_USER=vessica-agent",
+		"export VES_RUNNER_HOME=/home/vessica-agent",
+		"command -v curl >/dev/null && command -v git >/dev/null && command -v node >/dev/null && command -v npm >/dev/null || { echo 'Railway worker checkpoint is missing curl, git, node, or npm' >&2; exit 1; }",
+		"id -u vessica-agent >/dev/null 2>&1 || useradd --create-home --shell /bin/bash vessica-agent",
+		"command -v runuser >/dev/null && command -v find >/dev/null && command -v chown >/dev/null && command -v chmod >/dev/null || { echo 'Railway worker checkpoint is missing isolation tools' >&2; exit 1; }",
+		"install -d -o vessica-agent -g vessica-agent -m 0700 /home/vessica-agent /home/vessica-agent/.codex",
+		"test \"$(pnpm --version 2>/dev/null || true)\" = \"" + toolchain.PNPMVersion + "\" || npm install -g pnpm@" + toolchain.PNPMVersion,
+		"current_codex=$(codex --version 2>/dev/null | awk '{print $2}' || true); test \"$current_codex\" = \"" + toolchain.CodexVersion + "\" || npm install -g @openai/codex@" + toolchain.CodexVersion,
 		"export NODE_PATH=$(npm root -g)",
-		"node -e \"require('playwright')\" >/dev/null 2>&1 || npm install -g playwright@latest",
+		"node -e \"const p=require('playwright/package.json'); process.exit(p.version==='" + toolchain.PlaywrightVersion + "'?0:1)\" >/dev/null 2>&1 || npm install -g playwright@" + toolchain.PlaywrightVersion,
 		"node -e \"const { chromium } = require('playwright'); require('node:fs').accessSync(chromium.executablePath())\" >/dev/null 2>&1 || playwright install --with-deps chromium",
 		"worker_bin=$(mktemp /tmp/ves-worker.XXXXXX)",
 		"trap 'rm -f \"$worker_bin\"' EXIT",

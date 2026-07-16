@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vessica-labs/vessica-cli/internal/isolation"
 )
 
 // CodexRunner invokes the Codex CLI when available; otherwise uses a deterministic local planner.
@@ -77,18 +79,12 @@ func (c *CodexRunner) Start(ctx context.Context, task Task) error {
 		args = append(args, "--config", fmt.Sprintf("model_reasoning_effort=%q", effort))
 	}
 	args = append(args, "--output-last-message", outFile, prompt)
-	cmd := exec.CommandContext(runCtx, "codex", args...)
-	if c.input.Workdir != "" {
-		cmd.Dir = c.input.Workdir
-	} else if c.input.RepoPath != "" {
-		cmd.Dir = c.input.RepoPath
+	workdir := firstNonEmpty(c.input.Workdir, c.input.RepoPath)
+	if err := isolation.PrepareWorkdir(runCtx, workdir); err != nil {
+		return err
 	}
-	if len(c.input.Env) > 0 {
-		cmd.Env = os.Environ()
-		for k, v := range c.input.Env {
-			cmd.Env = append(cmd.Env, k+"="+v)
-		}
-	}
+	cmd := isolation.CommandContext(runCtx, workdir, "codex", args...)
+	cmd.Env = runnerEnvironment(c.input.Env)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -163,6 +159,19 @@ func (c *CodexRunner) Start(ctx context.Context, task Task) error {
 		c.events <- Event{Type: "agent.message", Message: "codex completed", Data: map[string]any{"role": task.Name}}
 	}()
 	return nil
+}
+
+func runnerEnvironment(extra map[string]string) []string {
+	return isolation.ModelEnvironment(extra)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (c *CodexRunner) runStub(ctx context.Context, task Task, prompt string) {

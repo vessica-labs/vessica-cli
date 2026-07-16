@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/vessica-labs/vessica-cli/internal/isolation"
 )
 
 // DockerSandbox implements Sandbox with local Docker.
@@ -311,8 +313,10 @@ func (l *LocalDevSandbox) Exec(ctx context.Context, cmd []string, stdout, stderr
 	if len(cmd) == 0 {
 		return 1, fmt.Errorf("empty command")
 	}
-	c := exec.CommandContext(ctx, cmd[0], cmd[1:]...)
-	c.Dir = l.workdir
+	if err := isolation.PrepareWorkdir(ctx, l.workdir); err != nil {
+		return 1, err
+	}
+	c := isolation.CommandContext(ctx, l.workdir, cmd[0], cmd[1:]...)
 	c.Stdout = stdout
 	c.Stderr = stderr
 	err := c.Run()
@@ -337,8 +341,10 @@ func (l *LocalDevSandbox) StartPreview(ctx context.Context, command string, port
 	if strings.TrimSpace(command) == "" {
 		return "", fmt.Errorf("preview command is empty")
 	}
-	cmd := exec.CommandContext(ctx, "bash", "-lc", command)
-	cmd.Dir = l.workdir
+	if err := isolation.PrepareWorkdir(ctx, l.workdir); err != nil {
+		return "", err
+	}
+	cmd := isolation.CommandContext(ctx, l.workdir, "bash", "-lc", command)
 	logFile, err := os.CreateTemp("", "ves-preview-*.log")
 	if err == nil {
 		cmd.Stdout = logFile

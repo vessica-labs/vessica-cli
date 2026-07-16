@@ -13,7 +13,8 @@ import (
 // binary. Coding agents still resolve `git` through PATH and remain subject to
 // the sandbox's safe-git policy.
 func GitCommandContext(ctx context.Context, args ...string) *exec.Cmd {
-	return exec.CommandContext(ctx, trustedGitBinary(), args...)
+	safeArgs := append([]string{"-c", "core.hooksPath=/dev/null"}, args...)
+	return exec.CommandContext(ctx, trustedGitBinary(), safeArgs...)
 }
 
 func trustedGitBinary() string {

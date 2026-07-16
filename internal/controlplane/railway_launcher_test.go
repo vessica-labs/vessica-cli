@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/vessica-labs/vessica-cli/internal/config"
+	"github.com/vessica-labs/vessica-cli/internal/toolchain"
 )
 
 func TestRailwayWorkerBootstrapUsesOuterSandbox(t *testing.T) {
@@ -15,9 +16,14 @@ func TestRailwayWorkerBootstrapUsesOuterSandbox(t *testing.T) {
 	if !strings.Contains(script, "worker_bin=$(mktemp ") || strings.Contains(script, "-o /tmp/ves\n") {
 		t.Fatalf("bootstrap does not download workers atomically:\n%s", script)
 	}
-	for _, required := range []string{"export NODE_PATH=$(npm root -g)", "npm install -g playwright@latest", "playwright install --with-deps chromium"} {
+	for _, required := range []string{"export NODE_PATH=$(npm root -g)", "npm install -g playwright@" + toolchain.PlaywrightVersion, "npm install -g @openai/codex@" + toolchain.CodexVersion, "useradd --create-home", "command -v runuser", "command -v find", "playwright install --with-deps chromium"} {
 		if !strings.Contains(script, required) {
 			t.Fatalf("bootstrap is missing managed Playwright setup %q:\n%s", required, script)
+		}
+	}
+	for _, forbidden := range []string{"npm view @openai/codex version", "@openai/codex@latest", "playwright@latest", "deb.nodesource.com"} {
+		if strings.Contains(script, forbidden) {
+			t.Fatalf("bootstrap contains mutable dependency %q:\n%s", forbidden, script)
 		}
 	}
 }

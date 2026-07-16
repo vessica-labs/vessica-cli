@@ -49,7 +49,7 @@ printf '%s\n' 'Implemented and tested.' > "$out"
 
 	r := NewCodex()
 	workdir := t.TempDir()
-	if err := r.Prepare(context.Background(), Input{RepoPath: workdir, Workdir: workdir}); err != nil {
+	if err := r.Prepare(context.Background(), Input{RepoPath: workdir, Workdir: workdir, Env: map[string]string{"CODEX_ARGS_FILE": argsFile}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.Start(context.Background(), Task{Name: "coder", Prompt: "Do it"}); err != nil {
@@ -81,6 +81,25 @@ printf '%s\n' 'Implemented and tested.' > "$out"
 	for _, typ := range []string{"agent.activity", "agent.message", "agent.usage"} {
 		if !strings.Contains(joined, typ) {
 			t.Fatalf("events=%v missing %s", types, typ)
+		}
+	}
+}
+
+func TestRunnerEnvironmentDoesNotInheritControlPlaneSecrets(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://secret")
+	t.Setenv("GITHUB_TOKEN", "github-secret")
+	t.Setenv("VES_KNOWLEDGE_TOKEN", "knowledge-secret")
+	t.Setenv("OPENAI_API_KEY", "model-secret")
+	t.Setenv("VES_RUNNER_HOME", "/tmp/agent-home")
+	env := strings.Join(runnerEnvironment(map[string]string{"VES_RUN_ID": "run_test"}), "\n")
+	for _, forbidden := range []string{"DATABASE_URL=", "GITHUB_TOKEN=", "VES_KNOWLEDGE_TOKEN="} {
+		if strings.Contains(env, forbidden) {
+			t.Fatalf("runner inherited %s: %s", forbidden, env)
+		}
+	}
+	for _, required := range []string{"OPENAI_API_KEY=model-secret", "HOME=/tmp/agent-home", "VES_RUN_ID=run_test"} {
+		if !strings.Contains(env, required) {
+			t.Fatalf("runner environment missing %s: %s", required, env)
 		}
 	}
 }
