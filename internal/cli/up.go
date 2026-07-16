@@ -129,6 +129,7 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 			return app.Printer.Fail("onboarding_not_found", "no matching onboarding operation", "")
 		}
 	}
+	refreshRepositoryMap := opts.Refresh || resumeRequiresRepositoryMap(opts.ResumeID, op)
 	var hostedOperationEndpoint, hostedOperationToken, hostedRepositoryID string
 	emit := func(name, status, message string) error {
 		op.Set(name, status, message)
@@ -246,6 +247,9 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 	if err != nil {
 		return fail("repository_attach", "repository_attach_failed", err)
 	}
+	if err := syncHostedKnowledgeCredentials(app.Config, secrets); err != nil {
+		return fail("knowledge_ready", "knowledge_credentials_failed", err)
+	}
 	ownerClaimURL, ownerClaimRequired, err := ensureHostedOwnerClaim(cmd.Context(), app.Config.Hosted.ControlPlaneURL, secrets.ServiceToken, op.ID)
 	if err != nil {
 		return fail("owner_claim", "owner_claim_failed", err)
@@ -296,7 +300,7 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 		_ = emit("harness_apply", "skipped", "existing Vessica harness preserved")
 	}
 	mappedCommit, artifactID := profile.Commit, "unchanged"
-	if alreadyAttached && !opts.Refresh {
+	if alreadyAttached && !refreshRepositoryMap {
 		_ = emit("repository_mapping", "skipped", "existing repository map retained; use --refresh to remap")
 	} else {
 		_ = emit("repository_mapping", "running", "mapping the remote commit in a read-only Railway sandbox")
@@ -332,6 +336,18 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(final)
 	}
 	return app.Printer.Success(final)
+}
+
+func resumeRequiresRepositoryMap(resumeID string, operation *onboarding.Operation) bool {
+	if strings.TrimSpace(resumeID) == "" || operation == nil || operation.CurrentStage != "repository_mapping" {
+		return false
+	}
+	for _, stage := range operation.Stages {
+		if stage.Name == "repository_mapping" {
+			return stage.Status == "failed" || stage.Status == "running"
+		}
+	}
+	return false
 }
 
 func installationCandidateSummary(candidates []railwayInstallationCandidate) string {

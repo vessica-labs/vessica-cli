@@ -42,7 +42,10 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		codexAuthB64 = base64.RawStdEncoding.EncodeToString(codeAuth)
 	}
 	railwayOAuth, _ := auth.MarshalOAuth("railway")
-	secrets, _ := loadRailwaySecrets(app.Root)
+	secrets, err := loadOptionalRailwaySecrets(app.Root)
+	if err != nil {
+		return nil, fmt.Errorf("load retained Railway credentials: %w", err)
+	}
 	runtimeToken := firstNonEmpty(opts.RuntimeToken, os.Getenv("RAILWAY_TOKEN"), secrets.RuntimeToken)
 	embeddingKey := opts.EmbeddingAPIKey
 	if embeddingKey == "" && opts.EmbeddingAPIKeyEnv != "" {
@@ -64,6 +67,10 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 			"missing": missing,
 			"next":    "Authenticate the listed providers, then rerun ves up.",
 		}, nil
+	}
+	secrets = initializeRailwaySecrets(secrets, runtimeToken)
+	if err := saveRailwaySecrets(app.Root, secrets); err != nil {
+		return nil, err
 	}
 	if opts.Source == "" {
 		image := firstNonEmpty(opts.Image, defaultControlPlaneImage())
@@ -106,34 +113,6 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		return nil, err
 	}
 	app.Config = cfg
-	if secrets.ServiceToken == "" {
-		secrets.ServiceToken = randomSecret(32)
-	}
-	if secrets.WorkerToken == "" {
-		secrets.WorkerToken = randomSecret(32)
-	}
-	if secrets.WebhookSecret == "" {
-		secrets.WebhookSecret = randomSecret(32)
-	}
-	if secrets.CredentialKey == "" {
-		secrets.CredentialKey = base64.RawStdEncoding.EncodeToString(randomBytes(32))
-	}
-	if secrets.KnowledgeToken == "" {
-		secrets.KnowledgeToken = randomSecret(32)
-	}
-	if secrets.KnowledgeAdminToken == "" {
-		secrets.KnowledgeAdminToken = randomSecret(32)
-	}
-	if secrets.ControlDatabasePassword == "" {
-		secrets.ControlDatabasePassword = randomSecret(32)
-	}
-	if secrets.KnowledgeDatabasePassword == "" {
-		secrets.KnowledgeDatabasePassword = randomSecret(32)
-	}
-	secrets.RuntimeToken = runtimeToken
-	if err := saveRailwaySecrets(app.Root, secrets); err != nil {
-		return nil, err
-	}
 	databaseURLs, err := ensureRailwayDatabases(ctx, cfg, secrets)
 	if err != nil {
 		return nil, err
@@ -190,6 +169,9 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	if err := configureRailwayService(ctx, cfg, secrets, databaseURLs.Control, hostedLinearToken, linearOAuth, railwayOAuth, githubToken, openAIKey, codexAuthB64, opts.PreviewOrigin); err != nil {
 		return nil, err
 	}
+	if err := configureRailwayControlPlaneDeploy(ctx, cfg); err != nil {
+		return nil, err
+	}
 	source := opts.Source
 	if source == "" {
 		cfg.Hosted.ControlPlaneImage = opts.Image
@@ -203,7 +185,9 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 			return nil, err
 		}
 	} else {
-		_, _ = runRailway(ctx, "", nil, "redeploy", "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Hosted.ServiceID, "--yes")
+		if _, err := runRailway(ctx, "", nil, "redeploy", "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Hosted.ServiceID, "--yes"); err != nil {
+			return nil, err
+		}
 	}
 	if err := waitForRailwayDeployment(ctx, cfg, previousDeploymentID, 8*time.Minute); err != nil {
 		return nil, err

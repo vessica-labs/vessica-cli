@@ -56,6 +56,21 @@ func configureRailwayService(ctx context.Context, cfg config.Config, secrets rai
 	return nil
 }
 
+func configureRailwayControlPlaneDeploy(ctx context.Context, cfg config.Config) error {
+	_, err := runRailway(ctx, "", nil,
+		"environment", "edit",
+		"--project", cfg.Hosted.ProjectID,
+		"--environment", cfg.Hosted.EnvironmentID,
+		"--service-config", cfg.Hosted.ServiceID, "deploy.preDeployCommand", "ves control-plane migrate",
+		"--message", "Configure Vessica database migration",
+		"--json",
+	)
+	if err != nil {
+		return fmt.Errorf("configure Railway control-plane migration: %w", err)
+	}
+	return nil
+}
+
 func resolvedTriggerLabel(requested, existing string) string {
 	if requested = strings.TrimSpace(requested); requested != "" {
 		return requested

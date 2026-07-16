@@ -15,5 +15,5 @@ const (
 	YQAMD64SHA256     = "b96de04645707e14a12f52c37e6266832e03c29e95b9b139cddcae7314466e69"
 	YQARM64SHA256     = "a02cc637409db44a9f9cb55ea92c40019582ba88083c4d930a727ec4b59ed439"
 	RailwayCLIMajor   = "5"
-	ContractVersion   = "6"
+	ContractVersion   = "7"
 )

@@ -50,6 +50,8 @@ type OAuthCredential struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+var ErrSecretNotFound = errors.New("secret not found")
+
 func Provider(name, clientID string) (OAuthProvider, error) {
 	switch strings.ToLower(name) {
 	case "railway":
@@ -290,6 +292,11 @@ func LoadSecret(reference string) ([]byte, error) {
 	return readSecret(strings.ToLower(reference))
 }
 
+// IsSecretNotFound reports whether a platform credential has not been stored.
+func IsSecretNotFound(err error) bool {
+	return errors.Is(err, ErrSecretNotFound) || os.IsNotExist(err)
+}
+
 // DeleteSecret removes a non-OAuth client credential from the platform store.
 func DeleteSecret(reference string) error {
 	return deleteSecret(strings.ToLower(reference))
@@ -346,7 +353,7 @@ func readSecret(provider string) ([]byte, error) {
 		service := "com.vessica.auth." + provider
 		out, err := exec.Command("/usr/bin/security", "find-generic-password", "-a", provider, "-s", service, "-w").Output()
 		if err != nil {
-			return nil, fmt.Errorf("not logged in to %s", provider)
+			return nil, fmt.Errorf("not logged in to %s: %w", provider, ErrSecretNotFound)
 		}
 		return []byte(strings.TrimSpace(string(out))), nil
 	}

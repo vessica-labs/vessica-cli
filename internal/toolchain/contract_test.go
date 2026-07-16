@@ -36,6 +36,7 @@ func TestCheckpointInstallCommandIsPinnedAndVerifiesAgent(t *testing.T) {
 		"playwright@" + PlaywrightVersion, "v" + YQVersion,
 		YQAMD64SHA256, YQARM64SHA256, "runuser --user vessica-agent",
 		"PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright",
+		"NPM_CONFIG_PREFIX=/usr/local", "NODE_PATH=/usr/local/lib/node_modules",
 	} {
 		if !strings.Contains(script, required) {
 			t.Errorf("installer missing %q", required)

@@ -3,6 +3,7 @@ package cli
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -32,17 +33,71 @@ func railwaySSHUserKeyPath(cfg config.Config) (string, error) {
 }
 
 func saveRailwaySecrets(root string, secrets railwaySecrets) error {
-	data, _ := json.MarshalIndent(secrets, "", "  ")
+	data, err := json.Marshal(secrets)
+	if err != nil {
+		return fmt.Errorf("encode Railway credentials: %w", err)
+	}
 	return auth.StoreSecret(railwaySecretsReference(root), data)
 }
 
 func loadRailwaySecrets(root string) (railwaySecrets, error) {
 	var secrets railwaySecrets
-	data, err := auth.LoadSecret(railwaySecretsReference(root))
+	reference := railwaySecretsReference(root)
+	data, err := auth.LoadSecret(reference)
 	if err != nil {
 		return secrets, err
 	}
-	return secrets, json.Unmarshal(data, &secrets)
+	if err := json.Unmarshal(data, &secrets); err == nil {
+		return secrets, nil
+	}
+	decoded, decodeErr := hex.DecodeString(strings.TrimSpace(string(data)))
+	if decodeErr != nil || json.Unmarshal(decoded, &secrets) != nil {
+		return railwaySecrets{}, fmt.Errorf("decode stored Railway credentials: invalid credential record")
+	}
+	if err := saveRailwaySecrets(root, secrets); err != nil {
+		return railwaySecrets{}, fmt.Errorf("repair stored Railway credentials: %w", err)
+	}
+	return secrets, nil
+}
+
+func loadOptionalRailwaySecrets(root string) (railwaySecrets, error) {
+	secrets, err := loadRailwaySecrets(root)
+	if err == nil {
+		return secrets, nil
+	}
+	if auth.IsSecretNotFound(err) {
+		return railwaySecrets{}, nil
+	}
+	return railwaySecrets{}, err
+}
+
+func initializeRailwaySecrets(secrets railwaySecrets, runtimeToken string) railwaySecrets {
+	if secrets.ServiceToken == "" {
+		secrets.ServiceToken = randomSecret(32)
+	}
+	if secrets.WorkerToken == "" {
+		secrets.WorkerToken = randomSecret(32)
+	}
+	if secrets.WebhookSecret == "" {
+		secrets.WebhookSecret = randomSecret(32)
+	}
+	if secrets.CredentialKey == "" {
+		secrets.CredentialKey = base64.RawStdEncoding.EncodeToString(randomBytes(32))
+	}
+	if secrets.KnowledgeToken == "" {
+		secrets.KnowledgeToken = randomSecret(32)
+	}
+	if secrets.KnowledgeAdminToken == "" {
+		secrets.KnowledgeAdminToken = randomSecret(32)
+	}
+	if secrets.ControlDatabasePassword == "" {
+		secrets.ControlDatabasePassword = randomSecret(32)
+	}
+	if secrets.KnowledgeDatabasePassword == "" {
+		secrets.KnowledgeDatabasePassword = randomSecret(32)
+	}
+	secrets.RuntimeToken = runtimeToken
+	return secrets
 }
 
 func randomSecret(bytesCount int) string {

@@ -16,7 +16,7 @@ func TestRailwayWorkerBootstrapUsesOuterSandbox(t *testing.T) {
 	if !strings.Contains(script, "worker_bin=$(mktemp ") || strings.Contains(script, "-o /tmp/ves\n") {
 		t.Fatalf("bootstrap does not download workers atomically:\n%s", script)
 	}
-	for _, required := range []string{"export NODE_PATH=$(npm root -g)", "export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright", "useradd --create-home", "command -v runuser", "command -v find", toolchain.YQVersion, toolchain.PlaywrightVersion, "command -v", "runuser --user vessica-agent"} {
+	for _, required := range []string{"export NPM_CONFIG_PREFIX=/usr/local", "export NODE_PATH=/usr/local/lib/node_modules", "export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright", "useradd --create-home", "command -v runuser", "command -v find", toolchain.YQVersion, toolchain.PlaywrightVersion, "command -v", "runuser --user vessica-agent"} {
 		if !strings.Contains(script, required) {
 			t.Fatalf("bootstrap is missing toolchain preflight %q:\n%s", required, script)
 		}

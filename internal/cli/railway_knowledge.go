@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vessica-labs/vessica-cli/internal/auth"
 	"github.com/vessica-labs/vessica-cli/internal/config"
 	"github.com/vessica-labs/vessica-cli/internal/id"
 )
@@ -91,6 +92,23 @@ func ensureRailwayKnowledge(ctx context.Context, workDir string, app *App, cfg *
 	cfg.Knowledge.Version = knowledgeServerVersion
 	cfg.Knowledge.Image = image
 	cfg.Knowledge.Mode = "hosted"
+	if err := syncHostedKnowledgeCredentials(*cfg, railwaySecrets{KnowledgeToken: token, KnowledgeAdminToken: adminToken}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func syncHostedKnowledgeCredentials(cfg config.Config, secrets railwaySecrets) error {
+	if strings.TrimSpace(secrets.KnowledgeToken) == "" || strings.TrimSpace(secrets.KnowledgeAdminToken) == "" {
+		return fmt.Errorf("hosted knowledge credentials are incomplete")
+	}
+	account := firstNonEmpty(cfg.Knowledge.Endpoint, cfg.Knowledge.WorkspaceID, "hosted")
+	if err := auth.Login("knowledge", secrets.KnowledgeToken, account); err != nil {
+		return fmt.Errorf("store hosted knowledge credential: %w", err)
+	}
+	if err := auth.Login("knowledge-export", secrets.KnowledgeAdminToken, account); err != nil {
+		return fmt.Errorf("store hosted knowledge export credential: %w", err)
+	}
 	return nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -264,8 +265,9 @@ type railwayOrientation struct {
 }
 
 func runRailwayOrientation(ctx context.Context, cfg config.Config, remote string) (railwayOrientation, error) {
+	cloneRemote := orientationCloneRemote(remote)
 	base := []string{"sandbox", "-p", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID}
-	args := append(append([]string{}, base...), "create", "--checkpoint", cfg.Hosted.WorkerCheckpoint, "--private-network", "--idle-timeout-minutes", "20", "--variable", "VES_REPO_REMOTE="+remote, "--variable", "GITHUB_TOKEN=control-plane.GITHUB_TOKEN", "--json")
+	args := append(append([]string{}, base...), "create", "--checkpoint", cfg.Hosted.WorkerCheckpoint, "--private-network", "--idle-timeout-minutes", "20", "--variable", "VES_REPO_REMOTE="+cloneRemote, "--variable", "GITHUB_TOKEN=control-plane.GITHUB_TOKEN", "--json")
 	raw, err := runRailway(ctx, "", nil, args...)
 	if err != nil {
 		return railwayOrientation{}, err
@@ -307,4 +309,16 @@ find /tmp/vessica-orientation -maxdepth 3 -type f -not -path '*/.git/*' | sed 's
 		}
 	}
 	return orientation, nil
+}
+
+func orientationCloneRemote(remote string) string {
+	trimmed := strings.TrimSpace(remote)
+	if strings.HasPrefix(trimmed, "git@github.com:") {
+		return "https://github.com/" + strings.TrimPrefix(trimmed, "git@github.com:")
+	}
+	parsed, err := url.Parse(trimmed)
+	if err == nil && parsed.Scheme == "ssh" && strings.EqualFold(parsed.Hostname(), "github.com") {
+		return "https://github.com/" + strings.TrimPrefix(parsed.Path, "/")
+	}
+	return trimmed
 }
