@@ -53,8 +53,19 @@ func TestFollowsLatestEventAndFillsTerminalHeight(t *testing.T) {
 			shown++
 		}
 	}
-	if shown != 26 {
-		t.Fatalf("shown rows=%d, want 26", shown)
+	if shown == 0 || shown >= 26 {
+		t.Fatalf("shown rows=%d, want a viewport containing full message blocks", shown)
+	}
+}
+
+func TestAgentMessagesAreAlwaysExpandedWithoutTruncation(t *testing.T) {
+	m := NewModel("test", nil)
+	m.addEvent(state.Event{ID: "evt_message", Type: "agent.message", PayloadJSON: `{"message":"first line\nsecond line\nthird line","kind":"message"}`})
+	view := m.View()
+	for _, line := range []string{"first line", "second line", "third line"} {
+		if !strings.Contains(view, line) {
+			t.Fatalf("agent message was truncated: %q\n%s", line, view)
+		}
 	}
 }
 

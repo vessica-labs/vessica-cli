@@ -26,6 +26,7 @@ type row struct {
 	kind     string
 	status   string
 	expanded bool
+	message  bool
 }
 
 type DetailLoader func(*state.Event) string
@@ -79,6 +80,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			visible := m.visibleRows()
 			if len(visible) > 0 && m.cursor < len(visible) {
 				idx := visible[m.cursor]
+				if m.rows[idx].message {
+					break
+				}
 				m.rows[idx].expanded = !m.rows[idx].expanded
 				if m.rows[idx].expanded && m.rows[idx].detail == "" && m.detailLoader != nil {
 					m.rows[idx].detail = m.detailLoader(&m.rows[idx].event)
@@ -127,7 +131,7 @@ func (m Model) View() string {
 		body = append(body, "")
 	}
 	lines = append(lines, body...)
-	footer := "up/down select | end follow | enter expand | f files | o commands | p prompts | q hide"
+	footer := "up/down select | end follow | enter expand details | f files | o commands | p prompts | q hide"
 	if m.doneStatus != "" {
 		footer = "Run " + m.doneStatus + " | enter expand | q exit"
 	}
@@ -147,7 +151,12 @@ func (m *Model) addEvent(event state.Event) {
 	if rawPath, _ := payload["raw_log_path"].(string); rawPath != "" && kind == "prompt" {
 		detail = ""
 	}
-	updated := row{id: id, event: event, summary: streaming.EventSummary(&event), detail: detail, kind: kind, status: status}
+	isMessage := event.Type == "agent.message" || event.Type == "agent.output"
+	if isMessage {
+		message, _ := payload["message"].(string)
+		detail = message
+	}
+	updated := row{id: id, event: event, summary: streaming.EventSummary(&event), detail: detail, kind: kind, status: status, message: isMessage}
 	if idx, ok := m.rowIndex[id]; ok {
 		updated.expanded = m.rows[idx].expanded
 		if updated.detail == "" {
@@ -210,7 +219,7 @@ func (m Model) viewportStart(visible []int, bodyHeight int) int {
 }
 
 func (m Model) rowHeight(r row, bodyHeight int) int {
-	if !r.expanded {
+	if !r.expanded && !r.message {
 		return 1
 	}
 	detail := r.detail
@@ -218,6 +227,9 @@ func (m Model) rowHeight(r row, bodyHeight int) int {
 		detail = "No additional detail."
 	}
 	maxDetail := minInt(18, bodyHeight-1)
+	if r.message {
+		maxDetail = len(strings.Split(strings.TrimSpace(detail), "\n"))
+	}
 	if maxDetail < 0 {
 		maxDetail = 0
 	}
@@ -234,16 +246,23 @@ func (m Model) rowBlock(r row, selected bool, bodyHeight int) []string {
 		fold = "-"
 	}
 	line := fmt.Sprintf("%s[%s] %s", cursor, fold, r.summary)
+	if r.message {
+		line = cursor + "Agent message"
+	}
 	if selected {
 		line = lipgloss.NewStyle().Bold(true).Render(line)
 	}
 	block := []string{line}
-	if r.expanded && bodyHeight > 1 {
+	if (r.expanded || r.message) && bodyHeight > 1 {
 		detail := r.detail
 		if detail == "" {
 			detail = "No additional detail."
 		}
-		block = append(block, indentDetail(detail, minInt(18, bodyHeight-1))...)
+		maxLines := minInt(18, bodyHeight-1)
+		if r.message {
+			maxLines = len(strings.Split(strings.TrimSpace(detail), "\n"))
+		}
+		block = append(block, indentDetail(detail, maxLines)...)
 	}
 	return block
 }

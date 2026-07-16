@@ -565,6 +565,23 @@ td small {
 .timeline-event strong {
   font-size: 0.77rem;
 }
+.timeline-agent-message {
+  background: color-mix(in srgb, var(--primary-soft) 35%, transparent);
+  margin-inline: -0.5rem;
+  padding-inline: 0.5rem;
+  border-radius: 0.6rem;
+}
+.agent-markdown {
+  color: var(--text);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+.agent-markdown > :first-child { margin-top: 0.45rem; }
+.agent-markdown > :last-child { margin-bottom: 0; }
+.agent-markdown pre { overflow: auto; }
+.event-summary { margin: 0.3rem 0; color: var(--text); font-size: 0.82rem; }
+.event-details summary { color: var(--muted); cursor: pointer; font-size: 0.75rem; }
+.event-details pre { margin-top: 0.5rem; }
 .timeline-event pre,
 .json-block {
   white-space: pre-wrap;

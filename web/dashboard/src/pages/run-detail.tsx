@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   ExternalLink,
   GitCommit,
@@ -10,6 +12,7 @@ import {
   Square,
 } from "lucide-react";
 import { api, fmtTime, titleCase } from "@/lib/api";
+import { presentEvent } from "@/lib/event-presentation";
 import {
   Badge,
   Button,
@@ -126,19 +129,28 @@ export function RunDetail() {
                   Waiting for new activity. Existing evidence remains below.
                 </p>
               ) : (
-                events.map((record: any) => (
-                  <div key={record.seq} className="timeline-event">
-                    <span>
-                      {record.event?.type?.startsWith("agent") ? "A" : "V"}
-                    </span>
-                    <div>
-                      <strong>{titleCase(record.event?.type)}</strong>
-                      <pre>
-                        {JSON.stringify(record.event?.payload, null, 2)}
-                      </pre>
+                events.map((record: any) => {
+                  const event = presentEvent(record.event);
+                  return (
+                    <div key={record.seq} className={`timeline-event ${event.agentMessage ? "timeline-agent-message" : ""}`}>
+                      <span>{event.agentMessage ? "A" : "V"}</span>
+                      <div>
+                        <strong>{event.title}</strong>
+                        {event.agentMessage ? (
+                          <div className="agent-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{event.message}</ReactMarkdown></div>
+                        ) : (
+                          <>
+                            <p className="event-summary">{event.summary}</p>
+                            <details className="event-details">
+                              <summary>Show event details</summary>
+                              <pre>{event.detail}</pre>
+                            </details>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </Card>
