@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/vessica-labs/vessica-cli/internal/version"
 )
@@ -69,11 +70,35 @@ func Install() (*installResult, error) {
 	if err := os.WriteFile(filepath.Join(dest, "scripts", "cli-version.txt"), []byte(cliVersion+"\n"), 0o644); err != nil {
 		return nil, fmt.Errorf("write Codex plugin CLI pin: %w", err)
 	}
+	pluginVersion := cliVersion + "+codex." + time.Now().UTC().Format("20060102150405.000000000")
+	if err := writeManifestVersion(filepath.Join(dest, ".codex-plugin", "plugin.json"), pluginVersion); err != nil {
+		return nil, err
+	}
 	marketplace := filepath.Join(home, ".agents", "plugins", "marketplace.json")
 	if err := updateMarketplace(marketplace); err != nil {
 		return nil, err
 	}
 	return &installResult{Name: "vessica", Path: dest, Marketplace: marketplace, Installed: true}, nil
+}
+
+func writeManifestVersion(path, pluginVersion string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read Codex plugin manifest: %w", err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return fmt.Errorf("decode Codex plugin manifest: %w", err)
+	}
+	manifest["version"] = pluginVersion
+	body, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode Codex plugin manifest: %w", err)
+	}
+	if err := os.WriteFile(path, append(body, '\n'), 0o644); err != nil {
+		return fmt.Errorf("write Codex plugin manifest: %w", err)
+	}
+	return nil
 }
 
 func Status() map[string]any {

@@ -36,7 +36,7 @@ func TestWorkspaceForgetRemovesOnlyLocalHostedAttachment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if forgotten.Hosted.ProjectID != "" || forgotten.Attachment.RepositoryID != "" || forgotten.Knowledge.Mode != "local" {
+	if forgotten.State.Backend != "sqlite" || forgotten.Hosted.ProjectID != "" || forgotten.Attachment.RepositoryID != "" || forgotten.Knowledge.Mode != "local" {
 		t.Fatalf("hosted attachment remains after forget: %#v", forgotten)
 	}
 	if _, _, err := onboarding.FindInstallation("workspace"); !os.IsNotExist(err) {
@@ -44,5 +44,30 @@ func TestWorkspaceForgetRemovesOnlyLocalHostedAttachment(t *testing.T) {
 	}
 	if _, err := loadRailwaySecrets(root); err == nil {
 		t.Fatal("repository Railway credentials remain after forget")
+	}
+}
+
+func TestWorkspaceForgetRemovesPartialHostedAttachmentWithoutOpeningState(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("VES_AUTH_STORE", "file")
+	root := t.TempDir()
+	cfg := config.HostedDefaults()
+	cfg.Hosted = config.HostedConfig{
+		Provider:    "railway",
+		WorkspaceID: "workspace",
+		ProjectID:   "deleted-project",
+	}
+	if err := config.Save(root, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	runCLI(t, root, "workspace", "forget", "--yes", "--json")
+
+	forgotten, err := config.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forgotten.State.Backend != "sqlite" || forgotten.Hosted.ProjectID != "" || forgotten.Knowledge.Mode != "local" {
+		t.Fatalf("partial hosted attachment remains after forget: %#v", forgotten)
 	}
 }

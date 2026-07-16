@@ -46,10 +46,14 @@ func newWorkspaceCmd(app *App) *cobra.Command {
 		if err := app.requireYes("forget this repository's hosted Vessica attachment"); err != nil {
 			return err
 		}
-		if err := app.loadWorkspaceWithoutGC(c.Context()); err != nil {
+		// Forget is a local recovery operation. In particular, it must continue
+		// to work when hosted onboarding stopped after writing state.backend=hosted
+		// but before the control-plane attachment became complete. Opening product
+		// state here would make a dead or partial hosted attachment impossible to
+		// remove.
+		if err := app.loadRepositoryConfig(); err != nil {
 			return err
 		}
-		defer app.closeDB()
 		projectID := app.Config.Hosted.ProjectID
 		workspaceID := app.Config.Hosted.WorkspaceID
 		if err := onboarding.RemoveInstallation(projectID); err != nil {
@@ -58,6 +62,7 @@ func newWorkspaceCmd(app *App) *cobra.Command {
 		defaults := config.Defaults()
 		app.Config.Hosted = config.HostedConfig{}
 		app.Config.Attachment = config.AttachmentConfig{}
+		app.Config.State = defaults.State
 		app.Config.Knowledge = defaults.Knowledge
 		app.Config.Sandbox.Backend = "railway"
 		if err := config.Save(app.Root, app.Config); err != nil {

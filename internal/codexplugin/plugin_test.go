@@ -56,6 +56,19 @@ func TestInstallWritesPluginAndMarketplaceEntry(t *testing.T) {
 	if strings.TrimSpace(string(pin)) != version.Version {
 		t.Fatalf("CLI pin=%q want=%q", strings.TrimSpace(string(pin)), version.Version)
 	}
+	manifestRaw, err := os.ReadFile(filepath.Join(result.Path, ".codex-plugin", "plugin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(manifest.Version, version.Version+"+codex.") {
+		t.Fatalf("plugin version=%q does not track CLI version %q", manifest.Version, version.Version)
+	}
 	raw, err := os.ReadFile(result.Marketplace)
 	if err != nil {
 		t.Fatal(err)

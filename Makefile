@@ -1,9 +1,6 @@
-.PHONY: build test frontend frontend-test install compile bump-version asset-budget
+.PHONY: build test frontend frontend-test install install-cli compile asset-budget
 
-build: bump-version frontend compile
-
-bump-version:
-	@python3 scripts/bump-version.py VERSION
+build: frontend compile
 
 frontend:
 	./scripts/embed-dashboard-docs.sh
@@ -23,4 +20,9 @@ test:
 	go test ./internal/... -count=1 -timeout 60s
 
 install: compile
-	cp bin/ves $(HOME)/.local/bin/ves
+	./scripts/install-local.sh bin/ves "$(HOME)/.local/bin"
+
+install-cli: compile
+	install -d "$(HOME)/.local/bin"
+	install -m 0755 bin/ves "$(HOME)/.local/bin/ves"
+	@"$(HOME)/.local/bin/ves" version --json

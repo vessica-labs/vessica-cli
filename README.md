@@ -563,6 +563,8 @@ ves capabilities --json
 
 The plugin drives the `ves` Go CLI through shell commands; it does not add an MCP runtime or bypass Vessica state. Agent-facing JSON responses use the versioned `vessica.cli/v1` envelope, while run streams use `vessica.stream/v1` JSONL. Mutating JSON workflows return `confirmation_required` until repeated with `--yes`; use `--idempotency-key` for retryable writes.
 
+For a local source checkout, use `make install` after pulling changes. It builds and installs the version in `VERSION`, refreshes the plugin source, forces Codex to replace its cached plugin copy, and verifies that the installed CLI and cached plugin versions match. Use `make install-cli` only when intentionally updating the standalone CLI without changing the Codex plugin. Normal builds never change `VERSION`; update that file deliberately when preparing a new version.
+
 Conversational epic specifications can be validated before they are persisted:
 
 ```bash
