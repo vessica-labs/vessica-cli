@@ -46,6 +46,8 @@ func (o *Operation) Set(name, status, message string) {
 		o.Status = "failed"
 	} else if name == "completed" && status == "succeeded" {
 		o.Status = "completed"
+		o.ErrorCode = ""
+		o.Error = ""
 	}
 	for i := range o.Stages {
 		if o.Stages[i].Name == name {

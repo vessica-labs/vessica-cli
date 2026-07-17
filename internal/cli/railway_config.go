@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -57,11 +58,20 @@ func configureRailwayService(ctx context.Context, cfg config.Config, secrets rai
 }
 
 func configureRailwayControlPlaneMigration(ctx context.Context, cfg config.Config) error {
-	_, err := runRailway(ctx, "", nil,
+	patch, err := json.Marshal(map[string]any{
+		"services": map[string]any{
+			cfg.Hosted.ServiceID: map[string]any{
+				"deploy": map[string]any{"preDeployCommand": "ves control-plane migrate"},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("encode Railway control-plane migration config: %w", err)
+	}
+	_, err = runRailway(ctx, "", bytes.NewReader(patch),
 		"environment", "edit",
 		"--project", cfg.Hosted.ProjectID,
 		"--environment", cfg.Hosted.EnvironmentID,
-		"--service-config", cfg.Hosted.ServiceID, "deploy.preDeployCommand", "ves control-plane migrate",
 		"--message", "Configure Vessica database migration",
 		"--json",
 	)
@@ -76,11 +86,11 @@ func configureRailwayControlPlaneImage(ctx context.Context, cfg config.Config, i
 		return fmt.Errorf("control-plane image is required")
 	}
 	_, err := runRailway(ctx, "", nil,
-		"environment", "edit",
+		"service", "source", "connect",
 		"--project", cfg.Hosted.ProjectID,
 		"--environment", cfg.Hosted.EnvironmentID,
-		"--service-config", cfg.Hosted.ServiceID, "source.image", image,
-		"--message", "Configure Vessica control-plane image",
+		"--service", cfg.Hosted.ServiceID,
+		"--image", image,
 		"--json",
 	)
 	if err != nil {

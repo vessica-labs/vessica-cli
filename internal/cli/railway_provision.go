@@ -20,6 +20,11 @@ import (
 )
 
 func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string]any, error) {
+	progress := func(message string) {
+		if opts.Progress != nil {
+			opts.Progress(message)
+		}
+	}
 	linearOAuth, linearToken := "", ""
 	if opts.EnableLinear || opts.LinearToken != "" || opts.Team != "" {
 		linearOAuth, _ = auth.MarshalOAuth("linear")
@@ -88,11 +93,13 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	}
 	defer os.RemoveAll(workDir)
 	if cfg.Hosted.ProjectID == "" || cfg.Hosted.ServiceID == "" || cfg.Hosted.PostgresServiceID == "" {
+		progress("creating or reconciling the Railway project, control-plane service, and Postgres")
 		if err := createRailwayResources(ctx, workDir, app.Root, &cfg, opts); err != nil {
 			return nil, err
 		}
 		app.Config = cfg
 	}
+	progress("Railway project, control-plane service, and Postgres are present")
 	if err := reconcileRailwayResourceIDs(ctx, &cfg); err != nil {
 		return nil, err
 	}
@@ -103,20 +110,24 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		return nil, err
 	}
 	if cfg.Hosted.WorkerCheckpoint == "" {
+		progress("building and verifying the managed Railway worker checkpoint")
 		checkpoint, err := ensureRailwayWorkerCheckpoint(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
 		cfg.Hosted.WorkerCheckpoint = checkpoint
 	}
+	progress("managed Railway worker checkpoint is ready")
 	if err := config.Save(app.Root, cfg); err != nil {
 		return nil, err
 	}
 	app.Config = cfg
+	progress("initializing isolated control and knowledge databases")
 	databaseURLs, err := ensureRailwayDatabases(ctx, cfg, secrets)
 	if err != nil {
 		return nil, err
 	}
+	progress("control and knowledge databases are initialized")
 	var linear *tracker.LinearClient
 	var team tracker.LinearTeam
 	if linearToken != "" || linearOAuth != "" {
@@ -156,9 +167,11 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 			return nil, err
 		}
 	}
+	progress("deploying and verifying the hosted knowledge service")
 	if err := ensureRailwayKnowledge(ctx, workDir, app, &cfg, opts, databaseURLs.Knowledge, secrets.KnowledgeToken, secrets.KnowledgeAdminToken, embeddingKey); err != nil {
 		return nil, err
 	}
+	progress("hosted knowledge service is ready")
 	if err := config.Save(app.Root, cfg); err != nil {
 		return nil, err
 	}
@@ -166,9 +179,11 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	if linearOAuth != "" {
 		hostedLinearToken = ""
 	}
+	progress("configuring control-plane credentials and service variables")
 	if err := configureRailwayService(ctx, cfg, secrets, databaseURLs.Control, hostedLinearToken, linearOAuth, railwayOAuth, githubToken, openAIKey, codexAuthB64, opts.PreviewOrigin); err != nil {
 		return nil, err
 	}
+	progress("configuring the control-plane migration and image source")
 	previousDeploymentID := ""
 	if latest, err := latestRailwayDeployment(ctx, cfg); err == nil {
 		previousDeploymentID = latest.ID
@@ -201,9 +216,11 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	if err := waitForRailwayDeployment(ctx, cfg, previousDeploymentID, 8*time.Minute); err != nil {
 		return nil, err
 	}
+	progress("control-plane deployment reached success; verifying readiness")
 	if err := waitForHostedHealth(ctx, cfg.Hosted.ControlPlaneURL+"/readyz", 8*time.Minute); err != nil {
 		return nil, err
 	}
+	progress("control plane is ready")
 	if secrets.APIToken == "" {
 		subject, validateErr := auth.ValidateGitHubToken(githubToken)
 		if validateErr != nil {

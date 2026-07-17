@@ -56,6 +56,24 @@ func TestEnsureWorkspaceWithIDUsesExplicitHostedIdentity(t *testing.T) {
 	}
 }
 
+func TestEnsureHostedWorkspaceWithIDDoesNotCreateSyntheticRepository(t *testing.T) {
+	db, err := Open("sqlite", "", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.EnsureHostedWorkspaceWithID(context.Background(), "ws_explicit", "hosted://project"); err != nil {
+		t.Fatal(err)
+	}
+	repositories, err := db.ListRepositories(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repositories) != 0 {
+		t.Fatalf("hosted bootstrap created repositories: %#v", repositories)
+	}
+}
+
 func TestRunsAndArtifactsInheritEpicRepository(t *testing.T) {
 	db, err := Open("sqlite", "", t.TempDir())
 	if err != nil {

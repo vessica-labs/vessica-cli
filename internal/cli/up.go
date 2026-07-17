@@ -227,7 +227,9 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 		_ = emit("service_deploy", "skipped", "existing hosted services are healthy")
 	} else {
 		_ = emit("resource_provision", "running", "provisioning Railway services")
-		result, err = railwayUp(cmd.Context(), app, railwayUpOptions{Workspace: opts.Workspace, Image: defaultControlPlaneImage()})
+		result, err = railwayUp(cmd.Context(), app, railwayUpOptions{Workspace: opts.Workspace, Image: defaultControlPlaneImage(), Progress: func(message string) {
+			_ = emit("resource_provision", "running", message)
+		}})
 		if err != nil {
 			code := "railway_provision_failed"
 			if sandboxFeatureError(err) {

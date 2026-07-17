@@ -16,6 +16,17 @@ func (db *DB) EnsureWorkspace(ctx context.Context, root, profile string) (*Works
 // exist. Hosted provisioning uses one explicit identity across the control
 // plane and knowledge service instead of deriving identity from local state.
 func (db *DB) EnsureWorkspaceWithID(ctx context.Context, desiredID, root, profile string) (*Workspace, error) {
+	return db.ensureWorkspaceWithID(ctx, desiredID, root, profile, true)
+}
+
+// EnsureHostedWorkspaceWithID creates only the hosted workspace identity.
+// Hosted repositories are attached explicitly through the repository API and
+// must not be synthesized from the control plane's hosted:// bootstrap key.
+func (db *DB) EnsureHostedWorkspaceWithID(ctx context.Context, desiredID, root string) (*Workspace, error) {
+	return db.ensureWorkspaceWithID(ctx, desiredID, root, "hosted", false)
+}
+
+func (db *DB) ensureWorkspaceWithID(ctx context.Context, desiredID, root, profile string, ensureRepository bool) (*Workspace, error) {
 	var ws Workspace
 	err := db.QueryRow(ctx, `SELECT id, root_path, profile, created_at, updated_at FROM workspaces WHERE root_path = ?`, root).
 		Scan(&ws.ID, &ws.RootPath, &ws.Profile, &ws.CreatedAt, &ws.UpdatedAt)
@@ -24,7 +35,9 @@ func (db *DB) EnsureWorkspaceWithID(ctx context.Context, desiredID, root, profil
 			return nil, fmt.Errorf("workspace identity conflict: database has %s, expected %s", ws.ID, desiredID)
 		}
 		db.Workspace = &ws
-		_, _ = db.EnsureRepository(ctx, ws.ID, root)
+		if ensureRepository {
+			_, _ = db.EnsureRepository(ctx, ws.ID, root)
+		}
 		return &ws, nil
 	}
 	if err != sql.ErrNoRows {
@@ -47,8 +60,10 @@ func (db *DB) EnsureWorkspaceWithID(ctx context.Context, desiredID, root, profil
 		return nil, fmt.Errorf("insert workspace: %w", err)
 	}
 	db.Workspace = &ws
-	if _, repoErr := db.EnsureRepository(ctx, ws.ID, root); repoErr != nil {
-		return nil, repoErr
+	if ensureRepository {
+		if _, repoErr := db.EnsureRepository(ctx, ws.ID, root); repoErr != nil {
+			return nil, repoErr
+		}
 	}
 	return &ws, nil
 }

@@ -25,6 +25,7 @@ type railwayUpOptions struct {
 	Team, TodoState, WIPState, DoneState, BlockedState, TriggerLabel, WorkerCheckpoint         string
 	KnowledgeImage, KnowledgeSource, EmbeddingAPIKey, EmbeddingAPIKeyEnv                       string
 	EnableLinear                                                                               bool
+	Progress                                                                                   func(string)
 }
 
 func defaultControlPlaneImage() string {
