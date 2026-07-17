@@ -71,19 +71,19 @@ func TestOptionalRailwaySecretsAllowsMissingCredentialRecord(t *testing.T) {
 
 func TestInitializeRailwaySecretsPreservesRetainedValues(t *testing.T) {
 	retained := railwaySecrets{
-		ServiceToken: "service", WorkerToken: "worker", WebhookSecret: "webhook", CredentialKey: "credential",
+		ServiceToken: "service", WorkerToken: "worker", PreviewEdgeToken: "preview-edge", WebhookSecret: "webhook", CredentialKey: "credential",
 		KnowledgeToken: "knowledge", KnowledgeAdminToken: "knowledge-admin",
 		ControlDatabasePassword: "control-db", KnowledgeDatabasePassword: "knowledge-db",
 	}
 	got := initializeRailwaySecrets(retained, "runtime")
-	if got.ServiceToken != "service" || got.WorkerToken != "worker" || got.KnowledgeToken != "knowledge" || got.ControlDatabasePassword != "control-db" {
+	if got.ServiceToken != "service" || got.WorkerToken != "worker" || got.PreviewEdgeToken != "preview-edge" || got.KnowledgeToken != "knowledge" || got.ControlDatabasePassword != "control-db" {
 		t.Fatalf("retained credentials were rotated: %#v", got)
 	}
 	if got.RuntimeToken != "runtime" {
 		t.Fatalf("runtime token=%q", got.RuntimeToken)
 	}
 	empty := initializeRailwaySecrets(railwaySecrets{}, "runtime")
-	if empty.ServiceToken == "" || empty.WorkerToken == "" || empty.KnowledgeToken == "" || empty.ControlDatabasePassword == "" {
+	if empty.ServiceToken == "" || empty.WorkerToken == "" || empty.PreviewEdgeToken == "" || empty.KnowledgeToken == "" || empty.ControlDatabasePassword == "" {
 		t.Fatalf("credentials were not initialized: %#v", empty)
 	}
 }

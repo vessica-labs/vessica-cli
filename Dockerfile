@@ -27,13 +27,13 @@ RUN CGO_ENABLED=0 go build -trimpath \
 FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818 AS railway
 
 ARG TARGETARCH
-ARG RAILWAY_VERSION=5.26.1
+ARG RAILWAY_VERSION=5.26.4
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && case "$TARGETARCH" in \
-         amd64) railway_target=x86_64-unknown-linux-gnu; railway_sha=7ab32701c4da05eafd0e2a956b441bea581d61def9a0689d9c35d2759e6f3640 ;; \
-         arm64) railway_target=aarch64-unknown-linux-musl; railway_sha=18814fad80c1bdb5be28092994e31b1f0a8d7c32ff3e9dd3cf7a7b1348df16ae ;; \
+         amd64) railway_target=x86_64-unknown-linux-gnu; railway_sha=b82bbaa4c9dda589360a561d17294add6a9ad70eb94858164befd859c6a9e74c ;; \
+         arm64) railway_target=aarch64-unknown-linux-musl; railway_sha=d2f0c0c169bc9f72db81e32a83d0182c4170e1d3c63c97a9ca3a0be8c9cf6425 ;; \
          *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
        esac \
     && archive="railway-v${RAILWAY_VERSION}-${railway_target}.tar.gz" \

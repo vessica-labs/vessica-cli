@@ -171,6 +171,53 @@ func TestPreviewOverlayHidesWhileDetachedWindowIsOpen(t *testing.T) {
 	}
 }
 
+func TestDedicatedPreviewOriginInjectsAndServesReviewPanel(t *testing.T) {
+	server, runRecord, _ := reviewServerFixture(t)
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = fmt.Fprint(w, "<html><body><main>Preview</main></body></html>")
+	}))
+	defer target.Close()
+	broker := NewPreviewBroker()
+	if err := broker.Register(runRecord.ID, target.URL, func() {}); err != nil {
+		t.Fatal(err)
+	}
+	capability, err := broker.Issue(runRecord.ID, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.PreviewBroker = broker
+	server.PreviewPublicURL = "https://preview.example"
+	server.PreviewEdgeToken = "edge-secret"
+	server.Dashboard = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, "dashboard")
+	})
+	handler := server.Handler()
+
+	previewReq := httptest.NewRequest(http.MethodGet, "/previews/"+runRecord.ID+"/?cap="+url.QueryEscape(capability), nil)
+	previewReq.Header.Set(PreviewEdgeHeader, "edge-secret")
+	previewRec := httptest.NewRecorder()
+	handler.ServeHTTP(previewRec, previewReq)
+	if previewRec.Code != http.StatusOK || !strings.Contains(previewRec.Body.String(), `id="ves-review-panel"`) {
+		t.Fatalf("preview status=%d body=%s", previewRec.Code, previewRec.Body.String())
+	}
+	cookies := previewRec.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("preview capability cookie was not set")
+	}
+
+	panelReq := httptest.NewRequest(http.MethodGet, "/review/runs/"+runRecord.ID+"/panel", nil)
+	panelReq.SetPathValue("run_id", runRecord.ID)
+	panelReq.Header.Set(PreviewEdgeHeader, "edge-secret")
+	panelReq.Header.Set("Sec-Fetch-Dest", "iframe")
+	panelReq.AddCookie(cookies[0])
+	panelRec := httptest.NewRecorder()
+	handler.ServeHTTP(panelRec, panelReq)
+	if panelRec.Code != http.StatusOK || !strings.Contains(panelRec.Body.String(), "Request a revision") {
+		t.Fatalf("panel status=%d body=%s", panelRec.Code, panelRec.Body.String())
+	}
+}
+
 func TestReviewStandaloneWindowUsesSignedToken(t *testing.T) {
 	server, runRecord, _ := reviewServerFixture(t)
 	token := server.reviewToken(runRecord.ID, time.Now().Add(time.Hour))
@@ -310,7 +357,7 @@ func TestCompletedRunProjectionAddsReviewLinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if message == nil || message.IntegrationID != integration.ID || message.IdempotencyKey != "linear:run:completed:v4:"+runRecord.ID {
+	if message == nil || message.IntegrationID != integration.ID || message.IdempotencyKey != completionProjectionKey(runRecord) {
 		t.Fatalf("message=%#v", message)
 	}
 	if !strings.Contains(message.PayloadJSON, "Accept and Merge") || !strings.Contains(message.PayloadJSON, "Rollback") || !strings.Contains(message.PayloadJSON, "/review/runs/") {

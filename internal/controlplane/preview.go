@@ -28,7 +28,6 @@ type previewTarget struct {
 type PreviewBroker struct {
 	mu              sync.RWMutex
 	targets         map[string]previewTarget
-	tunnels         map[string]*previewTunnel
 	capabilities    map[string]previewCapability
 	overlayProvider func(string) string
 }
@@ -44,7 +43,7 @@ func (b *PreviewBroker) SetOverlayProvider(provider func(string) string) {
 }
 
 func NewPreviewBroker() *PreviewBroker {
-	return &PreviewBroker{targets: map[string]previewTarget{}, tunnels: map[string]*previewTunnel{}, capabilities: map[string]previewCapability{}}
+	return &PreviewBroker{targets: map[string]previewTarget{}, capabilities: map[string]previewCapability{}}
 }
 
 func (b *PreviewBroker) Register(token, target string, cancel context.CancelFunc) error {
@@ -65,7 +64,6 @@ func (b *PreviewBroker) Remove(token string) {
 	b.mu.Lock()
 	target, ok := b.targets[token]
 	delete(b.targets, token)
-	delete(b.tunnels, token)
 	b.mu.Unlock()
 	if ok && target.Cancel != nil {
 		target.Cancel()
@@ -76,8 +74,7 @@ func (b *PreviewBroker) Issue(runID string, ttl time.Duration) (string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	_, targetOK := b.targets[runID]
-	_, tunnelOK := b.tunnels[runID]
-	if !targetOK && !tunnelOK {
+	if !targetOK {
 		return "", fmt.Errorf("preview is not available")
 	}
 	if ttl <= 0 || ttl > 7*24*time.Hour {
@@ -144,21 +141,19 @@ func (b *PreviewBroker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	b.mu.RLock()
 	target, ok := b.targets[runID]
-	tunnel := b.tunnels[runID]
 	overlayProvider := b.overlayProvider
 	b.mu.RUnlock()
-	if !ok && tunnel == nil {
+	if !ok {
 		http.Error(w, "preview is no longer available", http.StatusGone)
-		return
-	}
-	if tunnel != nil {
-		b.serveTunnelRequest(w, r, tunnel)
 		return
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target.URL)
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		originalDirector(req)
+		// Dev servers such as Vite reject the public broker host. Present the
+		// loopback forward as the upstream host while retaining forwarded headers.
+		req.Host = target.URL.Host
 		req.Header.Del("Accept-Encoding")
 	}
 	if overlayProvider != nil {

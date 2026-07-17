@@ -51,6 +51,27 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 		},
 	}
 	cmd.AddCommand(migrate)
+	cmd.AddCommand(newControlPlaneRailwaySessionCmd())
+	var previewEdgeAddr string
+	previewEdge := &cobra.Command{
+		Use:   "preview-edge",
+		Short: "Serve the isolated public preview origin",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return controlplane.RunPreviewEdge(
+				cmd.Context(), previewEdgeAddr,
+				os.Getenv("VES_PREVIEW_UPSTREAM"),
+				os.Getenv("VES_PREVIEW_EDGE_TOKEN"),
+			)
+		},
+	}
+	previewEdge.Flags().StringVar(&previewEdgeAddr, "addr", envDefault("PORT", "8080"), "listen address or port")
+	previewEdge.PreRunE = func(cmd *cobra.Command, args []string) error {
+		if !strings.HasPrefix(previewEdgeAddr, ":") && !strings.Contains(previewEdgeAddr, ":") {
+			previewEdgeAddr = ":" + previewEdgeAddr
+		}
+		return nil
+	}
+	cmd.AddCommand(previewEdge)
 	var addr string
 	serve := &cobra.Command{
 		Use:   "serve",
@@ -88,6 +109,16 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var railwaySession *controlplane.RailwayCLISession
+			if credentialManager != nil {
+				railwaySession = controlplane.NewRailwayCLISession(
+					credentialManager, railwayPath(), filepath.Join(root, ".vessica", "railway-cli"),
+					firstNonEmpty(os.Getenv("VES_RAILWAY_WORKSPACE_ID"), cfg.Hosted.WorkspaceID),
+				)
+				if _, restoreErr := railwaySession.Restore(cmd.Context()); restoreErr != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "Railway CLI session restore failed: %v\n", restoreErr)
+				}
+			}
 			linearToken := strings.TrimSpace(os.Getenv("LINEAR_API_KEY"))
 			var linear *tracker.LinearClient
 			if linearToken != "" {
@@ -107,6 +138,7 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 				DB: db, Config: cfg, CLIPath: railwayPath(), PublicURL: cfg.Hosted.ControlPlaneURL,
 				PreviewPublicURL:    os.Getenv("VES_PREVIEW_ORIGIN"),
 				WorkerDownloadToken: os.Getenv("VES_WORKER_DOWNLOAD_TOKEN"), Broker: broker,
+				RailwaySession: railwaySession,
 			}
 			if credentialManager != nil && credentialManager.Has(cmd.Context(), "railway") {
 				launcher.RailwayToken = func(ctx context.Context) (string, error) {
@@ -116,6 +148,7 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 			server := &controlplane.Server{
 				DB: db, Config: cfg, Linear: linear, Launcher: launcher, PreviewBroker: broker,
 				Credentials:         credentialManager,
+				PreviewEdgeToken:    os.Getenv("VES_PREVIEW_EDGE_TOKEN"),
 				LinearWebhookSecret: os.Getenv("VES_LINEAR_WEBHOOK_SECRET"),
 				APIToken:            os.Getenv("VES_CONTROL_PLANE_API_TOKEN"),
 				WorkerDownloadToken: os.Getenv("VES_WORKER_DOWNLOAD_TOKEN"),
@@ -215,25 +248,7 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 	}
 	promptWorker.Flags().StringVar(&promptRunID, "run-id", "", "run id attached to the retained sandbox")
 	promptWorker.Flags().StringVar(&promptB64, "prompt-b64", "", "base64url-encoded refinement prompt")
-	var tunnelRunID, tunnelLocalURL, tunnelControlURL string
-	previewTunnel := &cobra.Command{
-		Use:   "preview-tunnel",
-		Short: "Relay a sandbox preview to the hosted control plane",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if tunnelRunID == "" || tunnelLocalURL == "" || tunnelControlURL == "" {
-				return fmt.Errorf("--run-id, --local-url, and --control-url are required")
-			}
-			token := strings.TrimSpace(os.Getenv("VES_WORKER_DOWNLOAD_TOKEN"))
-			if token == "" {
-				return fmt.Errorf("VES_WORKER_DOWNLOAD_TOKEN is required")
-			}
-			return controlplane.RunPreviewTunnel(cmd.Context(), tunnelControlURL, tunnelRunID, tunnelLocalURL, token)
-		},
-	}
-	previewTunnel.Flags().StringVar(&tunnelRunID, "run-id", "", "run id to relay")
-	previewTunnel.Flags().StringVar(&tunnelLocalURL, "local-url", "", "loopback preview URL inside the sandbox")
-	previewTunnel.Flags().StringVar(&tunnelControlURL, "control-url", "", "public control-plane URL")
-	cmd.AddCommand(worker, promptWorker, previewTunnel)
+	cmd.AddCommand(worker, promptWorker)
 	return cmd
 }
 

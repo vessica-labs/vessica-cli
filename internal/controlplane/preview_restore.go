@@ -2,7 +2,7 @@ package controlplane
 
 import "context"
 
-// RestoreHostedPreviews reconnects retained preview tunnels and refreshes the
+// RestoreHostedPreviews reconnects retained preview forwards and refreshes the
 // external completion projection with the same persisted public URL.
 func (s *Server) RestoreHostedPreviews(ctx context.Context) {
 	restorer, ok := s.Launcher.(interface{ RestorePreviews(context.Context) })

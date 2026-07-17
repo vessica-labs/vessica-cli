@@ -168,6 +168,17 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		if err := ensureRailwayPreviewDomain(ctx, workDir, cfg, opts.PreviewOrigin); err != nil {
 			return nil, err
 		}
+		cfg.Hosted.PreviewServiceID = ""
+		cfg.Hosted.PreviewURL = strings.TrimRight(opts.PreviewOrigin, "/")
+	} else {
+		progress("provisioning the isolated Railway preview origin")
+		if err := ensureRailwayPreviewEdge(ctx, workDir, &cfg, opts, secrets); err != nil {
+			return nil, err
+		}
+		progress("isolated Railway preview origin is ready")
+	}
+	if err := config.Save(app.Root, cfg); err != nil {
+		return nil, err
 	}
 	progress("deploying and verifying the hosted knowledge service")
 	if err := ensureRailwayKnowledge(ctx, workDir, app, &cfg, opts, databaseURLs.Knowledge, secrets.KnowledgeToken, secrets.KnowledgeAdminToken, embeddingKey); err != nil {
@@ -182,7 +193,7 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		hostedLinearToken = ""
 	}
 	progress("configuring control-plane credentials and service variables")
-	if err := configureRailwayService(ctx, cfg, secrets, databaseURLs.Control, hostedLinearToken, linearOAuth, railwayOAuth, githubToken, openAIKey, codexAuthB64, opts.PreviewOrigin); err != nil {
+	if err := configureRailwayService(ctx, cfg, secrets, databaseURLs.Control, hostedLinearToken, linearOAuth, railwayOAuth, githubToken, openAIKey, codexAuthB64, cfg.Hosted.PreviewURL); err != nil {
 		return nil, err
 	}
 	progress("configuring the control-plane migration and image source")
@@ -263,7 +274,8 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	app.Config = cfg
 	return map[string]any{"status": "running", "project_id": cfg.Hosted.ProjectID, "environment_id": cfg.Hosted.EnvironmentID,
 		"service_id": cfg.Hosted.ServiceID, "postgres_service_id": cfg.Hosted.PostgresServiceID,
-		"control_plane_url": cfg.Hosted.ControlPlaneURL, "webhook_id": secrets.WebhookID,
+		"preview_service_id": cfg.Hosted.PreviewServiceID, "control_plane_url": cfg.Hosted.ControlPlaneURL,
+		"preview_url": cfg.Hosted.PreviewURL, "webhook_id": secrets.WebhookID,
 		"knowledge_endpoint": cfg.Knowledge.Endpoint, "knowledge_service_id": cfg.Knowledge.ServiceID,
 		"retrieval_mode": "lexical", "embedding_state": "not_configured",
 		"linear_connected": linear != nil, "linear_team": team.Name, "linear_project_id": cfg.Tracker.ProjectID, "todo_state_id": cfg.Tracker.TodoStateID}, nil

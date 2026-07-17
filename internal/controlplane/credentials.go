@@ -121,6 +121,37 @@ func (m *CredentialManager) Rotate(ctx context.Context, provider, raw string) er
 	return m.persist(ctx, provider, []byte(raw))
 }
 
+// StoreOpaque encrypts provider-specific credential state that is not an OAuth
+// document. Callers must use a distinct provider name and validate the payload
+// before storing it.
+func (m *CredentialManager) StoreOpaque(ctx context.Context, provider string, raw []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if strings.TrimSpace(provider) == "" || len(raw) == 0 {
+		return fmt.Errorf("provider and credential state are required")
+	}
+	return m.persist(ctx, provider, raw)
+}
+
+// LoadOpaque decrypts provider-specific credential state without interpreting
+// or refreshing it.
+func (m *CredentialManager) LoadOpaque(ctx context.Context, provider string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if strings.TrimSpace(provider) == "" {
+		return nil, fmt.Errorf("provider is required")
+	}
+	encrypted, err := m.DB.GetHostedCredential(ctx, provider)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := m.decrypt(encrypted)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt %s credential state: %w", provider, err)
+	}
+	return raw, nil
+}
+
 func (m *CredentialManager) persist(ctx context.Context, provider string, raw []byte) error {
 	encrypted, err := m.encrypt(raw)
 	if err != nil {

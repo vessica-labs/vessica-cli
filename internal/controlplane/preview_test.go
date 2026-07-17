@@ -52,6 +52,35 @@ func TestPreviewBrokerPreservesRootRelativeRequests(t *testing.T) {
 	}
 }
 
+func TestPreviewBrokerPresentsUpstreamHost(t *testing.T) {
+	var targetHost string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetHost = r.Host
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer target.Close()
+	targetURL, err := url.Parse(target.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker := NewPreviewBroker()
+	if err := broker.Register("run-1", target.URL, func() {}); err != nil {
+		t.Fatal(err)
+	}
+	capability, err := broker.Issue("run-1", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(broker)
+	defer server.Close()
+	if _, err := server.Client().Get(server.URL + "/previews/run-1/?cap=" + url.QueryEscape(capability)); err != nil {
+		t.Fatal(err)
+	}
+	if targetHost != targetURL.Host {
+		t.Fatalf("upstream host=%q, want %q", targetHost, targetURL.Host)
+	}
+}
+
 func TestPreviewBrokerInjectsReviewOverlayIntoHTML(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -78,5 +107,46 @@ func TestPreviewBrokerInjectsReviewOverlayIntoHTML(t *testing.T) {
 	got := string(body)
 	if !strings.Contains(got, `<iframe data-run="run-1"></iframe></body>`) {
 		t.Fatalf("overlay was not injected before body close: %s", got)
+	}
+}
+
+func TestPreviewEdgeHeaderRoutesRootAssetsAheadOfDashboard(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/css")
+		_, _ = io.WriteString(w, "preview:"+r.URL.Path)
+	}))
+	defer target.Close()
+	broker := NewPreviewBroker()
+	if err := broker.Register("run-1", target.URL, func() {}); err != nil {
+		t.Fatal(err)
+	}
+	capability, err := broker.Issue("run-1", time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dashboard := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "dashboard") })
+	handler := (&Server{PreviewBroker: broker, PreviewEdgeToken: "edge-secret", Dashboard: dashboard}).Handler()
+	request := httptest.NewRequest(http.MethodGet, "/previews/run-1/?cap="+url.QueryEscape(capability), nil)
+	request.Header.Set(PreviewEdgeHeader, "edge-secret")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	cookies := recorder.Result().Cookies()
+	if len(cookies) == 0 {
+		t.Fatal("preview capability cookie was not set")
+	}
+	assetRequest := httptest.NewRequest(http.MethodGet, "/app/globals.css", nil)
+	assetRequest.Header.Set(PreviewEdgeHeader, "edge-secret")
+	assetRequest.AddCookie(cookies[0])
+	assetRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(assetRecorder, assetRequest)
+	if got := assetRecorder.Body.String(); got != "preview:/app/globals.css" {
+		t.Fatalf("root asset was not routed to preview: %q", got)
+	}
+	assetRequest = httptest.NewRequest(http.MethodGet, "/app/globals.css", nil)
+	assetRequest.AddCookie(cookies[0])
+	assetRecorder = httptest.NewRecorder()
+	handler.ServeHTTP(assetRecorder, assetRequest)
+	if got := assetRecorder.Body.String(); got != "dashboard" {
+		t.Fatalf("untrusted edge request bypassed dashboard: %q", got)
 	}
 }

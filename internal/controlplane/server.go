@@ -45,6 +45,7 @@ type Server struct {
 	PreviewBroker       *PreviewBroker
 	Dashboard           http.Handler
 	PreviewPublicURL    string
+	PreviewEdgeToken    string
 	Credentials         *CredentialManager
 	workerID            string
 	projectionMu        sync.Mutex
@@ -74,8 +75,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /readyz", s.handleReady)
 	mux.HandleFunc("POST /webhooks/linear", s.handleLinearWebhook)
 	mux.HandleFunc("GET /internal/worker/ves", s.handleWorkerBinary)
-	mux.HandleFunc("POST /internal/preview-tunnels/{run_id}/poll", s.requireWorkerAuth(s.PreviewBroker.handleTunnelPoll))
-	mux.HandleFunc("POST /internal/preview-tunnels/{run_id}/responses", s.requireWorkerAuth(s.PreviewBroker.handleTunnelResponse))
 	mux.HandleFunc("GET /api/v1/status", s.requireAPIAuth(s.handleStatus))
 	mux.HandleFunc("POST /api/v1/cli-credentials", s.requireServiceAuth(s.handleCreateCLICredential))
 	mux.HandleFunc("PUT /api/v1/credentials/{provider}", s.requireAPIAuth(s.handleRotateCredential))
@@ -89,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/runs", s.requireAPIAuth(s.handleRuns))
 	mux.HandleFunc("GET /api/v1/runs/{run_id}", s.requireAPIAuth(s.handleRun))
 	mux.HandleFunc("GET /api/v1/runs/{run_id}/events", s.requireAPIAuth(s.handleRunEvents))
+	mux.HandleFunc("GET /api/v1/runs/{run_id}/artifacts", s.requireAPIAuth(s.handleRunArtifacts))
 	mux.HandleFunc("POST /api/v1/runs/{run_id}/resume", s.requireAPIAuth(s.handleResumeRun))
 	mux.HandleFunc("POST /api/v1/runs/{run_id}/cancel", s.requireAPIAuth(s.handleCancelRun))
 	mux.HandleFunc("GET /api/v1/receipts/{receipt_id}", s.requireAPIAuth(s.handleReceipt))
@@ -110,17 +110,27 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /review/runs/{run_id}/approve", s.handleReviewApprove)
 	mux.HandleFunc("POST /review/runs/{run_id}/rollback", s.handleReviewRollback)
 	if s.PreviewBroker != nil {
-		if s.PreviewPublicURL == "" {
-			s.PreviewBroker.SetOverlayProvider(s.previewOverlay)
-		}
+		s.PreviewBroker.SetOverlayProvider(s.previewOverlay)
 		mux.Handle("/", s.PreviewBroker)
 	}
 	if s.Dashboard == nil {
 		return mux
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.PreviewBroker != nil && constantValue(r.Header.Get(PreviewEdgeHeader), s.PreviewEdgeToken) {
+			if previewReviewRoute(r) {
+				mux.ServeHTTP(w, r)
+				return
+			}
+			s.PreviewBroker.ServeHTTP(w, r)
+			return
+		}
 		if s.PreviewPublicURL != "" {
 			if u, err := url.Parse(s.PreviewPublicURL); err == nil && strings.EqualFold(stripPort(r.Host), stripPort(u.Host)) {
+				if previewReviewRoute(r) {
+					mux.ServeHTTP(w, r)
+					return
+				}
 				if s.PreviewBroker != nil {
 					s.PreviewBroker.ServeHTTP(w, r)
 					return
@@ -135,6 +145,10 @@ func (s *Server) Handler() http.Handler {
 		}
 		mux.ServeHTTP(w, r)
 	})
+}
+
+func previewReviewRoute(r *http.Request) bool {
+	return r != nil && strings.HasPrefix(r.URL.Path, "/review/runs/")
 }
 func (s *Server) handleImportWorkplan(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<20))
@@ -457,6 +471,13 @@ func constantToken(header, token string) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(provided), []byte(token)) == 1
+}
+
+func constantValue(provided, expected string) bool {
+	if expected == "" || provided == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
 }
 
 func (s *Server) handleApproveRun(w http.ResponseWriter, r *http.Request) {

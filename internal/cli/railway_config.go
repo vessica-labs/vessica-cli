@@ -30,7 +30,10 @@ func configureRailwayService(ctx context.Context, cfg config.Config, secrets rai
 		"VES_LINEAR_WIP_STATE_ID": cfg.Tracker.WIPStateID, "VES_LINEAR_DONE_STATE_ID": cfg.Tracker.DoneStateID,
 		"VES_LINEAR_BLOCKED_STATE_ID": cfg.Tracker.BlockedStateID, "VES_LINEAR_TRIGGER_LABEL": cfg.Tracker.TriggerLabel,
 		"VES_RAILWAY_POSTGRES_SERVICE_ID": cfg.Hosted.PostgresServiceID,
+		"VES_RAILWAY_PREVIEW_SERVICE_ID":  cfg.Hosted.PreviewServiceID,
+		"VES_RAILWAY_WORKSPACE_ID":        cfg.Hosted.WorkspaceID,
 		"VES_WORKER_DOWNLOAD_TOKEN":       secrets.WorkerToken, "VES_CONTROL_PLANE_API_TOKEN": secrets.ServiceToken,
+		"VES_PREVIEW_EDGE_TOKEN":    secrets.PreviewEdgeToken,
 		"VES_LINEAR_WEBHOOK_SECRET": secrets.WebhookSecret, "LINEAR_API_KEY": linearToken,
 		"GITHUB_TOKEN": githubToken, "OPENAI_API_KEY": openAIKey, "RAILWAY_TOKEN": secrets.RuntimeToken,
 		"VES_LINEAR_OAUTH_JSON": linearOAuth, "VES_RAILWAY_OAUTH_JSON": railwayOAuth,
@@ -231,6 +234,22 @@ func runRailway(ctx context.Context, dir string, stdin io.Reader, args ...string
 
 func runRailwaySession(ctx context.Context, dir string, stdin io.Reader, args ...string) ([]byte, error) {
 	return runRailwayWithAuth(ctx, dir, stdin, false, args...)
+}
+
+func runRailwaySessionStreaming(ctx context.Context, stdout, stderr io.Writer, args ...string) error {
+	cmd := exec.CommandContext(ctx, railwayPath(), args...)
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	for _, value := range os.Environ() {
+		if strings.HasPrefix(value, "RAILWAY_TOKEN=") || strings.HasPrefix(value, "RAILWAY_API_TOKEN=") {
+			continue
+		}
+		cmd.Env = append(cmd.Env, value)
+	}
+	cmd.Env = append(cmd.Env, "RAILWAY_CALLER=vessica-cli", "RAILWAY_AGENT_SESSION=vessica-preview-session")
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("railway %s: %w", strings.Join(args, " "), err)
+	}
+	return nil
 }
 
 func runRailwayWithAuth(ctx context.Context, dir string, stdin io.Reader, oauth bool, args ...string) ([]byte, error) {

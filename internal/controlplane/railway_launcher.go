@@ -34,6 +34,7 @@ type RailwayLauncher struct {
 	WorkerDownloadToken string
 	Broker              *PreviewBroker
 	RailwayToken        func(context.Context) (string, error)
+	RailwaySession      *RailwayCLISession
 	Logger              *log.Logger
 	mu                  sync.Mutex
 	promptMu            sync.Mutex
@@ -194,6 +195,15 @@ func (l *RailwayLauncher) workerEnvironment(runID, repositoryRemote string) map[
 }
 
 func (l *RailwayLauncher) configureAuth(ctx context.Context, rs *sandbox.RailwaySandbox) error {
+	if l.RailwaySession != nil && l.RailwaySession.Ready() {
+		rs.SetCLIHome(l.RailwaySession.Home)
+		rs.SetSessionPersist(func() error {
+			persistCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			return l.RailwaySession.Persist(persistCtx)
+		})
+		return nil
+	}
 	if l.RailwayToken == nil {
 		return nil
 	}
@@ -358,7 +368,7 @@ func (l *RailwayLauncher) Destroy(ctx context.Context, record *state.Sandbox) er
 	return l.DB.UpdateSandbox(ctx, record)
 }
 
-// RestorePreviews restarts sandbox-initiated tunnels after a control-plane
+// RestorePreviews recreates native Railway forwards after a control-plane
 // deployment. The preview process and retained filesystem outlive the server.
 func (l *RailwayLauncher) RestorePreviews(ctx context.Context) {
 	if l.Broker == nil || l.DB == nil {
@@ -381,19 +391,31 @@ func (l *RailwayLauncher) RestorePreviews(ctx context.Context) {
 		if err := l.configureAuth(ctx, rs); err != nil {
 			continue
 		}
-		if err := l.Broker.RegisterTunnel(record.RunID); err != nil {
+		if !rs.UsesCLISession() {
 			continue
 		}
 		l.remember(record.RunID, rs)
-		if err := l.startPreviewTunnel(ctx, rs, record.RunID, record.PreviewPort); err != nil {
+		forwardURL, err := rs.ExposePort(ctx, record.PreviewPort)
+		if err != nil {
 			continue
 		}
-		publicURL := record.PreviewURL
-		if parsed, err := url.Parse(publicURL); err == nil && parsed.Query().Get("cap") != "" {
-			_ = l.Broker.RestoreCapability(parsed.Query().Get("cap"), record.RunID)
-		} else if runRecord, runErr := l.DB.GetRun(ctx, record.RunID); runErr == nil {
-			published, publishErr := l.publishPreview(ctx, rs, runRecord, record)
+		if err := l.Broker.Register(record.RunID, forwardURL, func() { _ = rs.StopForward() }); err != nil {
+			_ = rs.StopForward()
+			continue
+		}
+		publicURL := ""
+		if parsed, err := url.Parse(record.PreviewURL); err == nil && parsed.Query().Get("cap") != "" {
+			capability := parsed.Query().Get("cap")
+			_ = l.Broker.RestoreCapability(capability, record.RunID)
+			publicURL, err = l.publicPreviewURL(record.RunID, capability)
+			if err != nil {
+				l.Broker.Remove(record.RunID)
+				continue
+			}
+		} else {
+			published, publishErr := l.issuePublicPreviewURL(record.RunID)
 			if publishErr != nil {
+				l.Broker.Remove(record.RunID)
 				continue
 			}
 			publicURL = published

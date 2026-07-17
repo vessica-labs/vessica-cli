@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -29,10 +28,12 @@ type RailwaySandbox struct {
 	opts          CreateOpts
 	status        string
 	previewURL    string
-	forwardCmd    *exec.Cmd
 	forwardMu     sync.Mutex
-	identityFile  string
+	forwardCancel context.CancelFunc
+	forwardDone   <-chan struct{}
 	apiToken      string
+	cliHome       string
+	persistCLI    func() error
 }
 
 func NewRailway(cli, projectID, environmentID, sandboxID string) *RailwaySandbox {
@@ -42,14 +43,16 @@ func NewRailway(cli, projectID, environmentID, sandboxID string) *RailwaySandbox
 	return &RailwaySandbox{cli: cli, projectID: projectID, environmentID: environmentID, sandboxID: sandboxID, status: "pending"}
 }
 
-func (r *RailwaySandbox) ID() string          { return r.sandboxID }
-func (r *RailwaySandbox) ContainerID() string { return r.sandboxID }
-func (r *RailwaySandbox) Workdir() string     { return "/workspace" }
-func (r *RailwaySandbox) SetIdentityFile(path string) {
-	r.identityFile = path
-}
-
+func (r *RailwaySandbox) ID() string               { return r.sandboxID }
+func (r *RailwaySandbox) ContainerID() string      { return r.sandboxID }
+func (r *RailwaySandbox) Workdir() string          { return "/workspace" }
 func (r *RailwaySandbox) SetAPIToken(token string) { r.apiToken = strings.TrimSpace(token) }
+
+func (r *RailwaySandbox) SetCLIHome(home string) { r.cliHome = strings.TrimSpace(home) }
+
+func (r *RailwaySandbox) SetSessionPersist(persist func() error) { r.persistCLI = persist }
+
+func (r *RailwaySandbox) UsesCLISession() bool { return r.cliHome != "" }
 
 func (r *RailwaySandbox) baseArgs() []string {
 	return []string{"sandbox", "-p", r.projectID, "-e", r.environmentID}
@@ -58,12 +61,18 @@ func (r *RailwaySandbox) baseArgs() []string {
 func (r *RailwaySandbox) command(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, r.cli, args...)
 	for _, value := range os.Environ() {
-		if r.apiToken != "" && (strings.HasPrefix(value, "RAILWAY_TOKEN=") || strings.HasPrefix(value, "RAILWAY_API_TOKEN=")) {
+		if (r.apiToken != "" || r.cliHome != "") && (strings.HasPrefix(value, "RAILWAY_TOKEN=") || strings.HasPrefix(value, "RAILWAY_API_TOKEN=")) {
+			continue
+		}
+		if r.cliHome != "" && strings.HasPrefix(value, "HOME=") {
 			continue
 		}
 		cmd.Env = append(cmd.Env, value)
 	}
 	cmd.Env = append(cmd.Env, "RAILWAY_CALLER=vessica-control-plane")
+	if r.cliHome != "" {
+		cmd.Env = append(cmd.Env, "HOME="+r.cliHome)
+	}
 	if r.apiToken != "" {
 		cmd.Env = append(cmd.Env, "RAILWAY_API_TOKEN="+r.apiToken)
 	}
@@ -95,7 +104,11 @@ func (r *RailwaySandbox) Create(ctx context.Context, opts CreateOpts) error {
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
 	if err != nil {
+		_ = r.persistSession()
 		return fmt.Errorf("railway sandbox create: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	if err := r.persistSession(); err != nil {
+		return fmt.Errorf("persist Railway CLI session after sandbox create: %w", err)
 	}
 	id, err := railwayObjectID(stdout.Bytes())
 	if err != nil {
@@ -157,7 +170,11 @@ func (r *RailwaySandbox) Exec(ctx context.Context, argv []string, stdout, stderr
 	cmd := r.command(ctx, args...)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	err := cmd.Run()
+	persistErr := r.persistSession()
 	if err == nil {
+		if persistErr != nil {
+			return 1, fmt.Errorf("persist Railway CLI session after sandbox exec: %w", persistErr)
+		}
 		return 0, nil
 	}
 	if exit, ok := err.(*exec.ExitError); ok {
@@ -167,39 +184,6 @@ func (r *RailwaySandbox) Exec(ctx context.Context, argv []string, stdout, stderr
 }
 
 func (r *RailwaySandbox) Stream(context.Context, io.Writer, io.Writer) error { return nil }
-
-func (r *RailwaySandbox) ExposePort(ctx context.Context, remotePort int) (string, error) {
-	if r.sandboxID == "" {
-		return "", ErrNotRunning
-	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", err
-	}
-	localPort := listener.Addr().(*net.TCPAddr).Port
-	_ = listener.Close()
-	args := append(r.baseArgs(), "forward", "--id", r.sandboxID, "--strict")
-	if r.identityFile != "" {
-		args = append(args, "--identity-file", r.identityFile)
-	}
-	args = append(args, fmt.Sprintf("%d:%d", localPort, remotePort))
-	cmd := r.command(ctx, args...)
-	var output bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &output, &output
-	if err := cmd.Start(); err != nil {
-		return "", err
-	}
-	r.forwardMu.Lock()
-	r.forwardCmd = cmd
-	r.forwardMu.Unlock()
-	url := fmt.Sprintf("http://127.0.0.1:%d", localPort)
-	if err := waitForHTTP(ctx, url, 30*time.Second); err != nil {
-		_ = r.stopForward()
-		return "", fmt.Errorf("railway sandbox forward: %w: %s", err, strings.TrimSpace(output.String()))
-	}
-	r.previewURL = url
-	return url, nil
-}
 
 func (r *RailwaySandbox) StartPreview(ctx context.Context, command string, port int, healthcheck string) (string, error) {
 	if strings.TrimSpace(command) == "" {
@@ -232,33 +216,25 @@ func (r *RailwaySandbox) StartPreview(ctx context.Context, command string, port 
 func (r *RailwaySandbox) StopPreview(ctx context.Context) error {
 	_, _ = r.Exec(ctx, []string{"bash", "-lc", "test -f .vessica-preview.pid && kill $(cat .vessica-preview.pid) 2>/dev/null || true"}, io.Discard, io.Discard)
 	r.previewURL = ""
-	return r.stopForward()
-}
-
-func (r *RailwaySandbox) stopForward() error {
-	r.forwardMu.Lock()
-	defer r.forwardMu.Unlock()
-	if r.forwardCmd == nil || r.forwardCmd.Process == nil {
-		return nil
-	}
-	err := r.forwardCmd.Process.Kill()
-	_, _ = r.forwardCmd.Process.Wait()
-	r.forwardCmd = nil
-	return err
+	return r.StopForward()
 }
 
 func (r *RailwaySandbox) RefreshLease(context.Context, time.Time) error { return nil }
 func (r *RailwaySandbox) PreviewURL() string                            { return r.previewURL }
 
 func (r *RailwaySandbox) Destroy(ctx context.Context) error {
-	_ = r.stopForward()
+	_ = r.StopForward()
 	if r.sandboxID == "" {
 		return nil
 	}
 	args := append(r.baseArgs(), "destroy", "--id", r.sandboxID)
 	out, err := r.command(ctx, args...).CombinedOutput()
+	persistErr := r.persistSession()
 	if err != nil && !strings.Contains(strings.ToLower(string(out)), "not found") {
 		return fmt.Errorf("railway sandbox destroy: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	if persistErr != nil {
+		return fmt.Errorf("persist Railway CLI session after sandbox destroy: %w", persistErr)
 	}
 	r.status = "destroyed"
 	return nil
@@ -273,8 +249,12 @@ func (r *RailwaySandbox) Status(ctx context.Context) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
+	persistErr := r.persistSession()
 	if err != nil {
 		return "", fmt.Errorf("railway sandbox list: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	if persistErr != nil {
+		return "", fmt.Errorf("persist Railway CLI session after sandbox list: %w", persistErr)
 	}
 	var list []map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &list); err != nil {
@@ -291,6 +271,13 @@ func (r *RailwaySandbox) Status(ctx context.Context) (string, error) {
 		}
 	}
 	return "missing", nil
+}
+
+func (r *RailwaySandbox) persistSession() error {
+	if r.persistCLI == nil {
+		return nil
+	}
+	return r.persistCLI()
 }
 
 // HealthyURL is exported for the preview broker's startup checks.

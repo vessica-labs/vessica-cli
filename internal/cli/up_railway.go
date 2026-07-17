@@ -199,6 +199,7 @@ func recoverRailwayInstallation(ctx context.Context, candidate railwayInstallati
 		return cfg, railwaySecrets{}, err
 	}
 	cfg.Hosted.WorkerCheckpoint = controlVariables["VES_RAILWAY_CHECKPOINT"]
+	cfg.Hosted.PreviewURL = controlVariables["VES_PREVIEW_ORIGIN"]
 	cfg.Knowledge.Mode = "hosted"
 	cfg.Knowledge.Endpoint = controlVariables["VES_KNOWLEDGE_ENDPOINT"]
 	cfg.Knowledge.WorkspaceID = controlVariables["VES_KNOWLEDGE_WORKSPACE_ID"]
@@ -210,6 +211,7 @@ func recoverRailwayInstallation(ctx context.Context, candidate railwayInstallati
 		RuntimeToken:              controlVariables["RAILWAY_TOKEN"],
 		ServiceToken:              controlVariables["VES_CONTROL_PLANE_API_TOKEN"],
 		WorkerToken:               controlVariables["VES_WORKER_DOWNLOAD_TOKEN"],
+		PreviewEdgeToken:          controlVariables["VES_PREVIEW_EDGE_TOKEN"],
 		WebhookSecret:             controlVariables["VES_LINEAR_WEBHOOK_SECRET"],
 		WebhookID:                 controlVariables["VES_LINEAR_WEBHOOK_ID"],
 		CredentialKey:             controlVariables["VES_CREDENTIAL_ENCRYPTION_KEY"],

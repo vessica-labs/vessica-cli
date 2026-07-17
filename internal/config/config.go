@@ -67,18 +67,6 @@ type TrackerConfig struct {
 	TriggerLabel   string `yaml:"trigger_label,omitempty" json:"trigger_label,omitempty"`
 }
 
-type HostedConfig struct {
-	Provider          string `yaml:"provider,omitempty" json:"provider,omitempty"`
-	WorkspaceID       string `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"`
-	ProjectID         string `yaml:"project_id,omitempty" json:"project_id,omitempty"`
-	EnvironmentID     string `yaml:"environment_id,omitempty" json:"environment_id,omitempty"`
-	ServiceID         string `yaml:"service_id,omitempty" json:"service_id,omitempty"`
-	PostgresServiceID string `yaml:"postgres_service_id,omitempty" json:"postgres_service_id,omitempty"`
-	ControlPlaneURL   string `yaml:"control_plane_url,omitempty" json:"control_plane_url,omitempty"`
-	ControlPlaneImage string `yaml:"control_plane_image,omitempty" json:"control_plane_image,omitempty"`
-	WorkerCheckpoint  string `yaml:"worker_checkpoint,omitempty" json:"worker_checkpoint,omitempty"`
-}
-
 type KnowledgeConfig struct {
 	Mode              string `yaml:"mode" json:"mode"`
 	WorkspaceID       string `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"`
@@ -240,10 +228,14 @@ func Set(c *Config, key, value string) error {
 		c.Hosted.EnvironmentID = value
 	case "hosted.service_id":
 		c.Hosted.ServiceID = value
+	case "hosted.preview_service_id":
+		c.Hosted.PreviewServiceID = value
 	case "hosted.postgres_service_id":
 		c.Hosted.PostgresServiceID = value
 	case "hosted.control_plane_url":
 		c.Hosted.ControlPlaneURL = value
+	case "hosted.preview_url":
+		c.Hosted.PreviewURL = value
 	case "hosted.control_plane_image":
 		c.Hosted.ControlPlaneImage = value
 	case "hosted.worker_checkpoint":
@@ -324,8 +316,10 @@ func flatten(c Config) map[string]string {
 		"hosted.project_id":          c.Hosted.ProjectID,
 		"hosted.environment_id":      c.Hosted.EnvironmentID,
 		"hosted.service_id":          c.Hosted.ServiceID,
+		"hosted.preview_service_id":  c.Hosted.PreviewServiceID,
 		"hosted.postgres_service_id": c.Hosted.PostgresServiceID,
 		"hosted.control_plane_url":   c.Hosted.ControlPlaneURL,
+		"hosted.preview_url":         c.Hosted.PreviewURL,
 		"hosted.control_plane_image": c.Hosted.ControlPlaneImage,
 		"hosted.worker_checkpoint":   c.Hosted.WorkerCheckpoint,
 		"knowledge.mode":             c.Knowledge.Mode,
@@ -420,11 +414,17 @@ func ApplyEnv(c *Config) {
 	if v := os.Getenv("RAILWAY_SERVICE_ID"); v != "" {
 		c.Hosted.ServiceID = v
 	}
+	if v := os.Getenv("VES_RAILWAY_PREVIEW_SERVICE_ID"); v != "" {
+		c.Hosted.PreviewServiceID = v
+	}
 	if v := os.Getenv("VES_RAILWAY_POSTGRES_SERVICE_ID"); v != "" {
 		c.Hosted.PostgresServiceID = v
 	}
 	if v := os.Getenv("VES_CONTROL_PLANE_URL"); v != "" {
 		c.Hosted.ControlPlaneURL = v
+	}
+	if v := os.Getenv("VES_PREVIEW_ORIGIN"); v != "" {
+		c.Hosted.PreviewURL = v
 	}
 	if v := os.Getenv("VES_KNOWLEDGE_MODE"); v != "" {
 		c.Knowledge.Mode = v

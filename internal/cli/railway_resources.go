@@ -128,6 +128,8 @@ func reconcileRailwayResourceIDs(ctx context.Context, cfg *config.Config) error 
 		switch {
 		case name == "control-plane":
 			cfg.Hosted.ServiceID = edge.Node.ID
+		case name == railwayPreviewEdgeServiceName:
+			cfg.Hosted.PreviewServiceID = edge.Node.ID
 		case name == "postgres" || strings.HasPrefix(name, "postgres-"):
 			if cfg.Hosted.PostgresServiceID != "" && cfg.Hosted.PostgresServiceID != edge.Node.ID {
 				return multipleRailwayPostgresError()

@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -232,12 +233,17 @@ func (s *Server) SyncRunToLinear(ctx context.Context, runID string) error {
 		if acceptURL != "" && rollbackURL != "" && runRecord.PRMode != "merged" && runRecord.PRMode != "rolled_back" {
 			body += fmt.Sprintf("\n\n**[Accept and Merge](%s)** · [Rollback](%s)", acceptURL, rollbackURL)
 		}
-		_, _ = s.DB.EnqueueOutbox(ctx, integration.ID, "linear.comment", "linear:run:completed:v4:"+runID, map[string]any{"issue_id": epicMapping.ExternalID, "entity_type": "run_comment", "local_id": runID, "body": body})
+		_, _ = s.DB.EnqueueOutbox(ctx, integration.ID, "linear.comment", completionProjectionKey(runRecord), map[string]any{"issue_id": epicMapping.ExternalID, "entity_type": "run_comment", "local_id": runID, "body": body})
 	}
 	if runTerminalStatus(runRecord.Status) {
 		return s.recordTerminalRunKnowledge(ctx, runRecord, epicMapping.ExternalID)
 	}
 	return nil
+}
+
+func completionProjectionKey(runRecord *state.Run) string {
+	digest := sha256.Sum256([]byte(runRecord.PreviewURL))
+	return fmt.Sprintf("linear:run:completed:v5:%s:%x", runRecord.ID, digest[:8])
 }
 
 // projectedPreviewURL returns only a preview that was externally healthchecked

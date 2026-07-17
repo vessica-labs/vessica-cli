@@ -78,6 +78,9 @@ func initializeRailwaySecrets(secrets railwaySecrets, runtimeToken string) railw
 	if secrets.WorkerToken == "" {
 		secrets.WorkerToken = randomSecret(32)
 	}
+	if secrets.PreviewEdgeToken == "" {
+		secrets.PreviewEdgeToken = randomSecret(32)
+	}
 	if secrets.WebhookSecret == "" {
 		secrets.WebhookSecret = randomSecret(32)
 	}
