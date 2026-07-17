@@ -38,6 +38,10 @@ func connectLinearIntegration(ctx context.Context, app *App, opts linearIntegrat
 		return nil, err
 	}
 	linear := tracker.NewLinearClient(linearToken)
+	return connectLinearIntegrationWithClient(ctx, app, opts, secrets, linearOAuth, linearToken, linear)
+}
+
+func connectLinearIntegrationWithClient(ctx context.Context, app *App, opts linearIntegrationOptions, secrets railwaySecrets, linearOAuth, linearToken string, linear *tracker.LinearClient) (map[string]any, error) {
 	discovery, err := linear.Discover(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("discover Linear workspace: %w", err)
@@ -75,12 +79,7 @@ func connectLinearIntegration(ctx context.Context, app *App, opts linearIntegrat
 		TriggerLabel:   resolvedTriggerLabel(opts.TriggerLabel, current.TriggerLabel),
 	}
 	app.Config.Tracker = desired
-	if connected && sameTrackerConfig(current, desired) && secrets.WebhookID != "" {
-		if err := saveHostedClientConfig(app.Config, secrets); err != nil {
-			return nil, err
-		}
-		return linearIntegrationResult(team, project, secrets.WebhookID, true), nil
-	}
+	trackerUnchanged := connected && sameTrackerConfig(current, desired) && secrets.WebhookID != ""
 
 	if desired.TriggerLabel != "" {
 		if _, err := linear.EnsureIssueLabel(ctx, team.ID, desired.TriggerLabel); err != nil {
@@ -141,7 +140,7 @@ func connectLinearIntegration(ctx context.Context, app *App, opts linearIntegrat
 	if err := saveHostedClientConfig(app.Config, secrets); err != nil {
 		return nil, err
 	}
-	return linearIntegrationResult(team, project, secrets.WebhookID, false), nil
+	return linearIntegrationResult(team, project, secrets.WebhookID, trackerUnchanged), nil
 }
 
 func hostedLinearConfig(ctx context.Context, app *App, secrets railwaySecrets) (config.TrackerConfig, bool) {
