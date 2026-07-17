@@ -226,6 +226,32 @@ func (a *App) getHostedRun(ctx context.Context, runID string) (*state.Run, error
 	return &runRecord, nil
 }
 
+func (a *App) getHostedRunArtifacts(ctx context.Context, runID string) ([]state.Artifact, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var artifacts []state.Artifact
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/runs/" + url.PathEscape(runID) + "/artifacts?repository_id=" + url.QueryEscape(a.Config.Attachment.RepositoryID)
+	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &artifacts); err != nil {
+		return nil, err
+	}
+	return artifacts, nil
+}
+
+func (a *App) getHostedReceipt(ctx context.Context, receiptID string) (map[string]any, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var view map[string]any
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/receipts/" + url.PathEscape(receiptID)
+	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &view); err != nil {
+		return nil, err
+	}
+	return view, nil
+}
+
 func (a *App) listHostedRunEvents(ctx context.Context, runID string, after int64) ([]state.Event, error) {
 	secrets, err := loadRailwaySecrets(a.Root)
 	if err != nil {

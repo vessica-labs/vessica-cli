@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -425,26 +424,7 @@ func newRunCmd(app *App) *cobra.Command {
 			return app.Printer.Success(r)
 		},
 	})
-	cmd.AddCommand(&cobra.Command{
-		Use: "artifacts <run_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(cmd.Context()); err != nil {
-				return err
-			}
-			defer app.closeDB()
-			r, err := app.DB.GetRun(cmd.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			arts, err := app.DB.ListArtifactsForRun(cmd.Context(), r.ID)
-			if err != nil {
-				return err
-			}
-			if !app.Flags.JSON {
-				return app.Printer.Success(formatArtifacts(arts))
-			}
-			return app.Printer.Success(arts)
-		},
-	})
+	cmd.AddCommand(newRunArtifactsCmd(app))
 	previewCmd := &cobra.Command{
 		Use: "preview <run_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 			if err := app.loadWorkspace(cmd.Context()); err != nil {
@@ -474,27 +454,6 @@ func newRunCmd(app *App) *cobra.Command {
 	previewCmd.Flags().BoolVar(&browser, "browser", false, "open browser")
 	cmd.AddCommand(previewCmd)
 
-	cmd.AddCommand(&cobra.Command{
-		Use: "receipt <run_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-			if err := app.loadWorkspace(cmd.Context()); err != nil {
-				return err
-			}
-			defer app.closeDB()
-			r, err := app.DB.GetRun(cmd.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			if r.ReceiptID == "" {
-				return app.Printer.Fail("no_receipt", "run has no receipt yet", "")
-			}
-			rcpt, err := app.DB.GetReceipt(cmd.Context(), r.ReceiptID)
-			if err != nil {
-				return err
-			}
-			var body any
-			_ = json.Unmarshal([]byte(rcpt.BodyJSON), &body)
-			return app.Printer.Success(map[string]any{"receipt": rcpt, "body": body})
-		},
-	})
+	cmd.AddCommand(newRunReceiptCmd(app))
 	return cmd
 }

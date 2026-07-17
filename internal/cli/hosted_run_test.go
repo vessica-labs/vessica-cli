@@ -26,13 +26,17 @@ func TestHostedRunReadersUseAuthenticatedControlPlaneAPI(t *testing.T) {
 		case "/api/v1/runs":
 			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "run_hosted", "status": "running"}})
 		case "/api/v1/runs/run_hosted":
-			_ = json.NewEncoder(w).Encode(map[string]any{"id": "run_hosted", "status": "running", "current_phase": "code"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "run_hosted", "status": "running", "current_phase": "code", "receipt_id": "rcpt_hosted"})
+		case "/api/v1/runs/run_hosted/artifacts":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "art_hosted", "run_id": "run_hosted", "kind": "prd"}})
 		case "/api/v1/runs/run_hosted/events":
 			if r.URL.Query().Get("after") != "4" {
 				http.Error(w, "missing cursor", http.StatusBadRequest)
 				return
 			}
 			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "evt_hosted", "run_id": "run_hosted", "seq": 5, "type": "run.phase.started", "created_at": "2026-07-11T00:00:00Z"}})
+		case "/api/v1/receipts/rcpt_hosted":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "rcpt_hosted", "preview_url": "https://preview.example"})
 		default:
 			http.NotFound(w, r)
 		}
@@ -58,6 +62,14 @@ func TestHostedRunReadersUseAuthenticatedControlPlaneAPI(t *testing.T) {
 	events, err := app.listHostedRunEvents(context.Background(), "run_hosted", 4)
 	if err != nil || len(events) != 1 || events[0].Seq != 5 {
 		t.Fatalf("events=%#v err=%v", events, err)
+	}
+	artifacts, err := app.getHostedRunArtifacts(context.Background(), "run_hosted")
+	if err != nil || len(artifacts) != 1 || artifacts[0].ID != "art_hosted" {
+		t.Fatalf("artifacts=%#v err=%v", artifacts, err)
+	}
+	view, err := app.getHostedReceipt(context.Background(), "rcpt_hosted")
+	if err != nil || view["id"] != "rcpt_hosted" {
+		t.Fatalf("receipt=%#v err=%v", view, err)
 	}
 }
 
@@ -85,6 +97,12 @@ func TestHostedCommandsUseControlPlaneWithoutCreatingLocalState(t *testing.T) {
 				return
 			}
 			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "run_hosted", "repository_id": "repo_hosted", "status": "running"}})
+		case "/api/v1/runs/run_hosted":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "run_hosted", "repository_id": "repo_hosted", "status": "completed", "receipt_id": "rcpt_hosted"})
+		case "/api/v1/runs/run_hosted/artifacts":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "art_hosted", "run_id": "run_hosted", "kind": "prd"}})
+		case "/api/v1/receipts/rcpt_hosted":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "rcpt_hosted", "preview_url": "https://preview.example"})
 		default:
 			http.NotFound(w, r)
 		}
@@ -103,7 +121,7 @@ func TestHostedCommandsUseControlPlaneWithoutCreatingLocalState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, args := range [][]string{{"status", "--json"}, {"epic", "list", "--json"}, {"run", "list", "--json"}} {
+	for _, args := range [][]string{{"status", "--json"}, {"epic", "list", "--json"}, {"run", "list", "--json"}, {"run", "artifacts", "run_hosted", "--json"}, {"run", "receipt", "run_hosted", "--json"}} {
 		if output := runCLI(t, root, args...); !strings.Contains(output, `"ok":true`) {
 			t.Fatalf("ves %v output=%s", args, output)
 		}
