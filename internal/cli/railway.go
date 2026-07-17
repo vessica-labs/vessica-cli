@@ -21,11 +21,11 @@ type railwaySecrets struct {
 }
 
 type railwayUpOptions struct {
-	Workspace, Source, Image, RuntimeToken, LinearToken, GitHubToken, OpenAIKey, PreviewOrigin string
-	Team, TodoState, WIPState, DoneState, BlockedState, TriggerLabel, WorkerCheckpoint         string
-	KnowledgeImage, KnowledgeSource, EmbeddingAPIKey, EmbeddingAPIKeyEnv                       string
-	EnableLinear                                                                               bool
-	Progress                                                                                   func(string)
+	Workspace, Source, Image, RuntimeToken, LinearToken, GitHubToken, OpenAIKey, PreviewOrigin        string
+	Team, LinearProject, TodoState, WIPState, DoneState, BlockedState, TriggerLabel, WorkerCheckpoint string
+	KnowledgeImage, KnowledgeSource, EmbeddingAPIKey, EmbeddingAPIKeyEnv                              string
+	EnableLinear                                                                                      bool
+	Progress                                                                                          func(string)
 }
 
 func defaultControlPlaneImage() string {
@@ -52,6 +52,7 @@ func newRailwayCmd(app *App) *cobra.Command {
 					"knowledge_source":        opts.KnowledgeSource,
 					"embedding_key_env":       opts.EmbeddingAPIKeyEnv,
 					"linear_team":             opts.Team,
+					"linear_project":          opts.LinearProject,
 					"worker_checkpoint":       firstNonEmpty(opts.WorkerCheckpoint, "vessica-worker-toolchain-"+toolchain.Fingerprint()),
 					"preserves_local_on_fail": true,
 				})
@@ -74,6 +75,7 @@ func newRailwayCmd(app *App) *cobra.Command {
 	up.Flags().StringVar(&opts.GitHubToken, "github-token", "", "GitHub token with repository and PR access")
 	up.Flags().StringVar(&opts.OpenAIKey, "openai-api-key", "", "headless fallback OpenAI API key for hosted Codex")
 	up.Flags().StringVar(&opts.Team, "linear-team", "", "Linear team id, key, or name")
+	up.Flags().StringVar(&opts.LinearProject, "linear-project", "", "default Linear project id, slug, or name")
 	up.Flags().StringVar(&opts.TodoState, "todo-state", "Todo", "Linear Todo state id or name")
 	up.Flags().StringVar(&opts.WIPState, "wip-state", "In Progress", "Linear WIP state id or name")
 	up.Flags().StringVar(&opts.DoneState, "done-state", "Done", "Linear Done state id or name")

@@ -163,7 +163,7 @@ func (s *Server) projectPublishedEpic(ctx context.Context, created *state.Create
 	if mapping, getErr := s.DB.GetExternalMapping(ctx, "linear", "epic", created.Epic.ID); getErr == nil {
 		parent, err = s.Linear.GetIssue(ctx, mapping.ExternalID)
 	} else {
-		parent, err = s.Linear.CreateIssue(ctx, s.Config.Tracker.TeamID, created.Epic.Title, created.Epic.Body, s.Config.Tracker.TodoStateID, []string{label.ID})
+		parent, err = s.Linear.CreateIssue(ctx, s.Config.Tracker.TeamID, s.Config.Tracker.ProjectID, created.Epic.Title, created.Epic.Body, s.Config.Tracker.TodoStateID, []string{label.ID})
 		if err == nil {
 			_ = s.DB.SetEpicExternalID(ctx, created.Epic.ID, parent.ID)
 			created.Epic.ExternalID = parent.ID
@@ -179,7 +179,7 @@ func (s *Server) projectPublishedEpic(ctx context.Context, created *state.Create
 		if mapping, getErr := s.DB.GetExternalMapping(ctx, "linear", "ticket", ticket.ID); getErr == nil {
 			child, err = s.Linear.GetIssue(ctx, mapping.ExternalID)
 		} else {
-			child, err = s.Linear.CreateSubIssue(ctx, parent, ticket.Title, ticket.Body, s.Config.Tracker.TodoStateID)
+			child, err = s.Linear.CreateSubIssue(ctx, parent, s.Config.Tracker.ProjectID, ticket.Title, ticket.Body, s.Config.Tracker.TodoStateID)
 		}
 		if err != nil {
 			return nil, err

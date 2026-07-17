@@ -133,7 +133,15 @@ Keep the Railway control-plane service at one replica. This release intentionall
 Optional Linear setup is separate:
 
 ```bash
-ves integration connect linear
+ves integration connect linear --project "Product launch" --dry-run --json
+ves integration connect linear --project "Product launch" --yes --idempotency-key connect-linear-product-launch --json
+```
+
+The project selector accepts a Linear project UUID, slug, or name and becomes the default project for Vessica-created parent issues and sub-issues. Connecting Linear updates only Linear service variables and redeploys only the control plane; it does not reconcile or redeploy the knowledge service. Change the default later with:
+
+```bash
+ves integration switch-project linear --project "Next project" --dry-run --json
+ves integration switch-project linear --project "Next project" --yes --idempotency-key switch-linear-next-project --json
 ```
 
 Never switch to writable local knowledge during a hosted outage. Retry the hosted operation or restore service availability.

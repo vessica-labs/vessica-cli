@@ -20,7 +20,7 @@ func newCapabilitiesCmd(app *App) *cobra.Command {
 				"product": "vessica-cli", "version": version.Version,
 				"schema": output.EnvelopeSchema, "stream_schema": "vessica.stream/v1",
 				"commands": []string{
-					"up", "up status", "up resume", "workspace status", "workspace forget", "repo list", "integration connect linear",
+					"up", "up status", "up resume", "workspace status", "workspace forget", "repo list", "integration connect linear", "integration switch-project linear",
 					"capabilities", "doctor", "toolchain verify", "prime", "harness install", "harness status", "harness audit", "harness sync",
 					"epic draft", "epic add", "epic view", "epic list", "epic update",
 					"ticket add", "ticket list", "ticket update", "ticket block", "ticket unblock",

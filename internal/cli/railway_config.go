@@ -34,6 +34,7 @@ func configureRailwayService(ctx context.Context, cfg config.Config, secrets rai
 		"VES_RUNNER":             cfg.Runner.Default, "VES_RUNNER_MODEL": cfg.Runner.Model,
 		"VES_RUNNER_REASONING_EFFORT": cfg.Runner.ReasoningEffort, "VES_TRACKER_PROVIDER": cfg.Tracker.Provider,
 		"VES_LINEAR_TEAM_ID": cfg.Tracker.TeamID, "VES_LINEAR_TODO_STATE_ID": cfg.Tracker.TodoStateID,
+		"VES_LINEAR_PROJECT_ID":   cfg.Tracker.ProjectID,
 		"VES_LINEAR_WIP_STATE_ID": cfg.Tracker.WIPStateID, "VES_LINEAR_DONE_STATE_ID": cfg.Tracker.DoneStateID,
 		"VES_LINEAR_BLOCKED_STATE_ID": cfg.Tracker.BlockedStateID, "VES_LINEAR_TRIGGER_LABEL": cfg.Tracker.TriggerLabel,
 		"VES_RAILWAY_POSTGRES_SERVICE_ID": cfg.Hosted.PostgresServiceID,
@@ -151,6 +152,32 @@ func resolveLinearConfig(discovery *tracker.LinearDiscovery, opts railwayUpOptio
 	}
 	blocked, err := resolve(opts.BlockedState, "canceled", true)
 	return team, map[string]string{"todo": todo, "wip": wip, "done": done, "blocked": blocked}, err
+}
+
+func resolveLinearProject(discovery *tracker.LinearDiscovery, teamID, requested, existing string) (tracker.LinearProject, error) {
+	selector := strings.TrimSpace(requested)
+	if selector == "" {
+		selector = strings.TrimSpace(existing)
+	}
+	if selector == "" {
+		return tracker.LinearProject{}, nil
+	}
+	matched := false
+	for _, project := range discovery.Projects {
+		if !strings.EqualFold(selector, project.ID) && !strings.EqualFold(selector, project.SlugID) && !strings.EqualFold(selector, project.Name) {
+			continue
+		}
+		matched = true
+		for _, team := range project.Teams.Nodes {
+			if team.ID == teamID {
+				return project, nil
+			}
+		}
+	}
+	if matched {
+		return tracker.LinearProject{}, fmt.Errorf("Linear project %q is not attached to the selected team", selector)
+	}
+	return tracker.LinearProject{}, fmt.Errorf("Linear project %q not found", selector)
 }
 
 func railwayPath() string {

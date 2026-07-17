@@ -387,7 +387,7 @@ func (s *Server) processOutbox(ctx context.Context, message *state.OutboxMessage
 		if err != nil {
 			return err
 		}
-		child, err := s.Linear.CreateSubIssue(ctx, parent, payload.Title, payload.Description, payload.StateID)
+		child, err := s.Linear.CreateSubIssue(ctx, parent, s.Config.Tracker.ProjectID, payload.Title, payload.Description, payload.StateID)
 		if err != nil {
 			return err
 		}

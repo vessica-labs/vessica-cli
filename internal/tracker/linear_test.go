@@ -14,6 +14,7 @@ import (
 
 func TestLinearClientIssueAndMutations(t *testing.T) {
 	var operations []string
+	var subIssueProject string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "lin_test" {
 			t.Errorf("authorization=%q", r.Header.Get("Authorization"))
@@ -35,6 +36,8 @@ func TestLinearClientIssueAndMutations(t *testing.T) {
 			_, _ = w.Write([]byte(`{"data":{"commentCreate":{"success":true,"comment":{"id":"comment_1","body":"body"}}}}`))
 		case strings.Contains(request.Query, "VessicaSubIssue"):
 			operations = append(operations, "subissue")
+			input, _ := request.Variables["input"].(map[string]any)
+			subIssueProject, _ = input["projectId"].(string)
 			_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"child_1","identifier":"ENG-2","title":"Child","team":{"id":"team_1"},"state":{"id":"todo"}}}}}`))
 		default:
 			operations = append(operations, "get")
@@ -60,12 +63,55 @@ func TestLinearClientIssueAndMutations(t *testing.T) {
 	if err := client.UpdateComment(ctx, comment.ID, "updated"); err != nil {
 		t.Fatal(err)
 	}
-	child, err := client.CreateSubIssue(ctx, issue, "Child", "Ticket", "todo")
+	child, err := client.CreateSubIssue(ctx, issue, "project_1", "Child", "Ticket", "todo")
 	if err != nil || child.ID != "child_1" {
 		t.Fatalf("child=%#v err=%v", child, err)
 	}
 	if strings.Join(operations, ",") != "get,state,comment,comment-update,subissue" {
 		t.Fatalf("operations=%v", operations)
+	}
+	if subIssueProject != "project_1" {
+		t.Fatalf("sub-issue project=%q", subIssueProject)
+	}
+}
+
+func TestLinearClientCreatesIssueInProject(t *testing.T) {
+	var projectID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Variables map[string]any `json:"variables"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		input, _ := request.Variables["input"].(map[string]any)
+		projectID, _ = input["projectId"].(string)
+		_, _ = w.Write([]byte(`{"data":{"issueCreate":{"success":true,"issue":{"id":"issue_1","identifier":"ENG-1"}}}}`))
+	}))
+	defer server.Close()
+	client := NewLinearClient("lin_test")
+	client.Endpoint = server.URL
+	client.HTTPClient = server.Client()
+	if _, err := client.CreateIssue(context.Background(), "team_1", "project_1", "Title", "Body", "todo", nil); err != nil {
+		t.Fatal(err)
+	}
+	if projectID != "project_1" {
+		t.Fatalf("project=%q", projectID)
+	}
+}
+
+func TestLinearDiscoveryIncludesProjects(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":{"teams":{"nodes":[{"id":"team_1","name":"Engineering","key":"ENG","states":{"nodes":[]}}]},"projects":{"nodes":[{"id":"project_1","name":"Launch","slugId":"launch","teams":{"nodes":[{"id":"team_1","name":"Engineering","key":"ENG"}]}}]}}}`))
+	}))
+	defer server.Close()
+	client := NewLinearClient("lin_test")
+	client.Endpoint = server.URL
+	client.HTTPClient = server.Client()
+	discovery, err := client.Discover(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(discovery.Projects) != 1 || discovery.Projects[0].SlugID != "launch" || discovery.Projects[0].Teams.Nodes[0].ID != "team_1" {
+		t.Fatalf("projects=%#v", discovery.Projects)
 	}
 }
 

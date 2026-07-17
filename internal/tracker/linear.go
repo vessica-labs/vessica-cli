@@ -35,6 +35,15 @@ type LinearWorkflowState struct {
 	Type string `json:"type"`
 }
 
+type LinearProject struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	SlugID string `json:"slugId"`
+	Teams  struct {
+		Nodes []LinearTeam `json:"nodes"`
+	} `json:"teams"`
+}
+
 type LinearLabel struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
@@ -67,8 +76,9 @@ type LinearWebhook struct {
 }
 
 type LinearDiscovery struct {
-	Teams  []LinearTeam
-	States map[string][]LinearWorkflowState
+	Teams    []LinearTeam
+	Projects []LinearProject
+	States   map[string][]LinearWorkflowState
 }
 
 func (c *LinearClient) EnsureIssueLabel(ctx context.Context, teamID, name string) (*LinearLabel, error) {
@@ -125,8 +135,11 @@ func (c *LinearClient) Discover(ctx context.Context) (*LinearDiscovery, error) {
 				} `json:"states"`
 			} `json:"nodes"`
 		} `json:"teams"`
+		Projects struct {
+			Nodes []LinearProject `json:"nodes"`
+		} `json:"projects"`
 	}
-	if err := c.graphql(ctx, `query VessicaTrackerDiscovery { teams { nodes { id name key states { nodes { id name type } } } } }`, nil, &data); err != nil {
+	if err := c.graphql(ctx, `query VessicaTrackerDiscovery { teams { nodes { id name key states { nodes { id name type } } } } projects(first: 100) { nodes { id name slugId teams { nodes { id name key } } } } }`, nil, &data); err != nil {
 		return nil, err
 	}
 	discovery := &LinearDiscovery{States: map[string][]LinearWorkflowState{}}
@@ -134,6 +147,7 @@ func (c *LinearClient) Discover(ctx context.Context) (*LinearDiscovery, error) {
 		discovery.Teams = append(discovery.Teams, team.LinearTeam)
 		discovery.States[team.ID] = team.States.Nodes
 	}
+	discovery.Projects = data.Projects.Nodes
 	return discovery, nil
 }
 
@@ -213,7 +227,7 @@ func (c *LinearClient) UpdateComment(ctx context.Context, commentID, body string
 	return nil
 }
 
-func (c *LinearClient) CreateSubIssue(ctx context.Context, parent *LinearIssue, title, description, stateID string) (*LinearIssue, error) {
+func (c *LinearClient) CreateSubIssue(ctx context.Context, parent *LinearIssue, projectID, title, description, stateID string) (*LinearIssue, error) {
 	var data struct {
 		IssueCreate struct {
 			Success bool        `json:"success"`
@@ -221,6 +235,9 @@ func (c *LinearClient) CreateSubIssue(ctx context.Context, parent *LinearIssue, 
 		} `json:"issueCreate"`
 	}
 	input := map[string]any{"teamId": parent.Team.ID, "parentId": parent.ID, "title": title, "description": description}
+	if projectID != "" {
+		input["projectId"] = projectID
+	}
 	if stateID != "" {
 		input["stateId"] = stateID
 	}
@@ -234,7 +251,7 @@ func (c *LinearClient) CreateSubIssue(ctx context.Context, parent *LinearIssue, 
 	return &data.IssueCreate.Issue, nil
 }
 
-func (c *LinearClient) CreateIssue(ctx context.Context, teamID, title, description, stateID string, labelIDs []string) (*LinearIssue, error) {
+func (c *LinearClient) CreateIssue(ctx context.Context, teamID, projectID, title, description, stateID string, labelIDs []string) (*LinearIssue, error) {
 	var data struct {
 		IssueCreate struct {
 			Success bool        `json:"success"`
@@ -242,6 +259,9 @@ func (c *LinearClient) CreateIssue(ctx context.Context, teamID, title, descripti
 		} `json:"issueCreate"`
 	}
 	input := map[string]any{"teamId": teamID, "title": title, "description": description}
+	if projectID != "" {
+		input["projectId"] = projectID
+	}
 	if stateID != "" {
 		input["stateId"] = stateID
 	}

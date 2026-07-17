@@ -10,7 +10,6 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/auth"
 	"github.com/vessica-labs/vessica-cli/internal/config"
 	"github.com/vessica-labs/vessica-cli/internal/onboarding"
-	"github.com/vessica-labs/vessica-cli/internal/tracker"
 )
 
 func newWorkspaceCmd(app *App) *cobra.Command {
@@ -78,7 +77,8 @@ func newWorkspaceCmd(app *App) *cobra.Command {
 
 func newIntegrationCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "integration", Short: "Connect optional hosted integrations"}
-	cmd.AddCommand(&cobra.Command{Use: "connect <provider>", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, args []string) error {
+	var opts linearIntegrationOptions
+	connect := &cobra.Command{Use: "connect <provider>", Args: cobra.ExactArgs(1), RunE: func(c *cobra.Command, args []string) error {
 		if args[0] != "linear" {
 			return app.Printer.Fail("unsupported_integration", "only Linear is currently supported", "")
 		}
@@ -90,33 +90,61 @@ func newIntegrationCmd(app *App) *cobra.Command {
 			return app.Printer.Fail("hosted_workspace_required", "Linear connects to a hosted Vessica workspace", "run ves up first")
 		}
 		if app.Flags.DryRun {
-			return app.dryRun("integration.connect.linear", map[string]any{"workspace_id": app.Config.Hosted.WorkspaceID, "project_id": app.Config.Hosted.ProjectID, "actions": []string{"authenticate Linear", "discover team and workflow states", "create the Vessica trigger label", "configure the hosted control plane", "create a signed webhook", "redeploy and verify readiness"}})
+			return app.dryRun("integration.connect.linear", map[string]any{"workspace_id": app.Config.Hosted.WorkspaceID, "railway_project_id": app.Config.Hosted.ProjectID, "linear_team": opts.Team, "linear_project": opts.Project, "actions": []string{"authenticate Linear", "discover team, project, and workflow states", "create the Vessica trigger label and signed webhook when absent", "update Linear control-plane variables", "redeploy only the control plane and verify readiness"}})
+		}
+		if err := app.requireYes("connect Linear and redeploy the hosted control plane"); err != nil {
+			return err
 		}
 		if _, err := auth.Token("linear"); err != nil {
 			if _, err = loginProvider(c.Context(), c, app, "linear", "", "", ""); err != nil {
 				return app.Printer.Fail("linear_authentication_failed", err.Error(), "authenticate with ves auth login linear, then retry")
 			}
 		}
-		result, err := railwayUp(c.Context(), app, railwayUpOptions{Workspace: app.Config.Hosted.WorkspaceID, Image: firstNonEmpty(app.Config.Hosted.ControlPlaneImage, defaultControlPlaneImage()), EnableLinear: true})
+		result, err := connectLinearIntegration(c.Context(), app, opts)
 		if err != nil {
 			return app.Printer.Fail("linear_connection_failed", err.Error(), "fix the reported Linear or Railway prerequisite, then rerun this command")
 		}
-		if result["status"] != "running" {
-			return app.Printer.Fail("linear_connection_incomplete", "hosted prerequisites are incomplete", "authenticate the listed providers, then retry")
+		return app.Printer.Success(result)
+	}}
+	connect.Flags().StringVar(&opts.Team, "team", "", "Linear team id, key, or name")
+	connect.Flags().StringVar(&opts.Project, "project", "", "default Linear project id, slug, or name")
+	connect.Flags().StringVar(&opts.TodoState, "todo-state", "", "Linear Todo state id or name")
+	connect.Flags().StringVar(&opts.WIPState, "wip-state", "", "Linear WIP state id or name")
+	connect.Flags().StringVar(&opts.DoneState, "done-state", "", "Linear Done state id or name")
+	connect.Flags().StringVar(&opts.BlockedState, "blocked-state", "", "optional Linear blocked state id or name")
+	connect.Flags().StringVar(&opts.TriggerLabel, "trigger-label", "", "only process issues with this label")
+	var switchProject string
+	switchCmd := &cobra.Command{Use: "switch-project <provider>", Args: cobra.ExactArgs(1), Short: "Change the default Linear project", RunE: func(c *cobra.Command, args []string) error {
+		if args[0] != "linear" {
+			return app.Printer.Fail("unsupported_integration", "only Linear is currently supported", "")
 		}
-		status, err := tracker.Connect("linear")
+		if err := app.loadWorkspaceWithoutGC(c.Context()); err != nil {
+			return app.Printer.Fail("repository_not_attached", err.Error(), "run ves up first")
+		}
+		defer app.closeDB()
+		if app.Config.Hosted.ControlPlaneURL == "" || app.Config.Hosted.ProjectID == "" {
+			return app.Printer.Fail("hosted_workspace_required", "Linear connects to a hosted Vessica workspace", "run ves up first")
+		}
+		if app.Flags.DryRun {
+			return app.dryRun("integration.switch-project.linear", map[string]any{"linear_project": switchProject, "actions": []string{"resolve the project in the connected Linear team", "update the default project", "redeploy only the control plane and verify readiness"}})
+		}
+		if err := app.requireYes("switch the default Linear project and redeploy the hosted control plane"); err != nil {
+			return err
+		}
+		if _, err := auth.Token("linear"); err != nil {
+			if _, err = loginProvider(c.Context(), c, app, "linear", "", "", ""); err != nil {
+				return app.Printer.Fail("linear_authentication_failed", err.Error(), "authenticate with ves auth login linear, then retry")
+			}
+		}
+		result, err := connectLinearIntegration(c.Context(), app, linearIntegrationOptions{Project: switchProject})
 		if err != nil {
-			return err
+			return app.Printer.Fail("linear_project_switch_failed", err.Error(), "verify the project belongs to the configured Linear team, then retry")
 		}
-		secrets, err := loadRailwaySecrets(app.Root)
-		if err != nil {
-			return err
-		}
-		if err := saveHostedClientConfig(app.Config, secrets); err != nil {
-			return err
-		}
-		return app.Printer.Success(map[string]any{"integration": status, "deployment": result})
-	}})
+		return app.Printer.Success(result)
+	}}
+	switchCmd.Flags().StringVar(&switchProject, "project", "", "Linear project id, slug, or name")
+	_ = switchCmd.MarkFlagRequired("project")
+	cmd.AddCommand(connect, switchCmd)
 	return cmd
 }
 
