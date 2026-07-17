@@ -1,5 +1,9 @@
 # Vessica v1 ADR — Architecture for Local-First Harness Engineering CLI
 
+> **Historical baseline.** Later accepted ADRs moved product onboarding to the
+> hosted-first `ves up` model. Use the root architecture document and hosted
+> quickstart ADR for current invariants.
+
 **Document type:** Architecture Decision Record  
 **ADR ID:** ADR-001  
 **Product:** Vessica CLI  

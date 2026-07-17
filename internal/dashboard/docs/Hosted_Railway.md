@@ -43,6 +43,12 @@ New installations always create the Railway project as `vessica-control-plane`, 
 
 Provisioning creates only one managed Postgres service. It waits for the service variables, connects through the public bootstrap endpoint without logging the URL, creates or reconciles both fixed database roles and databases under an advisory lock, enables `vector` in `vessica_knowledge`, and then configures the application services. Repeating or resuming the operation reuses the same Railway service and logical databases.
 
+Onboarding records a durable operation journal. Provider-login interruptions,
+deploy failures, Sandbox Priority Boarding, and readiness timeouts can be
+continued with `ves up resume <operation-id> --yes --stream jsonl`; do not start
+a second installation to compensate. `ves up status --json` reports the current
+stage and recovery action.
+
 The control plane receives only `VES_CONTROL_DATABASE_URL`. The knowledge service receives only `VES_KNOWLEDGE_DATABASE_URL`. No service receives the other store's URL, and there is no generic database variable that can silently point a process at the wrong store.
 
 ## OAuth Application Setup
@@ -57,7 +63,11 @@ The official Vessica Railway and Linear client IDs are compiled into the CLI, so
 4. Save the app and configure its client ID as the Vessica application default. Forks can instead set `VES_RAILWAY_OAUTH_CLIENT_ID`.
 5. Vessica requests `openid profile email offline_access workspace:member project:member`; `offline_access` enables refresh-token rotation for the persistent control plane.
 
-Railway's SSH-key endpoint does not currently accept OAuth access tokens. Vessica uses the Railway CLI's local browser-login session only to register the dedicated preview-forwarding key, while OAuth remains the credential for provisioning and the hosted control plane. If authentication is interrupted, complete `railway login` and resume with `ves up resume <operation-id> --yes`.
+The Vessica OAuth grant remains the provisioning credential. Native preview forwarding uses a separate official Railway CLI session because the public Vessica OAuth scopes do not authorize Railway SSH keys. Authorize that session once after onboarding:
+
+    ves railway preview-session authorize
+
+The command starts Railway's browserless device flow inside the deployed control plane and relays its short-lived approval link. After approval, the control plane generates a dedicated Ed25519 key locally and registers only the public key through the authorized Railway CLI session. No private key is sent through a service variable.
 
 ### Linear
 
@@ -87,25 +97,64 @@ and Codex authentication remains owned by the installed `codex` CLI.
 ## Dashboard and preview origins
 
 Hosted dashboard delivery is part of the control-plane process and is enabled
-with `VES_DASHBOARD_ENABLED=1`. Configure two HTTPS origins:
+with `VES_DASHBOARD_ENABLED=1`. `ves up --provider railway` configures the
+dashboard origin and, by default, provisions a small `vessica-preview-edge`
+service with its own generated HTTPS domain:
 
     VES_DASHBOARD_ORIGIN=https://dashboard.example.com
-    VES_PREVIEW_ORIGIN=https://preview.example.com
+    VES_PREVIEW_ORIGIN=https://vessica-preview-edge.example.railway.app
 
-The preview origin routes to the same service but receives only expiring,
-run-scoped preview capabilities. Preview cookies cannot authorize dashboard API
-requests. Production onboarding uses released, digest-pinned images. Source
-deployment is reserved for contributor workflows and is never a quickstart
-fallback.
+The edge forwards preview traffic to the broker over Railway's private network
+using a generated service-to-service secret. Its public origin receives only
+expiring, run-scoped preview capabilities; it does not expose dashboard or API
+routes. Pass `--preview-origin` only when supplying an equivalent dedicated
+custom HTTPS origin. Preview cookies cannot authorize dashboard API requests.
+Production onboarding uses released, digest-pinned images. Source deployment is
+reserved for contributor workflows and is never a quickstart fallback.
 
 ## Operate
 
     ves railway status
     ves railway logs --lines 200
+    ves railway preview-session status
+    ves railway preview-session repair-key
+    ves railway preview-session smoke
     ves railway approve <run_id>
     ves railway down --yes
 
+If only the local repository attachment is stale, use `ves workspace forget`
+and then rerun `ves up`. Forgetting an attachment removes local hosted metadata
+and credentials only; it does not delete this Railway project or rewrite the
+repository harness and documentation.
+
+If the CLI session is valid but its forwarding key was registered to the wrong
+Railway key scope, `preview-session repair-key` rotates only the forwarding key
+and registers the new fingerprint to the existing CLI user session. It does not
+repeat device authorization.
+
+Connect Linear after the hosted workspace is healthy:
+
+    ves integration connect linear --project "Product launch" --dry-run --json
+    ves integration connect linear --project "Product launch" --yes --idempotency-key connect-linear-product-launch --json
+    ves integration switch-project linear --project "Next project" --dry-run --json
+
+Project selectors accept a UUID, slug, or name. A connection or project switch
+updates Linear variables and redeploys only the control plane; it does not
+redeploy the knowledge service.
+
 Approval marks the draft PR ready, squash-merges it with head-SHA protection, moves the Linear epic to Done, and destroys the run sandbox.
+
+Hosted lifecycle commands always use the control-plane API. They never open the repository-local run database:
+
+    ves run cancel <run_id> --yes
+    ves run resume <run_id> --from validate --yes
+    ves run view <run_id>
+    ves run logs <run_id>
+    ves epic status <epic_id>
+    ves sandbox view <sandbox_id>
+    ves sandbox logs <sandbox_id>
+
+Cancel releases active job leases, persists a terminal run, and retains the Railway sandbox for recovery. Resume is idempotent and reuses that sandbox when it is still available.
 
 ## Trigger Rules
 
@@ -119,14 +168,28 @@ The webhook handler verifies Linear's HMAC signature and timestamp, stores the r
 
 ## Preview Lifetime
 
-The worker starts the repository's harness preview inside the Railway sandbox. The control plane forwards the sandbox port through a dedicated Railway SSH identity and proxies it at:
+The run engine starts and owns the repository's harness preview inside the Railway sandbox. It waits for the configured healthcheck before browser validation and keeps the same process alive across validation repairs. After validation, the control plane starts a loopback-only `railway sandbox forward`, then places the capability-protected preview broker in front of that endpoint and healthchecks the public URL before persisting it:
 
-    https://<control-plane>/previews/<run_id>/
+    https://<preview-origin>/previews/<run_id>/?cap=<capability>
 
-Preview-enabled sandboxes have a 24-hour Vessica lease. Failed runs default to four hours. The control plane restores forwards after a service restart and destroys expired Railway sandboxes even while a forwarding heartbeat is active.
+The preview edge carries that request over Railway's private network to the
+control-plane broker. Readiness checks load the HTML plus same-origin stylesheets
+and scripts, so a dashboard fallback or other MIME mismatch cannot be marked
+ready. Only the public HTTPS URL is written to the run, receipt, draft PR,
+Linear, and dashboard. A failed publication records `public_preview_failed` and
+does not report a completed preview. Preview-enabled sandboxes have a 24-hour
+Vessica lease. Failed runs default to four hours. Railway CLI handles ordinary
+relay reconnects; Vessica restarts the CLI process with bounded backoff after
+its reconnect budget is exhausted. The control plane recreates forwards and
+rebuilds retained capability URLs against the configured preview origin after a
+restart, then destroys expired Railway sandboxes normally.
 
 ## Secrets
 
-Local Railway and Linear OAuth credentials are stored in macOS Keychain. On platforms without Keychain, the fallback files use mode 0600 under `~/.vessica/secrets`. The dedicated Railway forwarding key is generated under `~/.ssh` and its public key is registered with the selected Railway workspace.
+Local Railway and Linear OAuth credentials are stored in macOS Keychain. On platforms without Keychain, the fallback files use mode 0600 under `~/.vessica/secrets`.
 
-The control plane persists Railway and Linear OAuth credentials as AES-256-GCM ciphertext in Postgres and refreshes them before use. Railway service variables bootstrap the encrypted store; sandbox commands receive only a current access token. The control plane passes service-variable references when creating a sandbox. The worker opens Postgres, installs the opaque Codex login file, stores GitHub credentials, and then removes database, GitHub, Linear, Railway, control-plane, SSH, and Codex-bootstrap secrets from the coding agent's environment. An explicit `OPENAI_API_KEY` remains supported as a headless fallback.
+The control plane persists Railway and Linear OAuth credentials as AES-256-GCM ciphertext in Postgres and refreshes them before use. A successful `ves auth login railway|linear` in an attached workspace validates and activates the new credential through the control plane, without deleting rows or redeploying. At startup, an environment bootstrap credential replaces a stored credential only when its `updated_at` is newer; equal or older bootstrap data cannot override a rotated database credential.
+
+The Railway CLI session and its generated forwarding key are also AES-256-GCM encrypted in Postgres. They are materialized only under the control-plane user's private home with configuration and private-key mode `0600`. The CLI rotates its refresh token under its own file lock; Vessica snapshots the updated session after Railway operations. `RAILWAY_TOKEN`, `RAILWAY_API_TOKEN`, and service-level `HOME` values are removed from every session-backed subprocess so they cannot override the device-authorized session.
+
+The worker opens Postgres, installs the opaque Codex login file as `/home/vessica-agent/.codex/auth.json` owned by `vessica-agent` with mode `0600`, and then removes privileged credentials from the coding agent's environment. An explicit `OPENAI_API_KEY` remains supported as a headless fallback.

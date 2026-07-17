@@ -32,6 +32,8 @@ Each Railway installation has one managed Postgres service and two logical datab
 
 The hosted deployment currently supports exactly one control-plane replica. A database lease rejects a second replica from the same Railway deployment. Different deployment IDs may briefly overlap only for a controlled rolling-deployment handoff; the prior process detects lease loss and shuts down.
 
+Hosted public previews use loopback-only Railway sandbox forwards owned by the singleton control plane and exposed through run-scoped broker capabilities. A dedicated public preview-edge service carries preview requests to the broker over Railway's private network with a service-to-service secret; dashboard and API routes remain on the separate control-plane origin. The official Railway CLI session and generated forwarding identity are encrypted in Postgres, materialized into the control-plane user's private home after restart, and never passed to workers. CLI refresh-token rotation relies on its file lock, so this ownership must be redesigned before multi-replica operation.
+
 Railway worker sandboxes are horizontally scalable and separate from the singleton control plane. Agent processes run as an unprivileged user and receive an allowlisted environment rather than the control plane's environment.
 
 All repository-controlled execution—agent tools, build, validation, and preview—runs across that unprivileged boundary in hosted workers. Git metadata is not writable by the agent, and privileged orchestration Git commands disable repository hooks.

@@ -7,6 +7,7 @@ ves capabilities --json
 ves doctor --json
 ves knowledge status --json
 ves prime --for codex --json
+ves toolchain verify --profile workstation --json
 ```
 
 Vessica exposes one operational interface: `ves`. The plugin supplies guidance only. Never access Vessica databases or the knowledge HTTP API directly.
@@ -71,6 +72,8 @@ Connect Linear separately with `ves integration connect linear --project <id-slu
 
 There is no local fallback. Resume the same hosted onboarding operation after correcting a typed failure.
 
+If only the local attachment is stale, preview and confirm `ves workspace forget`. It removes local hosted attachment metadata and credentials without deleting Railway resources or rewriting the repository harness and documentation; rerun `ves up` to rediscover or reattach.
+
 ## Failure routing
 
 - `not_initialized`: run `ves up` in the repository or pass `--cwd`.
@@ -78,6 +81,7 @@ There is no local fallback. Resume the same hosted onboarding operation after co
 - Harness drift: run `ves harness audit --json`, preview sync, then confirm.
 - Hosted unauthorized: run `ves auth status --json`; reconnect or rerun Railway setup.
 - Hosted unavailable: inspect `ves railway status --json` and `ves railway logs`; do not fall back locally.
+- Toolchain mismatch: run `ves toolchain verify --profile workstation --json`; use the worker profile only when the full coding-agent environment, including Playwright Chromium, is expected locally.
 - Linear projection failure: Vessica remains canonical; retry projection rather than duplicating work.
 - `index_fresh: false`: embeddings are catching up; lexical retrieval remains usable.
 - Poor retrieval: inspect score components, artifact reasons, omissions, selectors, entity hints, and token budget.

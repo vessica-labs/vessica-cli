@@ -1,5 +1,10 @@
 # Vessica Knowledge Layer v1 ADR — Separate Hosted Service with Embedded Solo Core
 
+> **Superseded in part.** The separate knowledge-service and single-authority
+> decisions remain current. Product onboarding is now hosted-first through
+> `ves up`; embedded SQLite knowledge is restricted to explicit developer/test
+> workflows. Use the Operator Guide for current commands.
+
 **Document type:** Architecture Decision Record  
 **ADR ID:** ADR-002  
 **Product:** Vessica Knowledge Layer  

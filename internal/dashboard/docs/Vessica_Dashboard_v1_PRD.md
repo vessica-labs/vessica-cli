@@ -1,5 +1,8 @@
 # Vessica Dashboard v1 — Product Requirements Document
 
+> **Implementation-history record.** Use the README and Operator Guide for the
+> dashboard capabilities available in the current release.
+
 **Product:** Vessica Dashboard  
 **Document type:** Product Requirements Document  
 **Version:** v1  

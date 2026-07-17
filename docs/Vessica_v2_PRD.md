@@ -1,5 +1,9 @@
 # Vessica v2 PRD — Hosted Coordination and General Agent Runtime
 
+> **Future-scope planning record.** Some hosted software-engineering capabilities
+> described here now ship, while the general-agent runtime and several team and
+> marketplace concepts do not. This document is not a current feature list.
+
 **Product:** Vessica  
 **Document type:** Product Requirements Document  
 **Version:** v2 planning draft  

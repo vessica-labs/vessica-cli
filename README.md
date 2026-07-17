@@ -236,7 +236,7 @@ Download the archive for your operating system and architecture from [GitHub Rel
 For example, on Apple Silicon macOS:
 
 ```bash
-version=0.1.12
+version=0.2.6
 curl -LO "https://github.com/vessica-labs/vessica-cli/releases/download/v${version}/vessica-cli_${version}_darwin_arm64.tar.gz"
 curl -LO "https://github.com/vessica-labs/vessica-cli/releases/download/v${version}/checksums.txt"
 shasum -a 256 --check checksums.txt --ignore-missing
@@ -271,8 +271,8 @@ make install
 The hosted control-plane image is published to GitHub Container Registry for `linux/amd64` and `linux/arm64`:
 
 ```bash
-docker pull ghcr.io/vessica-labs/vessica-cli:0.1.12
-docker run --rm ghcr.io/vessica-labs/vessica-cli:0.1.12 version
+docker pull ghcr.io/vessica-labs/vessica-cli:0.2.6
+docker run --rm ghcr.io/vessica-labs/vessica-cli:0.2.6 version
 ```
 
 Use a version tag for reproducible deployments. The `latest` tag follows the newest published release.
@@ -608,12 +608,26 @@ This uses the official `codex login` flow. `OPENAI_API_KEY` remains available fo
 
 ```bash
 ves auth login linear
-ves tracker connect linear
-ves tracker status
-ves tracker sync
+ves integration connect linear --project "Product launch" --dry-run --json
+ves integration connect linear --project "Product launch" \
+  --yes --idempotency-key connect-linear-product-launch --json
 ```
 
-Linear synchronization is best-effort in local mode. Vessica remains the local source of truth. The hosted Railway control plane adds webhook-driven issue intake and status updates.
+Linear is optional and is connected after `ves up`. The project selector accepts a
+Linear project UUID, slug, or name and becomes the default destination for
+Vessica-created parent issues and sub-issues. Change it without rebuilding the
+workspace or knowledge service:
+
+```bash
+ves integration switch-project linear --project "Next project" --dry-run --json
+ves integration switch-project linear --project "Next project" \
+  --yes --idempotency-key switch-linear-next-project --json
+```
+
+Vessica remains the canonical work authority. The hosted control plane verifies
+webhooks, imports matching issues, and projects Vessica status, comments, and
+sub-issues back to the selected Linear project. `ves tracker` remains available
+for explicit developer-mode synchronization.
 
 ### Credential storage
 
@@ -659,7 +673,7 @@ ves railway approve <run_id>
 ves railway down --yes
 ```
 
-Read [Hosted Railway](docs/Hosted_Railway.md) before provisioning. It covers OAuth application setup, scopes, webhook behavior, preview forwarding, credential encryption, and teardown.
+Read [Hosted Railway](docs/Hosted_Railway.md) before provisioning. It covers OAuth application setup, the device-authorized Railway CLI preview session, capability-protected public previews, credential encryption and rotation, hosted recovery, and teardown.
 
 ## Local developer configuration
 
@@ -731,6 +745,7 @@ Common environment overrides:
 | `ves up` | Create or discover hosted Vessica and attach the current repository |
 | `ves up status`, `ves up resume` | Inspect or resume durable onboarding |
 | `ves workspace status`, `ves repo list` | Inspect the hosted workspace and repositories |
+| `ves workspace forget` | Remove only the local hosted attachment and credentials for recovery; keep Railway resources and repository guidance |
 | `ves dev` | Explicit local development and test utilities |
 | `ves status`, `ves doctor` | Inspect configuration and readiness |
 | `ves config` | Read and update workspace configuration |
@@ -742,14 +757,17 @@ Common environment overrides:
 | `ves artifact` | Version and approve planning artifacts |
 | `ves ticket`, `ves wave` | Coordinate dependency-aware execution |
 | `ves memory`, `ves prime` | Preserve and retrieve durable context |
+| `ves knowledge` | Inspect retrieval health, assemble context, and opt into semantic retrieval |
 | `ves run` | Execute, resume, watch, preview, approve, and inspect runs |
 | `ves sandbox` | Operate retained local or Railway environments |
 | `ves toolchain verify` | Verify the complete managed worker toolchain and launch Playwright Chromium |
 | `ves toolchain verify --profile workstation` | Verify only the tools required to operate hosted Vessica locally |
 | `ves repo` | Inspect repository and pull-request integration |
 | `ves tracker` | Connect and synchronize external trackers |
+| `ves integration` | Connect hosted integrations and select the active Linear project |
 | `ves receipt`, `ves trace` | Inspect evidence and diagnostics |
 | `ves railway` | Provision and operate the hosted control plane |
+| `ves dashboard` | Open the embedded local or hosted workspace dashboard |
 
 Every command supports `--help`. Useful global flags include:
 
@@ -847,7 +865,34 @@ Please keep changes scoped, add tests for behavioral changes, preserve machine-r
 
 ## Current status
 
-Vessica is actively developed and currently reports version `0.1.x`.
+Vessica is actively developed. The current documented release is `0.2.6`, and
+the project remains pre-1.0.
+
+### What changed in 0.2.x
+
+- `ves up` is the single hosted-first onboarding path. It is stage-based,
+  idempotent, resumable, and leaves no repository-local product database or run
+  state behind.
+- Hosted setup now creates a dedicated `vessica-control-plane` Railway project,
+  separate from the application repository, and reliably waits for terminal
+  deployment success and readiness.
+- Partial or stale attachments can be recovered with `ves workspace forget`
+  without deleting Railway infrastructure or rewriting the harness and other
+  repository documentation.
+- The worker image has a fingerprinted, pinned toolchain contract. The same
+  checks are available through `ves toolchain verify`, including an actual
+  Playwright Chromium launch for the worker profile.
+- Hosted execution is isolated behind an unprivileged agent user, an environment
+  allowlist, protected Git metadata, locked migrations, bounded database pools,
+  atomic coordination, and a single-control-plane lease.
+- The Codex plugin bootstrap verifies compatible release artifacts and
+  checksums. Local `make install` also refreshes and verifies the installed CLI
+  and Codex plugin together.
+- Linear can be connected after onboarding to a project selected by ID, slug,
+  or name, and the default project can be switched by redeploying only the
+  control plane.
+- Run output now preserves agent messages while reporting persisted failures as
+  failures in human, JSON, dashboard, and receipt views.
 
 Implemented today:
 
@@ -859,6 +904,8 @@ Implemented today:
 - Docker and Railway sandbox backends
 - GitHub, Linear, and Railway integration paths
 - Persistent hosted Railway control plane
+- Embedded dashboard with repository switching, live run streams, retained
+  previews, knowledge exploration, and GitHub-based workspace access
 
 Current boundaries:
 
@@ -871,6 +918,8 @@ Current boundaries:
 
 - [Vessica v1 architecture decision record](docs/Vessica_v1_ADR.md)
 - [Vessica v1 product requirements](docs/Vessica_v1_PRD.md)
+- [Documentation index](docs/README.md)
+- [Vessica Operator Guide](docs/Vessica_Operator_Guide.md)
 - [Streaming protocol](docs/Vessica_stream_v1.md)
 - [Hosted Railway control plane](docs/Hosted_Railway.md)
 - [Default engineering harness](https://github.com/vessica-labs/engineering-harness)

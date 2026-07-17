@@ -1,5 +1,9 @@
 # Vessica Dashboard v1 ADR — Embedded Dashboard Served by the Control Plane
 
+> **Accepted architecture, evolved operations.** The embedded-adapter decision
+> remains current. Older local-promotion command examples are historical; use
+> `ves up` and the Operator Guide for current onboarding.
+
 **Document type:** Architecture Decision Record  
 **ADR ID:** ADR-003  
 **Product:** Vessica Dashboard  

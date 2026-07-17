@@ -1,23 +1,53 @@
-# Knowledge Layer Deferred Follow-ups
+# Knowledge layer follow-ups
 
-These items are intentionally outside the MVP production boundary approved on 2026-07-11.
+This is a current gap register, not a description of the original MVP boundary.
+Items shipped since that boundary are recorded so older PRDs and ADRs are not
+mistaken for the present product state.
+
+## Shipped since the MVP boundary
+
+- Hosted Postgres lexical retrieval is the healthy zero-key default. Optional
+  user-funded embeddings add semantic-hybrid retrieval and an asynchronous,
+  observable backfill.
+- The embedded dashboard supports GitHub-based owner claims, expiring member
+  invitations, workspace roles, repository switching, knowledge exploration,
+  and workspace health.
+- The knowledge service has readiness reporting for database, migrations,
+  embedding workers, and index freshness. Vessica keeps the hosted service as
+  the sole writable authority during outages.
+- One Railway Postgres service contains separately owned control and knowledge
+  databases with distinct credentials, URLs, migrations, and access boundaries.
 
 ## Durable chunked import tracking
 
-Current snapshots are checksummed and event-idempotent, so the same import can be retried safely. Import status is process-local and large snapshots are submitted as one request. A future version should persist import sessions, chunk checksums, accepted ranges, and resume cursors.
+Snapshots are checksummed and event-idempotent, so the same import can be
+retried safely. Large imports still need durable sessions, chunk checksums,
+accepted ranges, and resume cursors before import can be treated as a fully
+restartable background workflow.
 
-## Team identity and invitations
+## Identity and access depth
 
-The MVP deploys one workspace-scoped service with separate ordinary and export/import bearer credentials. Actor-bound claims, expiring invitations, team membership, token rotation UI, and enterprise identity are deferred.
+GitHub-based owner/member access and expiring invitations ship today. Deferred
+work includes enterprise identity providers, richer role policy, service
+accounts, token-rotation administration, and organization-level audit/export
+controls.
 
 ## Relationship lifecycle
 
-Relationships are immutable assertions created once. Current workflows correct knowledge by appending a new relationship or a `supersedes` assertion. Relationship version/update endpoints should be added only when a concrete mutation workflow requires them.
+Relationships remain immutable assertions. Corrections append a new relationship
+or a `supersedes` assertion. Add relationship update/version endpoints only when
+a concrete mutation workflow requires them.
 
-## Postgres lexical ranking
+## Retrieval quality and curation
 
-Hosted retrieval uses semantic candidates plus a lexical fallback. PostgreSQL full-text ranking is deferred because semantic retrieval is required in hosted mode and SQLite already provides BM25 for zero-key solo mode.
+The current service provides explainable lexical or semantic-hybrid ranking,
+deterministic artifact selection, provenance, and index freshness. Remaining
+work includes duplicate/contradiction review, stale-memory workflows, retrieval
+regression evaluation, and operator-facing curation queues.
 
 ## Broader operations
 
-Persistent distributed rate limiting, production metrics dashboards, scheduled backup orchestration, restore drills, and a web administration UI remain future operations work.
+Persistent distributed rate limiting, production metrics dashboards, scheduled
+backup orchestration, restore drills, and broader administration remain future
+operations work. The current embedded dashboard is a product workspace UI, not
+a complete infrastructure administration console.

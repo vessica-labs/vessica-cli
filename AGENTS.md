@@ -8,6 +8,16 @@ Preserve user changes in a dirty worktree. Never expose tokens, database URLs, O
 
 Run `./scripts/lint-arch.sh` while editing Go files. A file above 500 lines should prompt a cohesive split; a file above 800 lines cannot merge. Run the focused package tests first, then the checks in `TESTING.md`.
 
+Treat `README.md`, `docs/Vessica_Operator_Guide.md`, and
+`docs/Hosted_Railway.md` as the current user documentation. PRDs and versioned
+ADRs under `docs/` are historical decision records unless their status says
+otherwise; do not copy old local-first or future-scope claims into current
+guidance. Update `docs/README.md` when the current/historical split changes.
+
 The dashboard source is `web/dashboard`. Do not hand-edit generated files under `internal/dashboard/assets`; rebuild them and verify reproducibility with `./scripts/check-dashboard-assets.sh`.
+
+The embedded dashboard documentation under `internal/dashboard/docs` is also
+generated. Edit the matching source under `docs/`, then run
+`./scripts/embed-dashboard-docs.sh`.
 
 When Vessica invokes an engine-managed run, do not claim, close, heartbeat, or release tickets manually. The engine owns that lifecycle.

@@ -1,5 +1,9 @@
 # Vessica Knowledge Layer v1 — Product Requirements Document
 
+> **Implementation-history record.** Current hosted knowledge starts in healthy
+> lexical mode without an embeddings key. Use the Operator Guide and knowledge
+> follow-up register for current behavior and remaining gaps.
+
 **Product:** Vessica Knowledge Layer  
 **Document type:** Product Requirements Document  
 **Version:** v1  

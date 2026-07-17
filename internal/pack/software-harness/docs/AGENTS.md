@@ -8,6 +8,8 @@ This repository is managed with Vessica (`ves`).
 2. Do not invent ad hoc TODO/plan files when Vessica state exists.
 3. Follow ARCHITECTURE.md, DESIGN.md, TESTING.md, DEPLOY.md, SECURITY.md.
 4. Respect the current execution mode.
+5. In a hosted workspace, Vessica is the state authority. Do not create a writable local fallback when the hosted service is unavailable.
+6. Parse `vessica.cli/v1` JSON and `vessica.stream/v1` JSONL for automation; do not scrape human output.
 
 ## Engine-managed runs
 
@@ -24,7 +26,8 @@ Implement the requested change, run relevant local checks, and return a concise 
 
 ## Standalone/manual agents
 
-Only when operating outside `ves run epic`, use Vessica ticket lifecycle commands explicitly:
+Only when operating outside `ves run epic` and the user explicitly asks for
+manual ticket management, use Vessica ticket lifecycle commands.
 
 ## Useful commands
 

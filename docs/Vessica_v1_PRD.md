@@ -1,5 +1,9 @@
 # Vessica v1 PRD — Local-First Harness Engineering CLI
 
+> **Historical record.** This PRD predates the hosted-first `ves up` product
+> path. Use the repository README and Vessica Operator Guide for current
+> commands, capabilities, and availability.
+
 **Product:** Vessica CLI  
 **Canonical command:** `ves`  
 **Package/repo name:** `vessica-cli`  

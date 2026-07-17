@@ -35,6 +35,20 @@ ves repo list --json
 
 `ves up` authenticates Railway and GitHub when necessary, discovers or creates the one Vessica installation in the selected Railway workspace, attaches the repository, creates a missing engineering harness, and maps the pushed commit in a read-only cloud sandbox. Hosted lexical retrieval is healthy without an embeddings key. Local-only development is available separately through `ves dev up`.
 
+Onboarding is durable and safe to resume. If a provider login, Railway deploy,
+Sandbox Priority Boarding step, or readiness check interrupts setup, keep the
+operation ID and continue the same operation:
+
+```bash
+ves up status --json
+ves up resume <operation-id> --yes --stream jsonl
+```
+
+New installations use a dedicated Railway project named
+`vessica-control-plane`, independent of the application repository. A successful
+receipt means deployment reached terminal `SUCCESS`, `/readyz` passed, the
+repository attachment was persisted, and the sandbox/toolchain check completed.
+
 The hosted installation uses one Railway Postgres service with two isolated databases: `vessica_control` for workflow state and `vessica_knowledge` for durable knowledge. They use different roles, URLs, and migration histories; pgvector exists only in the knowledge database.
 
 ## Agent-safe command contract
@@ -45,6 +59,7 @@ Use `--json` and parse the `vessica.cli/v1` envelope. JSON commands never prompt
 ves capabilities --json
 ves doctor --json
 ves prime --for codex --json
+ves toolchain verify --profile workstation --json
 ```
 
 Use `--dry-run --json` before mutations. Do not scrape human output or echo secret values into arguments.
@@ -130,6 +145,17 @@ The CLI sends the secret directly to Railway, waits for deployment success and r
 
 Keep the Railway control-plane service at one replica. This release intentionally rejects a second replica from the same deployment with a database-backed singleton lease. Worker sandboxes remain independently scalable; control-plane scale-out is deferred until preview coordination, scheduled loops, and all remaining process-local ownership are distributed.
 
+Authorize the official Railway CLI session used for native preview forwarding once after onboarding:
+
+```bash
+ves railway preview-session authorize
+ves railway preview-session status
+ves railway preview-session repair-key
+ves railway preview-session smoke
+```
+
+The first command prints a short-lived Railway device-authorization link. The control plane then generates and registers its forwarding key, encrypts the CLI session and key in Postgres, and restores them automatically after deployments. Repeat authorization only when Railway revokes the grant or refresh validation fails. If only the forwarding key was registered to the wrong Railway key scope, use `repair-key`; it rotates the key without repeating device authorization.
+
 Optional Linear setup is separate:
 
 ```bash
@@ -168,6 +194,31 @@ ves railway logs --lines 200
 ```
 
 Do not edit `.vessica/config.yaml` to force local mode.
+
+If the local attachment is partial or stale and cannot reach the hosted control
+plane, clear only the local hosted attachment and credentials:
+
+```bash
+ves workspace forget --dry-run --json
+ves workspace forget --yes --idempotency-key forget-stale-attachment --json
+```
+
+This recovery command does not delete Railway resources, the engineering
+harness, repository documentation, or unmanaged `AGENTS.md` content. Run
+`ves up` again to rediscover or reattach the repository.
+
+### Toolchain mismatch
+
+```bash
+ves toolchain verify --profile workstation --json
+ves toolchain verify --profile worker --json
+```
+
+The workstation profile covers tools needed to operate hosted Vessica. The
+worker profile verifies the full pinned coding environment and launches
+Playwright Chromium. Hosted checkpoints are named from the contract fingerprint,
+so a toolchain change creates a new checkpoint instead of silently mutating an
+existing one.
 
 ### Linear projection failure
 
