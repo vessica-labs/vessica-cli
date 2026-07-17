@@ -45,9 +45,11 @@ type Server struct {
 	PreviewBroker       *PreviewBroker
 	Dashboard           http.Handler
 	PreviewPublicURL    string
+	Credentials         *CredentialManager
 	workerID            string
 	projectionMu        sync.Mutex
 	importMu            sync.Mutex
+	mutationMu          sync.Mutex
 }
 
 type linearWebhookPayload struct {
@@ -63,6 +65,7 @@ type runJobPayload struct {
 	EpicID        string `json:"epic_id"`
 	ExternalIssue string `json:"external_issue_id"`
 	IntegrationID string `json:"integration_id"`
+	FromPhase     string `json:"from_phase,omitempty"`
 }
 
 func (s *Server) Handler() http.Handler {
@@ -71,8 +74,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /readyz", s.handleReady)
 	mux.HandleFunc("POST /webhooks/linear", s.handleLinearWebhook)
 	mux.HandleFunc("GET /internal/worker/ves", s.handleWorkerBinary)
+	mux.HandleFunc("POST /internal/preview-tunnels/{run_id}/poll", s.requireWorkerAuth(s.PreviewBroker.handleTunnelPoll))
+	mux.HandleFunc("POST /internal/preview-tunnels/{run_id}/responses", s.requireWorkerAuth(s.PreviewBroker.handleTunnelResponse))
 	mux.HandleFunc("GET /api/v1/status", s.requireAPIAuth(s.handleStatus))
 	mux.HandleFunc("POST /api/v1/cli-credentials", s.requireServiceAuth(s.handleCreateCLICredential))
+	mux.HandleFunc("PUT /api/v1/credentials/{provider}", s.requireAPIAuth(s.handleRotateCredential))
 	mux.HandleFunc("GET /api/v1/repositories", s.requireAPIAuth(s.handleRepositories))
 	mux.HandleFunc("POST /api/v1/repositories", s.requireAPIAuth(s.handleAttachRepository))
 	mux.HandleFunc("POST /api/v1/onboarding/operations", s.requireAPIAuth(s.handleUpsertOnboarding))
@@ -83,11 +89,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/runs", s.requireAPIAuth(s.handleRuns))
 	mux.HandleFunc("GET /api/v1/runs/{run_id}", s.requireAPIAuth(s.handleRun))
 	mux.HandleFunc("GET /api/v1/runs/{run_id}/events", s.requireAPIAuth(s.handleRunEvents))
+	mux.HandleFunc("POST /api/v1/runs/{run_id}/resume", s.requireAPIAuth(s.handleResumeRun))
+	mux.HandleFunc("POST /api/v1/runs/{run_id}/cancel", s.requireAPIAuth(s.handleCancelRun))
 	mux.HandleFunc("GET /api/v1/receipts/{receipt_id}", s.requireAPIAuth(s.handleReceipt))
 	mux.HandleFunc("GET /api/v1/epics", s.requireAPIAuth(s.handleEpics))
 	mux.HandleFunc("POST /api/v1/epics", s.requireAPIAuth(s.handlePublishEpic))
 	mux.HandleFunc("GET /api/v1/epics/{epic_id}", s.requireAPIAuth(s.handleEpic))
+	mux.HandleFunc("GET /api/v1/epics/{epic_id}/status", s.requireAPIAuth(s.handleEpicStatus))
 	mux.HandleFunc("POST /api/v1/epics/{epic_id}/runs", s.requireAPIAuth(s.handleStartEpicRun))
+	mux.HandleFunc("GET /api/v1/sandboxes", s.requireAPIAuth(s.handleSandboxes))
+	mux.HandleFunc("GET /api/v1/sandboxes/{sandbox_id}", s.requireAPIAuth(s.handleSandbox))
+	mux.HandleFunc("GET /api/v1/sandboxes/{sandbox_id}/logs", s.requireAPIAuth(s.handleSandboxLogs))
 	mux.HandleFunc("POST /api/v1/runs/{run_id}/approve", s.requireAPIAuth(s.handleApproveRun))
 	mux.HandleFunc("POST /api/v1/migrations/workplan", s.requireAPIAuth(s.handleImportWorkplan))
 	mux.HandleFunc("GET /review/runs/{run_id}", s.handleReviewPage)
@@ -150,6 +162,9 @@ func stripPort(host string) string {
 }
 func dashboardRoute(r *http.Request) bool {
 	p := r.URL.Path
+	if strings.HasPrefix(p, "/api/v1/sandboxes") && strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+		return false
+	}
 	if strings.HasPrefix(p, "/auth/") || strings.HasPrefix(p, "/assets/") || p == "/internal/dashboard/metrics" {
 		return true
 	}
@@ -272,7 +287,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 	jobs, err := s.DB.ListJobs(r.Context(), 100)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, "job_list_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, jobs)
@@ -288,7 +303,7 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 		runs, err = s.DB.ListRuns(r.Context())
 	}
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, "run_list_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, runs)
@@ -297,7 +312,11 @@ func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	runRecord, err := s.DB.GetRun(r.Context(), r.PathValue("run_id"))
 	if err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+		writeAPIError(w, http.StatusNotFound, "run_not_found", err.Error())
+		return
+	}
+	if repositoryID := strings.TrimSpace(r.URL.Query().Get("repository_id")); repositoryID != "" && runRecord.RepositoryID != repositoryID {
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found in repository")
 		return
 	}
 	if sandboxRecord, err := s.DB.GetSandboxForRun(r.Context(), runRecord.ID); err == nil {
@@ -308,13 +327,22 @@ func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRunEvents(w http.ResponseWriter, r *http.Request) {
+	runRecord, err := s.DB.GetRun(r.Context(), r.PathValue("run_id"))
+	if err != nil {
+		writeAPIError(w, http.StatusNotFound, "run_not_found", err.Error())
+		return
+	}
+	if repositoryID := strings.TrimSpace(r.URL.Query().Get("repository_id")); repositoryID != "" && runRecord.RepositoryID != repositoryID {
+		writeAPIError(w, http.StatusNotFound, "run_not_found", "run not found in repository")
+		return
+	}
 	var after int64
 	if raw := r.URL.Query().Get("after"); raw != "" {
 		_, _ = fmt.Sscan(raw, &after)
 	}
 	events, err := s.DB.ListEvents(r.Context(), r.PathValue("run_id"), after)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		writeAPIError(w, http.StatusInternalServerError, "run_logs_failed", err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, events)
@@ -391,7 +419,7 @@ func (s *Server) requireAPIAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		provided := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 		if !constantToken(r.Header.Get("Authorization"), s.APIToken) && (provided == "" || !s.DB.HasCLICredential(r.Context(), cliTokenHash(provided))) {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
+			writeAPIError(w, http.StatusUnauthorized, "unauthorized", "API authorization is required")
 			return
 		}
 		next(w, r)
@@ -401,7 +429,21 @@ func (s *Server) requireAPIAuth(next http.HandlerFunc) http.HandlerFunc {
 func (s *Server) requireServiceAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !constantToken(r.Header.Get("Authorization"), s.APIToken) {
-			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "service authorization required"})
+			writeAPIError(w, http.StatusUnauthorized, "unauthorized", "service authorization is required")
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *Server) requireWorkerAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.PreviewBroker == nil {
+			writeAPIError(w, http.StatusServiceUnavailable, "preview_broker_unavailable", "preview broker is unavailable")
+			return
+		}
+		if !constantToken(r.Header.Get("Authorization"), s.WorkerDownloadToken) {
+			writeAPIError(w, http.StatusUnauthorized, "unauthorized", "worker authorization is required")
 			return
 		}
 		next(w, r)

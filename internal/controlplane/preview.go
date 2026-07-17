@@ -28,6 +28,7 @@ type previewTarget struct {
 type PreviewBroker struct {
 	mu              sync.RWMutex
 	targets         map[string]previewTarget
+	tunnels         map[string]*previewTunnel
 	capabilities    map[string]previewCapability
 	overlayProvider func(string) string
 }
@@ -43,7 +44,7 @@ func (b *PreviewBroker) SetOverlayProvider(provider func(string) string) {
 }
 
 func NewPreviewBroker() *PreviewBroker {
-	return &PreviewBroker{targets: map[string]previewTarget{}, capabilities: map[string]previewCapability{}}
+	return &PreviewBroker{targets: map[string]previewTarget{}, tunnels: map[string]*previewTunnel{}, capabilities: map[string]previewCapability{}}
 }
 
 func (b *PreviewBroker) Register(token, target string, cancel context.CancelFunc) error {
@@ -64,6 +65,7 @@ func (b *PreviewBroker) Remove(token string) {
 	b.mu.Lock()
 	target, ok := b.targets[token]
 	delete(b.targets, token)
+	delete(b.tunnels, token)
 	b.mu.Unlock()
 	if ok && target.Cancel != nil {
 		target.Cancel()
@@ -73,11 +75,13 @@ func (b *PreviewBroker) Remove(token string) {
 func (b *PreviewBroker) Issue(runID string, ttl time.Duration) (string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.targets[runID]; !ok {
+	_, targetOK := b.targets[runID]
+	_, tunnelOK := b.tunnels[runID]
+	if !targetOK && !tunnelOK {
 		return "", fmt.Errorf("preview is not available")
 	}
-	if ttl <= 0 || ttl > time.Hour {
-		ttl = 15 * time.Minute
+	if ttl <= 0 || ttl > 7*24*time.Hour {
+		ttl = 24 * time.Hour
 	}
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
@@ -86,6 +90,16 @@ func (b *PreviewBroker) Issue(runID string, ttl time.Duration) (string, error) {
 	capability := base64.RawURLEncoding.EncodeToString(raw)
 	b.capabilities[capability] = previewCapability{RunID: runID, ExpiresAt: time.Now().Add(ttl)}
 	return capability, nil
+}
+
+func (b *PreviewBroker) RestoreCapability(token, runID string) error {
+	if strings.TrimSpace(token) == "" || strings.TrimSpace(runID) == "" {
+		return fmt.Errorf("preview capability and run id are required")
+	}
+	b.mu.Lock()
+	b.capabilities[token] = previewCapability{RunID: runID, ExpiresAt: time.Now().Add(7 * 24 * time.Hour)}
+	b.mu.Unlock()
+	return nil
 }
 func (b *PreviewBroker) ResolveCapability(token string) (string, bool) {
 	b.mu.RLock()
@@ -111,6 +125,9 @@ func (b *PreviewBroker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			r.URL.Path = "/" + parts[1]
 		}
+		query := r.URL.Query()
+		query.Del("cap")
+		r.URL.RawQuery = query.Encode()
 		secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 		sameSite := http.SameSiteLaxMode
 		if secure {
@@ -127,10 +144,15 @@ func (b *PreviewBroker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	b.mu.RLock()
 	target, ok := b.targets[runID]
+	tunnel := b.tunnels[runID]
 	overlayProvider := b.overlayProvider
 	b.mu.RUnlock()
-	if !ok {
+	if !ok && tunnel == nil {
 		http.Error(w, "preview is no longer available", http.StatusGone)
+		return
+	}
+	if tunnel != nil {
+		b.serveTunnelRequest(w, r, tunnel)
 		return
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target.URL)

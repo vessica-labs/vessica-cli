@@ -49,10 +49,12 @@ func (s *Server) DashboardDestroy(ctx context.Context, sandboxID string) (any, e
 }
 
 func (s *Server) runLifecycle() *appservice.RunLifecycle {
-	return appservice.NewRunLifecycle(s.DB, ".", s.Config, func(ctx context.Context, sandbox *state.Sandbox, _ string) error {
+	lifecycle := appservice.NewRunLifecycle(s.DB, ".", s.Config, func(ctx context.Context, sandbox *state.Sandbox, _ string) error {
 		if s.Launcher == nil {
 			return fmt.Errorf("sandbox launcher is unavailable")
 		}
 		return s.Launcher.Destroy(ctx, sandbox)
 	})
+	lifecycle.RetainOnCancel = true
+	return lifecycle
 }

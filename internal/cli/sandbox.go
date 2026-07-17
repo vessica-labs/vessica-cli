@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vessica-labs/vessica-cli/internal/config"
 	"github.com/vessica-labs/vessica-cli/internal/retention"
 	"github.com/vessica-labs/vessica-cli/internal/run"
 	"github.com/vessica-labs/vessica-cli/internal/state"
@@ -28,7 +29,13 @@ func newSandboxCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
-			list, err := app.DB.ListSandboxes(cmd.Context())
+			var list []state.Sandbox
+			var err error
+			if config.IsHostedAttachment(app.Config) {
+				list, err = app.listHostedSandboxes(cmd.Context())
+			} else {
+				list, err = app.DB.ListSandboxes(cmd.Context())
+			}
 			if err != nil {
 				return err
 			}
@@ -44,7 +51,13 @@ func newSandboxCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
-			s, err := app.DB.GetSandbox(cmd.Context(), args[0])
+			var s *state.Sandbox
+			var err error
+			if config.IsHostedAttachment(app.Config) {
+				s, err = app.getHostedSandbox(cmd.Context(), args[0])
+			} else {
+				s, err = app.DB.GetSandbox(cmd.Context(), args[0])
+			}
 			if err != nil {
 				return err
 			}
@@ -57,6 +70,13 @@ func newSandboxCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
+			if config.IsHostedAttachment(app.Config) {
+				logs, err := app.getHostedSandboxLogs(cmd.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				return app.Printer.Success(logs)
+			}
 			s, err := app.DB.GetSandbox(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -78,6 +98,9 @@ func newSandboxCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
+			if config.IsHostedAttachment(app.Config) {
+				return app.Printer.Fail("hosted_shell_unavailable", "interactive hosted sandbox shells are not exposed by the control plane", "use ves sandbox logs <sandbox_id>")
+			}
 			s, err := app.DB.GetSandbox(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -109,6 +132,9 @@ func newSandboxCmd(app *App) *cobra.Command {
 				return err
 			}
 			url := s.PreviewURL
+			if config.IsHostedAttachment(app.Config) && url == "" {
+				return app.Printer.Fail("no_public_preview", "hosted sandbox does not have a ready public preview", "inspect ves sandbox logs")
+			}
 			if url == "" {
 				if s.RunID != "" {
 					eng := &run.Engine{DB: app.DB, Root: app.Root, Config: app.Config}
@@ -128,9 +154,11 @@ func newSandboxCmd(app *App) *cobra.Command {
 			if browser {
 				_ = run.OpenPreview(url)
 			}
-			if latest, err := app.DB.GetSandboxForRun(cmd.Context(), s.RunID); err == nil && latest.PreviewURL == url {
-				s = latest
-				_ = retention.Touch(cmd.Context(), app.DB, s)
+			if !config.IsHostedAttachment(app.Config) {
+				if latest, err := app.DB.GetSandboxForRun(cmd.Context(), s.RunID); err == nil && latest.PreviewURL == url {
+					s = latest
+					_ = retention.Touch(cmd.Context(), app.DB, s)
+				}
 			}
 			return app.Printer.Success(map[string]string{"url": url, "sandbox_id": s.ID, "expires_at": retention.EffectiveExpiry(s).Format(time.RFC3339Nano)})
 		},

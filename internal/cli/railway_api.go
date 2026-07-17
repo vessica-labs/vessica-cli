@@ -172,6 +172,15 @@ func hostedRequestWithKey(ctx context.Context, method, endpoint, token, idempote
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode >= 300 {
+		var envelope struct {
+			Error struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(data, &envelope) == nil && envelope.Error.Code != "" {
+			return fmt.Errorf("hosted API %s (%d): %s", envelope.Error.Code, resp.StatusCode, envelope.Error.Message)
+		}
 		return fmt.Errorf("hosted API failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 	if target != nil {

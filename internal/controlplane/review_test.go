@@ -310,7 +310,7 @@ func TestCompletedRunProjectionAddsReviewLinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if message == nil || message.IntegrationID != integration.ID || message.IdempotencyKey != "linear:run:completed:v3:"+runRecord.ID {
+	if message == nil || message.IntegrationID != integration.ID || message.IdempotencyKey != "linear:run:completed:v4:"+runRecord.ID {
 		t.Fatalf("message=%#v", message)
 	}
 	if !strings.Contains(message.PayloadJSON, "Accept and Merge") || !strings.Contains(message.PayloadJSON, "Rollback") || !strings.Contains(message.PayloadJSON, "/review/runs/") {
@@ -338,7 +338,7 @@ func TestCompletedRunProjectionNeverPublishesRailwayLoopbackPreview(t *testing.T
 	if err != nil || message == nil {
 		t.Fatalf("message=%#v err=%v", message, err)
 	}
-	if strings.Contains(message.PayloadJSON, "127.0.0.1") || !strings.Contains(message.PayloadJSON, "https://control.example/previews/"+runRecord.ID+"/") {
+	if strings.Contains(message.PayloadJSON, "127.0.0.1") || strings.Contains(message.PayloadJSON, "https://control.example/previews/"+runRecord.ID+"/") {
 		t.Fatalf("completion projection used non-public preview: %s", message.PayloadJSON)
 	}
 }
@@ -365,7 +365,7 @@ func reviewServerFixture(t *testing.T) (*Server, *state.Run, *reviewTestLauncher
 	}
 	runRecord.Status = "completed"
 	runRecord.PRURL = "https://github.com/acme/demo/pull/7"
-	runRecord.PreviewURL = "https://control.example/previews/" + runRecord.ID + "/"
+	runRecord.PreviewURL = "https://control.example/previews/" + runRecord.ID + "/?cap=test-capability"
 	if err := db.UpdateRun(ctx, runRecord); err != nil {
 		t.Fatal(err)
 	}

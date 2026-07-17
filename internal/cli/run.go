@@ -28,9 +28,7 @@ func newRunCmd(app *App) *cobra.Command {
 		promptFile, promptModel, promptReasoning          string
 		promptNoPush                                      bool
 	)
-
 	cmd.AddCommand(newRunEpicCmd(app))
-
 	cmd.AddCommand(&cobra.Command{
 		Use: "ticket <ticket_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 			if err := app.loadWorkspace(cmd.Context()); err != nil {
@@ -253,6 +251,9 @@ func newRunCmd(app *App) *cobra.Command {
 				return err
 			}
 			streamEnabled := mode != streaming.ModeOff && mode != streaming.ModeUI
+			if config.IsHostedAttachment(app.Config) {
+				return app.executeHostedResume(cmd.Context(), args[0], fromPhase, mode)
+			}
 			eng := &run.Engine{DB: app.DB, Root: app.Root, Config: app.Config, Stream: streamEnabled, EventsOnly: eventsOnly, StreamMode: mode}
 			var r *state.Run
 			if mode == streaming.ModeUI {
@@ -414,6 +415,9 @@ func newRunCmd(app *App) *cobra.Command {
 			if err := app.requireYes("cancel run"); err != nil {
 				return err
 			}
+			if config.IsHostedAttachment(app.Config) {
+				return app.executeHostedCancel(cmd.Context(), args[0])
+			}
 			r, err := appservice.NewRunLifecycle(app.DB, app.Root, app.Config, nil).Cancel(cmd.Context(), args[0], "cli")
 			if err != nil {
 				return err
@@ -447,6 +451,9 @@ func newRunCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
+			if config.IsHostedAttachment(app.Config) {
+				return app.executeHostedPreview(cmd.Context(), args[0], browser)
+			}
 			r, err := app.DB.GetRun(cmd.Context(), args[0])
 			if err != nil {
 				return err

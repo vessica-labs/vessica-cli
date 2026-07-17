@@ -48,4 +48,21 @@ func TestFinalizeIncludesEvidenceSections(t *testing.T) {
 	if receiptBody["evidence_count"].(float64) != 1 {
 		t.Fatalf("body=%#v", receiptBody)
 	}
+	run.ReceiptID = rcpt.ID
+	run.PreviewURL = "https://preview.example/previews/" + run.ID + "/?cap=public-capability"
+	if err := db.UpdateRun(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := Finalize(ctx, db, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ID != rcpt.ID {
+		t.Fatalf("receipt duplicated during publication: first=%s updated=%s", rcpt.ID, updated.ID)
+	}
+	updatedView, _ := ViewJSON(updated)
+	updatedBody := updatedView["body"].(map[string]any)
+	if updatedBody["preview_url"] != run.PreviewURL {
+		t.Fatalf("preview URL was not refreshed: %#v", updatedBody["preview_url"])
+	}
 }

@@ -1,6 +1,7 @@
 package controlplane
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -9,14 +10,14 @@ import (
 )
 
 func TestRailwayWorkerBootstrapUsesOuterSandbox(t *testing.T) {
-	script := railwayWorkerBootstrap("https://control.example/internal/worker/ves", "run_test")
+	script := railwayWorkerBootstrap("https://control.example/internal/worker/ves", "run_test", "")
 	if !strings.Contains(script, "export VES_CODEX_EXTERNAL_SANDBOX=1") {
 		t.Fatalf("bootstrap does not configure Codex for the Railway isolation boundary:\n%s", script)
 	}
 	if !strings.Contains(script, "worker_bin=$(mktemp ") || strings.Contains(script, "-o /tmp/ves\n") {
 		t.Fatalf("bootstrap does not download workers atomically:\n%s", script)
 	}
-	for _, required := range []string{"export NPM_CONFIG_PREFIX=/usr/local", "export NODE_PATH=/usr/local/lib/node_modules", "export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright", "useradd --create-home", "command -v runuser", "command -v find", toolchain.YQVersion, toolchain.PlaywrightVersion, "command -v", "runuser --user vessica-agent"} {
+	for _, required := range []string{"export HOME=/home/vessica-agent", "export NPM_CONFIG_PREFIX=/usr/local", "export NODE_PATH=/usr/local/lib/node_modules", "export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright", "useradd --create-home", "auth.json", "chown vessica-agent:vessica-agent", "chmod 0600", "codex login status", "pnpm run build", "pnpm test", "pnpm run lint", "127.0.0.1:4173", "command -v runuser", "command -v find", toolchain.YQVersion, toolchain.PlaywrightVersion, "command -v", "runuser --user vessica-agent"} {
 		if !strings.Contains(script, required) {
 			t.Fatalf("bootstrap is missing toolchain preflight %q:\n%s", required, script)
 		}
@@ -24,6 +25,20 @@ func TestRailwayWorkerBootstrapUsesOuterSandbox(t *testing.T) {
 	for _, forbidden := range []string{"npm install -g", "playwright install", "npm view @openai/codex version", "@openai/codex@latest", "playwright@latest", "deb.nodesource.com"} {
 		if strings.Contains(script, forbidden) {
 			t.Fatalf("bootstrap contains mutable dependency %q:\n%s", forbidden, script)
+		}
+	}
+	command := exec.Command("bash", "-n")
+	command.Stdin = strings.NewReader(script)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("bootstrap shell is invalid: %v: %s", err, output)
+	}
+}
+
+func TestRailwayResumeBootstrapIncludesPhase(t *testing.T) {
+	script := railwayWorkerBootstrap("https://control.example/internal/worker/ves", "run_test", "validate")
+	for _, required := range []string{"control-plane worker", "--run-id 'run_test'", "--from 'validate'"} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("resume bootstrap missing %q:\n%s", required, script)
 		}
 	}
 }

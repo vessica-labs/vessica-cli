@@ -106,9 +106,6 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	if err := linkRailwayWorkDir(ctx, workDir, cfg); err != nil {
 		return nil, err
 	}
-	if err := ensureRailwaySSHIdentity(ctx, cfg); err != nil {
-		return nil, err
-	}
 	if cfg.Hosted.WorkerCheckpoint == "" {
 		progress("building and verifying the managed Railway worker checkpoint")
 		checkpoint, err := ensureRailwayWorkerCheckpoint(ctx, cfg)

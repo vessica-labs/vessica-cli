@@ -210,12 +210,14 @@ func CheckpointInstallCommand() string {
 		"id -u vessica-agent >/dev/null 2>&1 || useradd --create-home --shell /bin/bash vessica-agent",
 		"export NPM_CONFIG_PREFIX=/usr/local",
 		"npm install -g pnpm@" + PNPMVersion + " @openai/codex@" + CodexVersion + " playwright@" + PlaywrightVersion,
+		"chmod -R a+rX /opt/node-v" + NodeVersion + " /usr/local/lib/node_modules",
 		"export NODE_PATH=/usr/local/lib/node_modules",
 		"install -d -m 0755 /opt/ms-playwright",
 		"export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright",
 		"playwright install --with-deps chromium",
 		"chmod -R a+rX /opt/ms-playwright",
 		AgentShellVerifyCommand(),
+		AgentProjectSmokeCommand(false),
 	}, "\n")
 }
 
@@ -280,6 +282,27 @@ func GoInstallCommand() string {
 // AgentShellVerifyCommand runs the shell contract with the coding agent's identity.
 func AgentShellVerifyCommand() string {
 	return "runuser --user vessica-agent --preserve-environment -- env HOME=/home/vessica-agent bash -c " + shellQuote(ShellVerifyCommand())
+}
+
+// AgentProjectSmokeCommand verifies package scripts, browser startup, preview
+// startup, and (at runtime) the installed Codex authentication as the runner.
+func AgentProjectSmokeCommand(requireAuth bool) string {
+	commands := []string{
+		"set -euo pipefail",
+		"smoke=$(mktemp -d /tmp/vessica-smoke.XXXXXX)",
+		"trap 'test -f \"$smoke/server.pid\" && kill $(cat \"$smoke/server.pid\") 2>/dev/null || true; rm -rf \"$smoke\"' EXIT",
+		"cd \"$smoke\"",
+		"printf '%s' '{\"scripts\":{\"build\":\"node -e \\\"process.exit(0)\\\"\",\"test\":\"node -e \\\"process.exit(0)\\\"\",\"lint\":\"node -e \\\"process.exit(0)\\\"\"}}' > package.json",
+		"pnpm run build >/dev/null && pnpm test >/dev/null && pnpm run lint >/dev/null",
+		"node -e \"require('http').createServer((q,s)=>{s.end('ok')}).listen(4173,'127.0.0.1')\" >server.log 2>&1 & echo $! >server.pid",
+		"for attempt in $(seq 1 20); do curl -fsS http://127.0.0.1:4173/ >/dev/null && break; sleep .25; done",
+		"curl -fsS http://127.0.0.1:4173/ | grep -F ok >/dev/null",
+		"node -e " + shellQuote(playwrightProbe) + " " + shellQuote(PlaywrightVersion) + " >/dev/null",
+	}
+	if requireAuth {
+		commands = append(commands, "codex login status >/dev/null")
+	}
+	return "runuser --user vessica-agent --preserve-environment -- env HOME=/home/vessica-agent NODE_PATH=/usr/local/lib/node_modules PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright bash -c " + shellQuote(strings.Join(commands, "\n"))
 }
 
 // YQInstallCommand returns the checksum-verified yq installation script.

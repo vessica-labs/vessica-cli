@@ -11,9 +11,43 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/vessica-labs/vessica-cli/internal/output"
+	"github.com/vessica-labs/vessica-cli/internal/run"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 	"github.com/vessica-labs/vessica-cli/internal/streaming"
 )
+
+func (a *App) executeHostedResume(ctx context.Context, runID, from string, mode streaming.Mode) error {
+	result, err := a.resumeHostedRun(ctx, runID, from)
+	if err != nil {
+		return err
+	}
+	if mode != streaming.ModeOff {
+		return a.watchHostedRun(ctx, runID, 0, mode == streaming.ModeJSONL)
+	}
+	return a.Printer.Success(result)
+}
+
+func (a *App) executeHostedCancel(ctx context.Context, runID string) error {
+	result, err := a.cancelHostedRun(ctx, runID)
+	if err != nil {
+		return err
+	}
+	return a.Printer.Success(result)
+}
+
+func (a *App) executeHostedPreview(ctx context.Context, runID string, browser bool) error {
+	runRecord, err := a.getHostedRun(ctx, runID)
+	if err != nil {
+		return err
+	}
+	if runRecord.PreviewURL == "" {
+		return a.Printer.Fail("no_public_preview", "hosted run does not have a ready public preview", "inspect ves run view and hosted preview outcome")
+	}
+	if browser {
+		_ = run.OpenPreview(runRecord.PreviewURL)
+	}
+	return a.Printer.Success(map[string]string{"url": runRecord.PreviewURL})
+}
 
 func (a *App) startHostedEpicRun(ctx context.Context, hostedEpicID string) (map[string]any, error) {
 	secrets, err := loadRailwaySecrets(a.Root)
@@ -100,13 +134,92 @@ func (a *App) approveHostedRun(ctx context.Context, runID string, options any) (
 	return result, nil
 }
 
+func (a *App) resumeHostedRun(ctx context.Context, runID, from string) (map[string]any, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]any
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/runs/" + url.PathEscape(runID) + "/resume?repository_id=" + url.QueryEscape(a.Config.Attachment.RepositoryID)
+	key := firstNonEmpty(a.Flags.IdempotencyKey, "resume-"+runID+"-"+firstNonEmpty(from, "current"))
+	if err := hostedRequestWithKey(ctx, http.MethodPost, endpoint, secrets.APIToken, key, map[string]string{"from": from}, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (a *App) cancelHostedRun(ctx context.Context, runID string) (map[string]any, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]any
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/runs/" + url.PathEscape(runID) + "/cancel?repository_id=" + url.QueryEscape(a.Config.Attachment.RepositoryID)
+	if err := hostedRequestWithKey(ctx, http.MethodPost, endpoint, secrets.APIToken, firstNonEmpty(a.Flags.IdempotencyKey, "cancel-"+runID), nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (a *App) getHostedEpicStatus(ctx context.Context, epicID string) (map[string]any, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]any
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/epics/" + url.PathEscape(epicID) + "/status?repository_id=" + url.QueryEscape(a.Config.Attachment.RepositoryID)
+	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (a *App) listHostedSandboxes(ctx context.Context) ([]state.Sandbox, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var records []state.Sandbox
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/sandboxes?repository_id=" + url.QueryEscape(a.Config.Attachment.RepositoryID)
+	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &records); err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
+func (a *App) getHostedSandbox(ctx context.Context, sandboxID string) (*state.Sandbox, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var record state.Sandbox
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/sandboxes/" + url.PathEscape(sandboxID) + "?repository_id=" + url.QueryEscape(a.Config.Attachment.RepositoryID)
+	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &record); err != nil {
+		return nil, err
+	}
+	return &record, nil
+}
+
+func (a *App) getHostedSandboxLogs(ctx context.Context, sandboxID string) (map[string]string, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]string
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/sandboxes/" + url.PathEscape(sandboxID) + "/logs?repository_id=" + url.QueryEscape(a.Config.Attachment.RepositoryID)
+	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (a *App) getHostedRun(ctx context.Context, runID string) (*state.Run, error) {
 	secrets, err := loadRailwaySecrets(a.Root)
 	if err != nil {
 		return nil, err
 	}
 	var runRecord state.Run
-	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/runs/" + runID
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/runs/" + url.PathEscape(runID) + "?repository_id=" + url.QueryEscape(a.Config.Attachment.RepositoryID)
 	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &runRecord); err != nil {
 		return nil, err
 	}
@@ -119,7 +232,7 @@ func (a *App) listHostedRunEvents(ctx context.Context, runID string, after int64
 		return nil, err
 	}
 	var events []state.Event
-	endpoint := fmt.Sprintf("%s/api/v1/runs/%s/events?after=%d", strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/"), runID, after)
+	endpoint := fmt.Sprintf("%s/api/v1/runs/%s/events?after=%d&repository_id=%s", strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/"), url.PathEscape(runID), after, url.QueryEscape(a.Config.Attachment.RepositoryID))
 	if err := hostedRequest(ctx, http.MethodGet, endpoint, secrets.APIToken, nil, &events); err != nil {
 		return nil, err
 	}

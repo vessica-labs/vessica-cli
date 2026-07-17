@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -161,14 +162,26 @@ func (s *Server) processRunEpic(ctx context.Context, job *state.Job) error {
 	if runRecord.Status == "completed" {
 		return s.SyncRunToLinear(ctx, runRecord.ID)
 	}
-	if err := s.Launcher.Launch(ctx, runRecord); err != nil {
+	var launchErr error
+	if payload.FromPhase != "" {
+		launcher, ok := s.Launcher.(interface {
+			LaunchFrom(context.Context, *state.Run, string) error
+		})
+		if !ok {
+			return fmt.Errorf("run launcher does not support resume from phase")
+		}
+		launchErr = launcher.LaunchFrom(ctx, runRecord, payload.FromPhase)
+	} else {
+		launchErr = s.Launcher.Launch(ctx, runRecord)
+	}
+	if launchErr != nil {
 		if job.Attempts >= job.MaxAttempts && s.Config.Tracker.BlockedStateID != "" {
 			_, _ = s.DB.EnqueueOutbox(ctx, payload.IntegrationID, "linear.issue_state", "linear:epic:blocked:"+runRecord.ID, map[string]any{"issue_id": payload.ExternalIssue, "state_id": s.Config.Tracker.BlockedStateID})
 		}
 		if job.Attempts >= job.MaxAttempts {
-			_, _ = s.DB.EnqueueOutbox(ctx, payload.IntegrationID, "linear.comment", "linear:run:failed:"+runRecord.ID, map[string]any{"issue_id": payload.ExternalIssue, "entity_type": "run_comment", "local_id": runRecord.ID, "body": "<!-- vessica:run:" + runRecord.ID + " -->\nVessica run failed: `" + err.Error() + "`"})
+			_, _ = s.DB.EnqueueOutbox(ctx, payload.IntegrationID, "linear.comment", "linear:run:failed:"+runRecord.ID, map[string]any{"issue_id": payload.ExternalIssue, "entity_type": "run_comment", "local_id": runRecord.ID, "body": "<!-- vessica:run:" + runRecord.ID + " -->\nVessica run failed: `" + launchErr.Error() + "`"})
 		}
-		return err
+		return launchErr
 	}
 	return s.SyncRunToLinear(ctx, runRecord.ID)
 }
@@ -219,7 +232,7 @@ func (s *Server) SyncRunToLinear(ctx context.Context, runID string) error {
 		if acceptURL != "" && rollbackURL != "" && runRecord.PRMode != "merged" && runRecord.PRMode != "rolled_back" {
 			body += fmt.Sprintf("\n\n**[Accept and Merge](%s)** · [Rollback](%s)", acceptURL, rollbackURL)
 		}
-		_, _ = s.DB.EnqueueOutbox(ctx, integration.ID, "linear.comment", "linear:run:completed:v3:"+runID, map[string]any{"issue_id": epicMapping.ExternalID, "entity_type": "run_comment", "local_id": runID, "body": body})
+		_, _ = s.DB.EnqueueOutbox(ctx, integration.ID, "linear.comment", "linear:run:completed:v4:"+runID, map[string]any{"issue_id": epicMapping.ExternalID, "entity_type": "run_comment", "local_id": runID, "body": body})
 	}
 	if runTerminalStatus(runRecord.Status) {
 		return s.recordTerminalRunKnowledge(ctx, runRecord, epicMapping.ExternalID)
@@ -227,22 +240,16 @@ func (s *Server) SyncRunToLinear(ctx context.Context, runID string) error {
 	return nil
 }
 
-// projectedPreviewURL returns the stable URL users can open from Linear. The
-// worker records its loopback URL before the control plane establishes the
-// Railway port forward, so the projection loop can observe a completed run
-// during that short handoff. Hosted Railway previews are always addressed via
-// the control-plane proxy and must never publish the worker's loopback URL.
+// projectedPreviewURL returns only a preview that was externally healthchecked
+// and persisted by the control plane. Never synthesize a success-shaped URL.
 func (s *Server) projectedPreviewURL(runRecord *state.Run) string {
 	if runRecord == nil || !runRecord.Preview {
 		return ""
 	}
 	if runRecord.SandboxBackend == "railway" {
-		base := strings.TrimRight(s.PreviewPublicURL, "/")
-		if base == "" {
-			base = strings.TrimRight(s.Config.Hosted.ControlPlaneURL, "/")
-		}
-		if base != "" {
-			return base + "/previews/" + runRecord.ID + "/"
+		parsed, err := url.Parse(runRecord.PreviewURL)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Query().Get("cap") == "" {
+			return ""
 		}
 	}
 	return runRecord.PreviewURL

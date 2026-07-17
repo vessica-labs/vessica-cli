@@ -13,7 +13,27 @@ func (db *DB) CreateTicket(ctx context.Context, epicID, typ, title, body string,
 }
 
 func (db *DB) CreateTicketWithMeta(ctx context.Context, epicID, typ, title, body string, dependsOn []string, discoveredFromRunID, testStep string) (*Ticket, error) {
+	if discoveredFromRunID != "" && testStep != "" {
+		var existingID string
+		err := db.QueryRow(ctx, `SELECT id FROM tickets WHERE discovered_from_run_id=? AND test_step=? LIMIT 1`, discoveredFromRunID, testStep).Scan(&existingID)
+		if err == nil {
+			return db.GetTicket(ctx, existingID)
+		}
+		if err != sql.ErrNoRows {
+			return nil, err
+		}
+	}
 	return db.createTicket(ctx, epicID, "", typ, title, body, dependsOn, discoveredFromRunID, testStep)
+}
+
+// ResolveValidationFailure closes a bug created by an earlier failed attempt
+// once the same scenario passes during repair or retained-run recovery.
+func (db *DB) ResolveValidationFailure(ctx context.Context, runID, testStep string) (int64, error) {
+	result, err := db.Exec(ctx, `UPDATE tickets SET status='closed', updated_at=? WHERE discovered_from_run_id=? AND test_step=? AND status<>'closed'`, Now(), runID, testStep)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func (db *DB) CreateTicketForRun(ctx context.Context, epicID, sourceRunID, typ, title, body string, dependsOn []string) (*Ticket, error) {

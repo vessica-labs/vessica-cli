@@ -257,6 +257,13 @@ func newEpicCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer app.closeDB()
+			if config.IsHostedAttachment(app.Config) {
+				status, err := app.getHostedEpicStatus(cmd.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				return app.Printer.Success(status)
+			}
 			e, err := app.DB.GetEpic(cmd.Context(), args[0])
 			if err != nil {
 				return err

@@ -205,11 +205,28 @@ func (r *RailwaySandbox) StartPreview(ctx context.Context, command string, port 
 	if strings.TrimSpace(command) == "" {
 		return "", fmt.Errorf("preview command is empty")
 	}
-	script := "cd /workspace && nohup bash -lc " + shellQuote(command) + " >.vessica-preview.log 2>&1 </dev/null &"
+	path := strings.TrimSpace(healthcheck)
+	if path == "" {
+		path = "/"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	url := fmt.Sprintf("http://127.0.0.1:%d%s", port, path)
+	script := strings.Join([]string{
+		"cd /workspace",
+		"if test -f .vessica-preview.pid && kill -0 $(cat .vessica-preview.pid) 2>/dev/null; then exit 0; fi",
+		"nohup bash -lc " + shellQuote(command) + " >.vessica-preview.log 2>&1 </dev/null &",
+		"echo $! >.vessica-preview.pid",
+		"for attempt in $(seq 1 60); do curl -fsS " + shellQuote(url) + " >/dev/null 2>&1 && exit 0; sleep 1; done",
+		"tail -n 100 .vessica-preview.log >&2 || true",
+		"exit 1",
+	}, "\n")
 	if code, err := r.Exec(ctx, []string{"bash", "-lc", script}, io.Discard, io.Discard); err != nil || code != 0 {
 		return "", fmt.Errorf("start railway preview: exit %d: %w", code, err)
 	}
-	return r.ExposePort(ctx, port)
+	r.previewURL = fmt.Sprintf("http://127.0.0.1:%d", port)
+	return r.previewURL, nil
 }
 
 func (r *RailwaySandbox) StopPreview(ctx context.Context) error {

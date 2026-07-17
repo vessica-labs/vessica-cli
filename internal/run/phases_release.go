@@ -3,6 +3,7 @@ package run
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -84,6 +85,11 @@ func (e *Engine) phaseBuild(ctx context.Context, r *state.Run) error {
 }
 
 func (e *Engine) phaseValidate(ctx context.Context, r *state.Run) error {
+	if r.SandboxBackend == "railway" {
+		// The loopback address is validation-only. Never allow it to flow into
+		// hosted PR, receipt, Linear, or dashboard projections.
+		defer func() { r.PreviewURL = "" }()
+	}
 	if err := isolation.PrepareWorkdir(ctx, e.runWorkdir(ctx, r)); err != nil {
 		return err
 	}
@@ -120,13 +126,29 @@ func (e *Engine) phaseValidate(ctx context.Context, r *state.Run) error {
 	for i, step := range steps {
 		stepID := fmt.Sprintf("step_%d", i+1)
 		var lastErr error
+		transientFailures := 0
 		for attempt := 1; attempt <= 3; attempt++ {
+			if err := waitForPreviewHealth(ctx, r.PreviewURL, 30*time.Second); err != nil {
+				return fmt.Errorf("validation preview unavailable before %s: %w", stepID, err)
+			}
 			e.emit(ctx, r.ID, "validation.step", map[string]any{"step_id": stepID, "step": step, "attempt": attempt})
 			lastErr = runPlaywrightStep(ctx, e.runWorkdir(ctx, r), r.PreviewURL, step)
 			if lastErr == nil {
+				_, _ = e.DB.ResolveValidationFailure(ctx, r.ID, stepID)
 				_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "validate", "validation_step", "", "passed", map[string]any{"step_id": stepID, "step": step, "attempt": attempt})
 				e.emit(ctx, r.ID, "validation.step", map[string]any{"step_id": stepID, "step": step, "status": "passed"})
 				break
+			}
+			if previewConnectionFailure(lastErr) {
+				transientFailures++
+				if err := waitForPreviewHealth(ctx, r.PreviewURL, 30*time.Second); err != nil {
+					return fmt.Errorf("validation preview became unavailable during %s: %w", stepID, err)
+				}
+				if transientFailures >= 3 {
+					return fmt.Errorf("validation preview transport failed repeatedly during %s", stepID)
+				}
+				attempt-- // transport startup races do not consume a product-validation attempt
+				continue
 			}
 			_, _ = e.invokeRunner(ctx, r, "validate", "Fix validation failure for "+step+"\n"+lastErr.Error(), "validator", e.runWorkdir(ctx, r))
 		}
@@ -215,6 +237,31 @@ func previewURLHealthy(ctx context.Context, url string) bool {
 	return resp.StatusCode >= 200 && resp.StatusCode < 500
 }
 
+func waitForPreviewHealth(ctx context.Context, url string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		if previewURLHealthy(ctx, url) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("preview did not become healthy within %s", timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
+func previewConnectionFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "err_connection_refused") || strings.Contains(message, "connection refused") || strings.Contains(message, "econnrefused")
+}
+
 func (e *Engine) startPreviewInSandbox(ctx context.Context, r *state.Run, sbRec *state.Sandbox, sb sandbox.Sandbox, workdir, phase string) error {
 	hy := e.loadRunHarness(workdir)
 	port := hy.Preview.Port
@@ -247,14 +294,30 @@ func (e *Engine) startPreviewInSandbox(ctx context.Context, r *state.Run, sbRec 
 		_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "preview", "preview", "", "failed", map[string]any{"phase": phase, "command": command, "port": port, "error": err.Error()})
 		return err
 	}
-	r.PreviewURL = url
-	_ = e.DB.UpdateRun(ctx, r)
 	sbRec.PreviewPort = port
-	sbRec.PreviewURL = url
+	if sbRec.Backend == "railway" {
+		var metadata map[string]any
+		_ = json.Unmarshal([]byte(sbRec.MetaJSON), &metadata)
+		if metadata == nil {
+			metadata = map[string]any{}
+		}
+		metadata["validation_preview_url"] = url
+		encoded, _ := json.Marshal(metadata)
+		sbRec.MetaJSON = string(encoded)
+		sbRec.PreviewURL = ""
+	} else {
+		r.PreviewURL = url
+		_ = e.DB.UpdateRun(ctx, r)
+		sbRec.PreviewURL = url
+	}
 	_ = e.DB.UpdateSandbox(ctx, sbRec)
 	_ = retention.Touch(ctx, e.DB, sbRec)
-	_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "preview", "preview", "", "passed", map[string]any{"phase": phase, "command": command, "port": port, "url": url, "healthcheck": hy.Preview.Healthcheck})
-	e.emit(ctx, r.ID, "preview.ready", map[string]any{"phase": phase, "url": url, "healthcheck": hy.Preview.Healthcheck})
+	evidence := map[string]any{"phase": phase, "command": command, "port": port, "healthcheck": hy.Preview.Healthcheck}
+	if sbRec.Backend != "railway" {
+		evidence["url"] = url
+	}
+	_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "preview", "preview", "", "passed", evidence)
+	e.emit(ctx, r.ID, "preview.ready", evidence)
 	return nil
 }
 
@@ -299,10 +362,26 @@ func (e *Engine) EnsurePreview(ctx context.Context, runID string) (*state.Run, e
 	if err := e.phasePreview(ctx, r); err != nil {
 		return nil, err
 	}
-	return e.DB.GetRun(ctx, runID)
+	latest, err := e.DB.GetRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	if latest.SandboxBackend == "railway" && latest.PreviewURL == "" {
+		if sbRec, sandboxErr := e.DB.GetSandboxForRun(ctx, runID); sandboxErr == nil {
+			var metadata map[string]any
+			if json.Unmarshal([]byte(sbRec.MetaJSON), &metadata) == nil {
+				latest.PreviewURL, _ = metadata["validation_preview_url"].(string)
+			}
+		}
+	}
+	return latest, nil
 }
 
 func (e *Engine) phasePR(ctx context.Context, r *state.Run) error {
+	if r.PRURL != "" {
+		e.emit(ctx, r.ID, "repo.pr.created", map[string]any{"url": r.PRURL, "draft": true, "existing": true})
+		return nil
+	}
 	remote := e.Config.Repo.Remote
 	epic, _ := e.DB.GetEpic(ctx, r.EpicID)
 	title := "ves: epic"

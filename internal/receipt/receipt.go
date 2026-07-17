@@ -103,7 +103,13 @@ func Finalize(ctx context.Context, db *state.DB, r *state.Run) (*state.Receipt, 
 			"quality_eval_result":             "validation_phase_completed",
 		},
 	}
-	rcpt, err := db.CreateReceipt(ctx, r.ID, r.EpicID, r.Status, body)
+	var rcpt *state.Receipt
+	var err error
+	if r.ReceiptID != "" {
+		rcpt, err = db.UpdateReceipt(ctx, r.ReceiptID, r.Status, body)
+	} else {
+		rcpt, err = db.CreateReceipt(ctx, r.ID, r.EpicID, r.Status, body)
+	}
 	if err != nil {
 		return nil, err
 	}

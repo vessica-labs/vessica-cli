@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,9 +38,18 @@ type RailwayLauncher struct {
 	mu                  sync.Mutex
 	promptMu            sync.Mutex
 	active              map[string]*sandbox.RailwaySandbox
+	activeRuns          map[string]context.CancelFunc
 }
 
 func (l *RailwayLauncher) Launch(ctx context.Context, runRecord *state.Run) error {
+	return l.launch(ctx, runRecord, "")
+}
+
+func (l *RailwayLauncher) LaunchFrom(ctx context.Context, runRecord *state.Run, fromPhase string) error {
+	return l.launch(ctx, runRecord, fromPhase)
+}
+
+func (l *RailwayLauncher) launch(ctx context.Context, runRecord *state.Run, fromPhase string) error {
 	if l.DB == nil || runRecord == nil {
 		return fmt.Errorf("railway launcher requires a database and run")
 	}
@@ -101,11 +111,8 @@ func (l *RailwayLauncher) Launch(ctx context.Context, runRecord *state.Run) erro
 	}
 
 	rs := l.lookup(runRecord.ID)
-	if err := l.configureIdentity(rs); err != nil {
-		return err
-	}
 	workerURL := strings.TrimRight(l.PublicURL, "/") + "/internal/worker/ves"
-	bootstrap := railwayWorkerBootstrap(workerURL, runRecord.ID)
+	bootstrap := railwayWorkerBootstrap(workerURL, runRecord.ID, fromPhase)
 	logPath := filepath.Join(os.TempDir(), "ves-railway-"+runRecord.ID+".log")
 	logFile, _ := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	writer := io.Writer(os.Stdout)
@@ -114,7 +121,13 @@ func (l *RailwayLauncher) Launch(ctx context.Context, runRecord *state.Run) erro
 		writer = io.MultiWriter(os.Stdout, logFile)
 	}
 	l.Logger.Printf("starting run %s in Railway sandbox %s", runRecord.ID, rs.ContainerID())
-	code, execErr := rs.Exec(ctx, []string{"bash", "-lc", bootstrap}, writer, writer)
+	runCtx, cancelRun := context.WithCancel(ctx)
+	l.rememberRunCancel(runRecord.ID, cancelRun)
+	defer func() {
+		cancelRun()
+		l.forgetRunCancel(runRecord.ID)
+	}()
+	code, execErr := rs.Exec(runCtx, []string{"bash", "-lc", bootstrap}, writer, writer)
 	latest, getErr := l.DB.GetRun(ctx, runRecord.ID)
 	if getErr != nil {
 		return getErr
@@ -127,25 +140,25 @@ func (l *RailwayLauncher) Launch(ctx context.Context, runRecord *state.Run) erro
 	}
 	sbRecord, _ = l.DB.GetSandboxForRun(ctx, runRecord.ID)
 	if latest.Preview && sbRecord != nil && sbRecord.PreviewPort > 0 {
-		forwardCtx, cancel := context.WithCancel(context.Background())
-		target, err := rs.ExposePort(forwardCtx, sbRecord.PreviewPort)
-		if err != nil {
-			cancel()
-			return err
+		publicPreview, publishErr := l.publishPreview(ctx, rs, latest, sbRecord)
+		if publishErr != nil {
+			latest.Status = "failed"
+			latest.Error = "public_preview_failed: " + publishErr.Error()
+			latest.FinishedAt = state.Now()
+			_ = l.DB.UpdateRun(ctx, latest)
+			_, _ = l.DB.CreateRunEvidence(ctx, latest.ID, "preview", "public_preview", "", "public_preview_failed", map[string]any{"error": publishErr.Error()})
+			if latest.ReceiptID != "" {
+				_, _ = receipt.Finalize(ctx, l.DB, latest)
+			}
+			return nil
 		}
-		if err := l.Broker.Register(runRecord.ID, target, cancel); err != nil {
-			cancel()
-			return err
-		}
-		previewBase := l.PreviewPublicURL
-		if previewBase == "" {
-			previewBase = l.PublicURL
-		}
-		publicPreview := strings.TrimRight(previewBase, "/") + "/previews/" + runRecord.ID + "/"
 		latest.PreviewURL = publicPreview
 		sbRecord.PreviewURL = publicPreview
 		_ = l.DB.UpdateRun(ctx, latest)
 		_ = l.DB.UpdateSandbox(ctx, sbRecord)
+		if latest.ReceiptID != "" {
+			_, _ = receipt.Finalize(ctx, l.DB, latest)
+		}
 		if latest.PRURL != "" {
 			if number, err := repo.ParsePRNumber(latest.PRURL); err == nil {
 				_ = repo.UpdatePRBody(ctx, repositoryRemote, number, receipt.PRBody(ctx, l.DB, latest))
@@ -192,8 +205,12 @@ func (l *RailwayLauncher) configureAuth(ctx context.Context, rs *sandbox.Railway
 	return nil
 }
 
-func railwayWorkerBootstrap(workerURL, runID string) string {
-	return railwayWorkerBootstrapCommand(workerURL, "control-plane worker --run-id "+shellQuoteCP(runID))
+func railwayWorkerBootstrap(workerURL, runID, fromPhase string) string {
+	command := "control-plane worker --run-id " + shellQuoteCP(runID)
+	if strings.TrimSpace(fromPhase) != "" {
+		command += " --from " + shellQuoteCP(fromPhase)
+	}
+	return railwayWorkerBootstrapCommand(workerURL, command)
 }
 
 func railwayPromptBootstrap(workerURL, runID, prompt string) string {
@@ -208,13 +225,16 @@ func railwayWorkerBootstrapCommand(workerURL, workerCommand string) string {
 		"export VES_CODEX_EXTERNAL_SANDBOX=1",
 		"export VES_RUNNER_USER=vessica-agent",
 		"export VES_RUNNER_HOME=/home/vessica-agent",
+		"export HOME=/home/vessica-agent",
 		"id -u vessica-agent >/dev/null 2>&1 || useradd --create-home --shell /bin/bash vessica-agent",
 		"command -v runuser >/dev/null && command -v find >/dev/null && command -v chown >/dev/null && command -v chmod >/dev/null || { echo 'Railway worker checkpoint is missing isolation tools' >&2; exit 1; }",
 		"install -d -o vessica-agent -g vessica-agent -m 0700 /home/vessica-agent /home/vessica-agent/.codex",
+		"if test -n \"${VES_CODEX_AUTH_B64:-}\"; then auth_b64=$VES_CODEX_AUTH_B64; while test $((${#auth_b64} % 4)) -ne 0; do auth_b64=${auth_b64}=; done; printf '%s' \"$auth_b64\" | base64 -d >/home/vessica-agent/.codex/auth.json; chown vessica-agent:vessica-agent /home/vessica-agent/.codex/auth.json; chmod 0600 /home/vessica-agent/.codex/auth.json; fi",
 		"export NPM_CONFIG_PREFIX=/usr/local",
 		"export NODE_PATH=/usr/local/lib/node_modules",
 		"export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright",
 		toolchain.AgentShellVerifyCommand(),
+		"if test -n \"${VES_CODEX_AUTH_B64:-}\"; then " + toolchain.AgentProjectSmokeCommand(true) + "; else test -n \"${OPENAI_API_KEY:-}\" || { echo 'Codex authentication is unavailable' >&2; exit 1; }; fi",
 		"worker_bin=$(mktemp /tmp/ves-worker.XXXXXX)",
 		"trap 'rm -f \"$worker_bin\"' EXIT",
 		"curl -fsSL -H \"Authorization: Bearer $VES_WORKER_DOWNLOAD_TOKEN\" " + shellQuoteCP(workerURL) + " -o \"$worker_bin\"",
@@ -246,9 +266,6 @@ func (l *RailwayLauncher) Prompt(ctx context.Context, runRecord *state.Run, prom
 			return nil, err
 		}
 		l.remember(runRecord.ID, rs)
-	}
-	if err := l.configureIdentity(rs); err != nil {
-		return nil, err
 	}
 	workerURL := strings.TrimRight(l.PublicURL, "/") + "/internal/worker/ves"
 	bootstrap := railwayPromptBootstrap(workerURL, runRecord.ID, prompt)
@@ -291,6 +308,33 @@ func (l *RailwayLauncher) lookup(runID string) *sandbox.RailwaySandbox {
 	return l.active[runID]
 }
 
+func (l *RailwayLauncher) rememberRunCancel(runID string, cancel context.CancelFunc) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.activeRuns == nil {
+		l.activeRuns = map[string]context.CancelFunc{}
+	}
+	if previous := l.activeRuns[runID]; previous != nil {
+		previous()
+	}
+	l.activeRuns[runID] = cancel
+}
+
+func (l *RailwayLauncher) forgetRunCancel(runID string) {
+	l.mu.Lock()
+	delete(l.activeRuns, runID)
+	l.mu.Unlock()
+}
+
+func (l *RailwayLauncher) CancelRun(runID string) {
+	l.mu.Lock()
+	cancel := l.activeRuns[runID]
+	l.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 func (l *RailwayLauncher) Destroy(ctx context.Context, record *state.Sandbox) error {
 	if record == nil {
 		return nil
@@ -314,9 +358,8 @@ func (l *RailwayLauncher) Destroy(ctx context.Context, record *state.Sandbox) er
 	return l.DB.UpdateSandbox(ctx, record)
 }
 
-// RestorePreviews recreates forward sessions after a control-plane deployment
-// restart. Railway sandboxes and their filesystem state outlive the service
-// process; only the localhost forwarding session needs to be rebuilt.
+// RestorePreviews restarts sandbox-initiated tunnels after a control-plane
+// deployment. The preview process and retained filesystem outlive the server.
 func (l *RailwayLauncher) RestorePreviews(ctx context.Context) {
 	if l.Broker == nil || l.DB == nil {
 		return
@@ -338,45 +381,43 @@ func (l *RailwayLauncher) RestorePreviews(ctx context.Context) {
 		if err := l.configureAuth(ctx, rs); err != nil {
 			continue
 		}
-		if err := l.configureIdentity(rs); err != nil {
-			continue
-		}
-		forwardCtx, cancel := context.WithCancel(context.Background())
-		target, err := rs.ExposePort(forwardCtx, record.PreviewPort)
-		if err != nil {
-			cancel()
+		if err := l.Broker.RegisterTunnel(record.RunID); err != nil {
 			continue
 		}
 		l.remember(record.RunID, rs)
-		_ = l.Broker.Register(record.RunID, target, cancel)
-		previewBase := l.PreviewPublicURL
-		if previewBase == "" {
-			previewBase = l.PublicURL
+		if err := l.startPreviewTunnel(ctx, rs, record.RunID, record.PreviewPort); err != nil {
+			continue
 		}
-		publicURL := strings.TrimRight(previewBase, "/") + "/previews/" + record.RunID + "/"
+		publicURL := record.PreviewURL
+		if parsed, err := url.Parse(publicURL); err == nil && parsed.Query().Get("cap") != "" {
+			_ = l.Broker.RestoreCapability(parsed.Query().Get("cap"), record.RunID)
+		} else if runRecord, runErr := l.DB.GetRun(ctx, record.RunID); runErr == nil {
+			published, publishErr := l.publishPreview(ctx, rs, runRecord, record)
+			if publishErr != nil {
+				continue
+			}
+			publicURL = published
+		}
+		if err := waitForPublicPreview(ctx, publicURL, 60*time.Second); err != nil {
+			continue
+		}
 		record.PreviewURL = publicURL
 		_ = l.DB.UpdateSandbox(ctx, record)
 		if runRecord, err := l.DB.GetRun(ctx, record.RunID); err == nil {
 			runRecord.PreviewURL = publicURL
 			_ = l.DB.UpdateRun(ctx, runRecord)
+			if runRecord.ReceiptID != "" {
+				_, _ = receipt.Finalize(ctx, l.DB, runRecord)
+			}
+			if runRecord.PRURL != "" {
+				if repository, repositoryErr := l.DB.GetRepository(ctx, runRecord.RepositoryID); repositoryErr == nil {
+					if number, parseErr := repo.ParsePRNumber(runRecord.PRURL); parseErr == nil {
+						_ = repo.UpdatePRBody(ctx, repository.Remote, number, receipt.PRBody(ctx, l.DB, runRecord))
+					}
+				}
+			}
 		}
 	}
-}
-
-func (l *RailwayLauncher) configureIdentity(rs *sandbox.RailwaySandbox) error {
-	if rs == nil {
-		return fmt.Errorf("Railway sandbox is required")
-	}
-	privateKey := strings.TrimSpace(os.Getenv("VES_RAILWAY_SSH_PRIVATE_KEY"))
-	if privateKey == "" {
-		return fmt.Errorf("VES_RAILWAY_SSH_PRIVATE_KEY is required for Railway preview forwarding")
-	}
-	path := filepath.Join(os.TempDir(), "vessica-railway-ed25519")
-	if err := os.WriteFile(path, []byte(privateKey+"\n"), 0o600); err != nil {
-		return err
-	}
-	rs.SetIdentityFile(path)
-	return nil
 }
 
 var _ RunLauncher = (*RailwayLauncher)(nil)

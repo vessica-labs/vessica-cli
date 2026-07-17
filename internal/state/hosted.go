@@ -180,8 +180,40 @@ func (db *DB) ClaimJob(ctx context.Context, owner string, lease time.Duration) (
 }
 
 func (db *DB) CompleteJob(ctx context.Context, jobID string) error {
-	_, err := db.Exec(ctx, `UPDATE jobs SET status='completed', lease_owner=NULL, lease_until=NULL, last_error=NULL, updated_at=? WHERE id=?`, Now(), jobID)
+	_, err := db.Exec(ctx, `UPDATE jobs SET status='completed', lease_owner=NULL, lease_until=NULL, last_error=NULL, updated_at=? WHERE id=? AND status!='cancelled'`, Now(), jobID)
 	return err
+}
+
+// CancelJobsForRun atomically makes every queued or leased job for a run
+// ineligible for another claim and releases its worker lease.
+func (db *DB) CancelJobsForRun(ctx context.Context, runID string) (int64, error) {
+	result, err := db.Exec(ctx, `UPDATE jobs SET status='cancelled', lease_owner=NULL, lease_until=NULL, last_error=NULL, updated_at=? WHERE run_id=? AND status IN ('pending','retry','running')`, Now(), runID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// CancelRunAndJobs persists the terminal run and releases all associated job
+// leases in one transaction, so a cancellation cannot be half-applied.
+func (db *DB) CancelRunAndJobs(ctx context.Context, runID, finishedAt string) (int64, error) {
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	now := Now()
+	if _, err := tx.ExecContext(ctx, db.Rebind(`UPDATE runs SET status='cancelled', finished_at=?, updated_at=? WHERE id=?`), finishedAt, now, runID); err != nil {
+		return 0, err
+	}
+	result, err := tx.ExecContext(ctx, db.Rebind(`UPDATE jobs SET status='cancelled', lease_owner=NULL, lease_until=NULL, last_error=NULL, updated_at=? WHERE run_id=? AND status IN ('pending','retry','running')`), now, runID)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func (db *DB) SetJobRunID(ctx context.Context, jobID, runID string) error {
@@ -203,7 +235,7 @@ func (db *DB) FailJob(ctx context.Context, job *Job, message string) error {
 	}
 	backoff := time.Duration(job.Attempts*job.Attempts) * time.Minute
 	available := time.Now().UTC().Add(backoff).Format(time.RFC3339Nano)
-	_, err := db.Exec(ctx, `UPDATE jobs SET status=?, lease_owner=NULL, lease_until=NULL, available_at=?, last_error=?, updated_at=? WHERE id=?`, status, available, message, Now(), job.ID)
+	_, err := db.Exec(ctx, `UPDATE jobs SET status=?, lease_owner=NULL, lease_until=NULL, available_at=?, last_error=?, updated_at=? WHERE id=? AND status!='cancelled'`, status, available, message, Now(), job.ID)
 	return err
 }
 

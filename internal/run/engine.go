@@ -241,6 +241,7 @@ func defaultTicketPlan() []plannedTicket {
 }
 
 func (e *Engine) Resume(ctx context.Context, runID, fromPhase string) (*state.Run, error) {
+	explicitStart := strings.TrimSpace(fromPhase) != ""
 	r, err := e.DB.GetRun(ctx, runID)
 	if err != nil {
 		return nil, err
@@ -274,17 +275,8 @@ func (e *Engine) Resume(ctx context.Context, runID, fromPhase string) (*state.Ru
 		opts.StartAt = r.CurrentPhase
 	}
 	// If resuming the phase that already completed/stopped, advance to the next phase.
-	if opts.StartAt != "" {
-		if phases, err := e.DB.ListPhases(ctx, runID); err == nil {
-			for _, p := range phases {
-				if p.Phase == opts.StartAt && (p.Status == "completed" || p.Status == "skipped") {
-					if idx := phaseIndex(opts.StartAt); idx >= 0 && idx+1 < len(state.SoftwareEpicPhases) {
-						opts.StartAt = state.SoftwareEpicPhases[idx+1]
-					}
-					break
-				}
-			}
-		}
+	if phases, phaseErr := e.DB.ListPhases(ctx, runID); phaseErr == nil {
+		opts.StartAt = resumeStartPhase(opts.StartAt, explicitStart, phases)
 	}
 	r.Status = "running"
 	r.Error = ""
@@ -355,6 +347,9 @@ func (e *Engine) execute(ctx context.Context, r *state.Run, opts Options) (*stat
 
 		if err := e.runPhase(ctx, r, opts, phase); err != nil {
 			phaseErr := err
+			if cancelledRun, cancelErr := e.cancelledRun(ctx, r.ID, phaseErr); cancelledRun != nil {
+				return cancelledRun, cancelErr
+			}
 			if persistErr := e.DB.SetPhaseStatus(ctx, r.ID, phase, "failed", phaseErr.Error()); persistErr != nil {
 				phaseErr = errors.Join(phaseErr, fmt.Errorf("mark phase failed: %w", persistErr))
 			}

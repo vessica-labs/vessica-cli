@@ -22,6 +22,7 @@ type RunLifecycle struct {
 	Root           string
 	Config         config.Config
 	DestroySandbox SandboxDestroyFunc
+	RetainOnCancel bool
 }
 
 func NewRunLifecycle(db *state.DB, root string, cfg config.Config, destroy SandboxDestroyFunc) *RunLifecycle {
@@ -39,19 +40,25 @@ func (s *RunLifecycle) Cancel(ctx context.Context, runID, source string) (*state
 	}
 	runRecord.Status = "cancelled"
 	runRecord.FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	if err = s.DB.UpdateRun(ctx, runRecord); err != nil {
+	if _, err = s.DB.CancelRunAndJobs(ctx, runID, runRecord.FinishedAt); err != nil {
 		return nil, fmt.Errorf("persist run cancellation: %w", err)
+	}
+	if runRecord, err = s.DB.GetRun(ctx, runID); err != nil {
+		return nil, fmt.Errorf("reload cancelled run: %w", err)
 	}
 	sandboxes, err := s.DB.ListSandboxesForRun(ctx, runID)
 	if err != nil {
 		return nil, fmt.Errorf("list run sandboxes for cancellation: %w", err)
 	}
 	for i := range sandboxes {
+		if s.RetainOnCancel {
+			continue
+		}
 		if err = s.destroy(ctx, &sandboxes[i], "cancelled"); err != nil {
 			return nil, fmt.Errorf("destroy sandbox %s during cancellation: %w", sandboxes[i].ID, err)
 		}
 	}
-	if _, err = s.DB.AppendEvent(ctx, runID, "", "run.cancelled", map[string]any{"source": source}); err != nil {
+	if _, err = s.DB.AppendEvent(ctx, runID, "", "run.cancelled", map[string]any{"source": source, "sandbox_retained": s.RetainOnCancel}); err != nil {
 		return nil, fmt.Errorf("record run cancellation event: %w", err)
 	}
 	engine := &runengine.Engine{DB: s.DB, Root: s.Root, Config: s.Config}

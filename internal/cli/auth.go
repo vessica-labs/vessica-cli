@@ -4,12 +4,14 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/vessica-labs/vessica-cli/internal/auth"
+	"github.com/vessica-labs/vessica-cli/internal/config"
 )
 
 func newAuthCmd(app *App) *cobra.Command {
@@ -101,6 +103,9 @@ func loginProvider(ctx context.Context, cmd *cobra.Command, app *App, provider, 
 		if err != nil {
 			return nil, err
 		}
+		if err := rotateAttachedHostedCredential(ctx, app, provider); err != nil {
+			return nil, err
+		}
 		return map[string]any{"provider": provider, "logged_in": true, "method": "oauth_pkce", "expires_at": credential.ExpiresAt}, nil
 	case "github":
 		tok := firstNonEmpty(token, os.Getenv("VES_GITHUB_TOKEN"), os.Getenv("GITHUB_TOKEN"))
@@ -157,6 +162,27 @@ func loginProvider(ctx context.Context, cmd *cobra.Command, app *App, provider, 
 	default:
 		return nil, app.Printer.Fail("invalid_provider", "unsupported provider", "railway|linear|github|codex|gitlab|jira")
 	}
+}
+
+func rotateAttachedHostedCredential(ctx context.Context, app *App, provider string) error {
+	cfg, err := config.Load(app.Root)
+	if err != nil || !config.IsHostedAttachment(cfg) {
+		return nil
+	}
+	raw, err := auth.MarshalOAuth(provider)
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return err
+	}
+	secrets, err := loadRailwaySecrets(app.Root)
+	if err != nil {
+		return err
+	}
+	endpoint := strings.TrimRight(cfg.Hosted.ControlPlaneURL, "/") + "/api/v1/credentials/" + provider
+	var result map[string]any
+	if err := hostedRequest(ctx, http.MethodPut, endpoint, secrets.APIToken, map[string]string{"credential": raw}, &result); err != nil {
+		return fmt.Errorf("activate hosted %s credential: %w", provider, err)
+	}
+	return nil
 }
 
 func githubBrowserLogin(ctx context.Context, cmd *cobra.Command) (string, string, error) {

@@ -344,24 +344,37 @@ func (l *LocalDevSandbox) StartPreview(ctx context.Context, command string, port
 	if err := isolation.PrepareWorkdir(ctx, l.workdir); err != nil {
 		return "", err
 	}
-	cmd := isolation.CommandContext(ctx, l.workdir, "bash", "-lc", command)
-	logFile, err := os.CreateTemp("", "ves-preview-*.log")
-	if err == nil {
-		cmd.Stdout = logFile
-		cmd.Stderr = logFile
-		l.previewLog = logFile
-		l.previewLogPath = logFile.Name()
-	}
-	if err := cmd.Start(); err != nil {
-		if logFile != nil {
-			_ = logFile.Close()
+	if os.Getenv("VES_CODEX_EXTERNAL_SANDBOX") == "1" {
+		logPath := filepath.Join(l.workdir, ".vessica-preview.log")
+		pidPath := filepath.Join(l.workdir, ".vessica-preview.pid")
+		script := "if test -f " + shellQuote(pidPath) + " && kill -0 $(cat " + shellQuote(pidPath) + ") 2>/dev/null; then exit 0; fi; " +
+			"nohup bash -lc " + shellQuote(command) + " >>" + shellQuote(logPath) + " 2>&1 </dev/null & echo $! >" + shellQuote(pidPath)
+		if output, err := isolation.CommandContext(ctx, l.workdir, "bash", "-lc", script).CombinedOutput(); err != nil {
+			return "", fmt.Errorf("start detached preview: %w: %s", err, strings.TrimSpace(string(output)))
 		}
-		return "", err
+		l.previewLogPath = logPath
+	} else {
+		cmd := isolation.CommandContext(context.Background(), l.workdir, "bash", "-lc", command)
+		logFile, err := os.CreateTemp("", "ves-preview-*.log")
+		if err == nil {
+			cmd.Stdout = logFile
+			cmd.Stderr = logFile
+			l.previewLog = logFile
+			l.previewLogPath = logFile.Name()
+		}
+		if err := cmd.Start(); err != nil {
+			if logFile != nil {
+				_ = logFile.Close()
+			}
+			return "", err
+		}
+		l.previewCmd = cmd
 	}
-	l.previewCmd = cmd
 	url, _ := l.ExposePort(ctx, port)
 	if healthcheck == "" {
 		healthcheck = url
+	} else {
+		healthcheck = rewriteHealthcheckURL(healthcheck, url)
 	}
 	if err := waitForHTTP(ctx, healthcheck, 30*time.Second); err != nil {
 		_ = l.StopPreview(context.Background())
@@ -372,6 +385,11 @@ func (l *LocalDevSandbox) StartPreview(ctx context.Context, command string, port
 }
 
 func (l *LocalDevSandbox) StopPreview(ctx context.Context) error {
+	if os.Getenv("VES_CODEX_EXTERNAL_SANDBOX") == "1" {
+		pidPath := filepath.Join(l.workdir, ".vessica-preview.pid")
+		stop := "test -f " + shellQuote(pidPath) + " && kill $(cat " + shellQuote(pidPath) + ") 2>/dev/null || true; rm -f " + shellQuote(pidPath)
+		_ = isolation.CommandContext(ctx, l.workdir, "bash", "-lc", stop).Run()
+	}
 	if l.previewCmd != nil && l.previewCmd.Process != nil {
 		_ = l.previewCmd.Process.Kill()
 		_, _ = l.previewCmd.Process.Wait()

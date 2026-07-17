@@ -19,14 +19,6 @@ import (
 )
 
 func configureRailwayService(ctx context.Context, cfg config.Config, secrets railwaySecrets, controlDatabaseURL, linearToken, linearOAuth, railwayOAuth, githubToken, openAIKey, codexAuthB64, previewOrigin string) error {
-	privateKeyPath, err := railwaySSHUserKeyPath(cfg)
-	if err != nil {
-		return err
-	}
-	privateKey, err := os.ReadFile(privateKeyPath)
-	if err != nil {
-		return fmt.Errorf("read Railway SSH identity: %w", err)
-	}
 	variables := map[string]string{
 		"VES_CONTROL_DATABASE_URL": controlDatabaseURL, "VES_STATE_BACKEND": "postgres-url",
 		"VES_SANDBOX": "railway", "VES_HOSTED_PROVIDER": "railway", "VES_CONTROL_PLANE_URL": cfg.Hosted.ControlPlaneURL,
@@ -43,9 +35,8 @@ func configureRailwayService(ctx context.Context, cfg config.Config, secrets rai
 		"GITHUB_TOKEN": githubToken, "OPENAI_API_KEY": openAIKey, "RAILWAY_TOKEN": secrets.RuntimeToken,
 		"VES_LINEAR_OAUTH_JSON": linearOAuth, "VES_RAILWAY_OAUTH_JSON": railwayOAuth,
 		"VES_CREDENTIAL_ENCRYPTION_KEY": secrets.CredentialKey, "VES_CODEX_AUTH_B64": codexAuthB64,
-		"VES_RAILWAY_SSH_PRIVATE_KEY": string(privateKey),
-		"VES_WORKSPACE_ID":            cfg.Knowledge.WorkspaceID,
-		"VES_KNOWLEDGE_MODE":          "hosted", "VES_KNOWLEDGE_WORKSPACE_ID": cfg.Knowledge.WorkspaceID,
+		"VES_WORKSPACE_ID":   cfg.Knowledge.WorkspaceID,
+		"VES_KNOWLEDGE_MODE": "hosted", "VES_KNOWLEDGE_WORKSPACE_ID": cfg.Knowledge.WorkspaceID,
 		"VES_KNOWLEDGE_ENDPOINT": cfg.Knowledge.Endpoint, "VES_KNOWLEDGE_TOKEN": secrets.KnowledgeToken,
 		"VES_DASHBOARD_ENABLED": "true", "VES_DASHBOARD_ORIGIN": cfg.Hosted.ControlPlaneURL, "VES_PREVIEW_ORIGIN": previewOrigin,
 		"VES_GITHUB_OAUTH_CLIENT_ID": firstNonEmpty(os.Getenv("VES_GITHUB_OAUTH_CLIENT_ID"), dashboard.DefaultGitHubClientID),

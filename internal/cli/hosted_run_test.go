@@ -114,3 +114,67 @@ func TestHostedCommandsUseControlPlaneWithoutCreatingLocalState(t *testing.T) {
 		}
 	}
 }
+
+func TestHostedLifecycleCommandsNeverOpenLocalRunEngine(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("VES_AUTH_STORE", "file")
+	var mutations []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/v1/runs/run_hosted/resume" || r.URL.Path == "/api/v1/runs/run_hosted/cancel":
+			if r.Header.Get("Idempotency-Key") == "" {
+				http.Error(w, "missing key", http.StatusBadRequest)
+				return
+			}
+			mutations = append(mutations, r.URL.Path)
+			_ = json.NewEncoder(w).Encode(map[string]any{"run": map[string]any{"id": "run_hosted", "status": "pending"}})
+		case r.URL.Path == "/api/v1/epics/epic_hosted/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"epic": map[string]any{"id": "epic_hosted"}, "tickets": 1, "ready": 1})
+		case r.URL.Path == "/api/v1/sandboxes":
+			_ = json.NewEncoder(w).Encode([]map[string]any{{"id": "sandbox_hosted", "backend": "railway", "status": "running"}})
+		case r.URL.Path == "/api/v1/sandboxes/sandbox_hosted/logs":
+			_ = json.NewEncoder(w).Encode(map[string]string{"logs": "sanitized"})
+		case r.URL.Path == "/api/v1/sandboxes/sandbox_hosted":
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "sandbox_hosted", "backend": "railway", "status": "running"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	cfg := config.HostedDefaults()
+	cfg.Attachment = config.AttachmentConfig{WorkspaceID: "ws_hosted", RepositoryID: "repo_hosted"}
+	cfg.Hosted.ControlPlaneURL = server.URL
+	cfg.Repo.Remote = "https://github.com/acme/service.git"
+	if err := config.Save(root, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := saveRailwaySecrets(root, railwaySecrets{APIToken: "test-token"}); err != nil {
+		t.Fatal(err)
+	}
+	commands := [][]string{
+		{"run", "resume", "run_hosted", "--from", "validate", "--no-stream", "--yes", "--json"},
+		{"run", "cancel", "run_hosted", "--yes", "--json"},
+		{"epic", "status", "epic_hosted", "--json"},
+		{"sandbox", "list", "--json"},
+		{"sandbox", "view", "sandbox_hosted", "--json"},
+		{"sandbox", "logs", "sandbox_hosted", "--json"},
+	}
+	for _, args := range commands {
+		if output := runCLI(t, root, args...); !strings.Contains(output, `"ok":true`) {
+			t.Fatalf("ves %v output=%s", args, output)
+		}
+	}
+	if len(mutations) != 2 {
+		t.Fatalf("mutations=%v", mutations)
+	}
+	if _, err := os.Stat(config.SQLitePath(root)); !os.IsNotExist(err) {
+		t.Fatalf("hosted lifecycle opened local state: %v", err)
+	}
+}

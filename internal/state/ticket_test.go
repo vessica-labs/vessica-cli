@@ -77,6 +77,35 @@ func TestClaimLeaseAndWaves(t *testing.T) {
 	}
 }
 
+func TestValidationFailureTicketIsIdempotentAndResolvedByPassingRetry(t *testing.T) {
+	dir := t.TempDir()
+	db, err := Open("sqlite", filepath.Join(dir, "validation.db"), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	if _, err := db.EnsureWorkspace(ctx, dir, "solo"); err != nil {
+		t.Fatal(err)
+	}
+	epic, _ := db.CreateEpic(ctx, "Validation", "body")
+	first, err := db.CreateTicketWithMeta(ctx, epic.ID, "bug", "Failed", "body", nil, "run-1", "step_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := db.CreateTicketWithMeta(ctx, epic.ID, "bug", "Failed again", "body", nil, "run-1", "step_1")
+	if err != nil || second.ID != first.ID {
+		t.Fatalf("first=%s second=%#v err=%v", first.ID, second, err)
+	}
+	if count, err := db.ResolveValidationFailure(ctx, "run-1", "step_1"); err != nil || count != 1 {
+		t.Fatalf("resolved=%d err=%v", count, err)
+	}
+	resolved, _ := db.GetTicket(ctx, first.ID)
+	if resolved.Status != "closed" {
+		t.Fatalf("status=%s", resolved.Status)
+	}
+}
+
 func TestRunScopedWavesDoNotIncludePriorRunTickets(t *testing.T) {
 	dir := t.TempDir()
 	db, err := Open("sqlite", filepath.Join(dir, "t.db"), dir)

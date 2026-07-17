@@ -8,7 +8,10 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -110,9 +113,9 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 					return credentialManager.Token(ctx, "railway")
 				}
 			}
-			go launcher.RestorePreviews(cmd.Context())
 			server := &controlplane.Server{
 				DB: db, Config: cfg, Linear: linear, Launcher: launcher, PreviewBroker: broker,
+				Credentials:         credentialManager,
 				LinearWebhookSecret: os.Getenv("VES_LINEAR_WEBHOOK_SECRET"),
 				APIToken:            os.Getenv("VES_CONTROL_PLANE_API_TOKEN"),
 				WorkerDownloadToken: os.Getenv("VES_WORKER_DOWNLOAD_TOKEN"),
@@ -144,6 +147,7 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 				dash.DestroyAction = server.DashboardDestroy
 				server.Dashboard = dash.Handler()
 			}
+			go server.RestoreHostedPreviews(cmd.Context())
 			return server.Run(cmd.Context(), addr)
 		},
 	}
@@ -156,7 +160,7 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 	}
 	cmd.AddCommand(serve)
 
-	var runID string
+	var runID, fromPhase string
 	worker := &cobra.Command{
 		Use:   "worker",
 		Short: "Execute one run inside a Railway sandbox",
@@ -169,7 +173,7 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 				return err
 			}
 			defer db.Close()
-			result, err := engine.Resume(cmd.Context(), runID, "")
+			result, err := engine.Resume(cmd.Context(), runID, fromPhase)
 			if result != nil {
 				fmt.Fprintf(cmd.OutOrStdout(), "run %s: %s\n", result.ID, result.Status)
 			}
@@ -177,6 +181,7 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 		},
 	}
 	worker.Flags().StringVar(&runID, "run-id", "", "run id to execute")
+	worker.Flags().StringVar(&fromPhase, "from", "", "phase to resume from")
 
 	var promptRunID, promptB64 string
 	promptWorker := &cobra.Command{
@@ -210,7 +215,25 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 	}
 	promptWorker.Flags().StringVar(&promptRunID, "run-id", "", "run id attached to the retained sandbox")
 	promptWorker.Flags().StringVar(&promptB64, "prompt-b64", "", "base64url-encoded refinement prompt")
-	cmd.AddCommand(worker, promptWorker)
+	var tunnelRunID, tunnelLocalURL, tunnelControlURL string
+	previewTunnel := &cobra.Command{
+		Use:   "preview-tunnel",
+		Short: "Relay a sandbox preview to the hosted control plane",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if tunnelRunID == "" || tunnelLocalURL == "" || tunnelControlURL == "" {
+				return fmt.Errorf("--run-id, --local-url, and --control-url are required")
+			}
+			token := strings.TrimSpace(os.Getenv("VES_WORKER_DOWNLOAD_TOKEN"))
+			if token == "" {
+				return fmt.Errorf("VES_WORKER_DOWNLOAD_TOKEN is required")
+			}
+			return controlplane.RunPreviewTunnel(cmd.Context(), tunnelControlURL, tunnelRunID, tunnelLocalURL, token)
+		},
+	}
+	previewTunnel.Flags().StringVar(&tunnelRunID, "run-id", "", "run id to relay")
+	previewTunnel.Flags().StringVar(&tunnelLocalURL, "local-url", "", "loopback preview URL inside the sandbox")
+	previewTunnel.Flags().StringVar(&tunnelControlURL, "control-url", "", "public control-plane URL")
+	cmd.AddCommand(worker, promptWorker, previewTunnel)
 	return cmd
 }
 
@@ -253,7 +276,7 @@ func openHostedWorker(ctx context.Context) (*runengine.Engine, *state.DB, error)
 	for _, key := range []string{
 		"VES_CONTROL_DATABASE_URL", "VES_KNOWLEDGE_DATABASE_URL", "GITHUB_TOKEN", "LINEAR_API_KEY",
 		"RAILWAY_TOKEN", "RAILWAY_API_TOKEN", "VES_WORKER_DOWNLOAD_TOKEN",
-		"VES_RAILWAY_SSH_PRIVATE_KEY", "VES_CONTROL_PLANE_API_TOKEN",
+		"VES_CONTROL_PLANE_API_TOKEN",
 		"VES_CODEX_AUTH_B64",
 	} {
 		_ = os.Unsetenv(key)
@@ -269,7 +292,27 @@ func hostedCredentialManager(ctx context.Context, db *state.DB) (*controlplane.C
 	if initial["railway"] == "" && initial["linear"] == "" && strings.TrimSpace(os.Getenv("VES_CREDENTIAL_ENCRYPTION_KEY")) == "" {
 		return nil, nil
 	}
-	return controlplane.NewCredentialManager(ctx, db, os.Getenv("VES_CREDENTIAL_ENCRYPTION_KEY"), initial)
+	return controlplane.NewCredentialManagerWithValidator(ctx, db, os.Getenv("VES_CREDENTIAL_ENCRYPTION_KEY"), initial, validateHostedCredential)
+}
+
+func validateHostedCredential(ctx context.Context, provider, accessToken string) error {
+	if strings.TrimSpace(accessToken) == "" {
+		return fmt.Errorf("access token is empty")
+	}
+	switch provider {
+	case "linear":
+		_, err := tracker.NewLinearClient(accessToken).Discover(ctx)
+		return err
+	case "railway":
+		command := exec.CommandContext(ctx, railwayPath(), "whoami", "--json")
+		command.Env = append(os.Environ(), "RAILWAY_API_TOKEN="+accessToken)
+		if err := command.Run(); err != nil {
+			return fmt.Errorf("Railway rejected the supplied OAuth credential")
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported OAuth provider %q", provider)
+	}
 }
 
 func installCodexAuth() error {
@@ -296,7 +339,28 @@ func installCodexAuth() error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "auth.json"), data, 0o600)
+	path := filepath.Join(dir, "auth.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return err
+	}
+	if runner := strings.TrimSpace(os.Getenv("VES_RUNNER_USER")); runner != "" {
+		account, err := user.Lookup(runner)
+		if err != nil {
+			return fmt.Errorf("resolve runner account: %w", err)
+		}
+		uid, uidErr := strconv.Atoi(account.Uid)
+		gid, gidErr := strconv.Atoi(account.Gid)
+		if uidErr != nil || gidErr != nil {
+			return fmt.Errorf("resolve runner ownership")
+		}
+		if err := os.Chown(dir, uid, gid); err != nil {
+			return err
+		}
+		if err := os.Chown(path, uid, gid); err != nil {
+			return err
+		}
+	}
+	return os.Chmod(path, 0o600)
 }
 
 func configureHostedAuth() error {

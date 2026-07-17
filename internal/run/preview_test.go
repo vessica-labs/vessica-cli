@@ -2,9 +2,11 @@ package run
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +18,43 @@ import (
 type previewSandbox struct {
 	command string
 	url     string
+}
+
+func TestHostedValidationPreviewNeverPersistsLoopbackURL(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte(`{"scripts":{"start":"node server.mjs"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	db, err := state.Open("sqlite", "", root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	if _, err := db.EnsureWorkspace(ctx, root, "hosted"); err != nil {
+		t.Fatal(err)
+	}
+	epic, _ := db.CreateEpic(ctx, "Hosted preview", "body")
+	runRecord, _ := db.CreateRun(ctx, epic.ID, "", "codex", "model", "high", "railway", 1, true, "draft", "", "")
+	sandboxRecord, _ := db.CreateSandbox(ctx, runRecord.ID, "railway", "preview-test")
+	sandboxRecord.ContainerID, sandboxRecord.Status = "railway-sandbox", "running"
+	_ = db.UpdateSandbox(ctx, sandboxRecord)
+	fake := &previewSandbox{url: "http://127.0.0.1:3000"}
+	engine := &Engine{DB: db, Root: root, Config: config.Defaults()}
+	if err := engine.startPreviewInSandbox(ctx, runRecord, sandboxRecord, fake, root, "validate"); err != nil {
+		t.Fatal(err)
+	}
+	storedRun, _ := db.GetRun(ctx, runRecord.ID)
+	storedSandbox, _ := db.GetSandboxForRun(ctx, runRecord.ID)
+	if storedRun.PreviewURL != "" || storedSandbox.PreviewURL != "" {
+		t.Fatalf("loopback URL persisted: run=%q sandbox=%q", storedRun.PreviewURL, storedSandbox.PreviewURL)
+	}
+	if !strings.Contains(storedSandbox.MetaJSON, "validation_preview_url") {
+		t.Fatalf("validation URL was not retained internally: %s", storedSandbox.MetaJSON)
+	}
+	if !previewConnectionFailure(errors.New("page.goto: net::ERR_CONNECTION_REFUSED")) || previewConnectionFailure(errors.New("assertion failed")) {
+		t.Fatal("connection failure classification is incorrect")
+	}
 }
 
 func (s *previewSandbox) Create(context.Context, sandbox.CreateOpts) error { return nil }
