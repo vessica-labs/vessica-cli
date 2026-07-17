@@ -276,6 +276,19 @@ func TestResolveLinearConfigPrefersRequestedTeamAndStates(t *testing.T) {
 	}
 }
 
+func TestResolveLinearProjectBySlugAndTeam(t *testing.T) {
+	project := tracker.LinearProject{ID: "project-id", Name: "Launch", SlugID: "launch"}
+	project.Teams.Nodes = []tracker.LinearTeam{{ID: "team-id", Name: "Product", Key: "PROD"}}
+	discovery := &tracker.LinearDiscovery{Projects: []tracker.LinearProject{project}}
+	resolved, err := resolveLinearProject(discovery, "team-id", "launch", "")
+	if err != nil || resolved.ID != "project-id" {
+		t.Fatalf("project=%#v err=%v", resolved, err)
+	}
+	if _, err := resolveLinearProject(discovery, "other-team", "launch", ""); err == nil {
+		t.Fatal("expected team mismatch")
+	}
+}
+
 func TestRailwayJSONParsing(t *testing.T) {
 	id, err := objectID([]byte(`{"project":{"id":"project-1"}}`))
 	if err != nil || id != "project-1" {

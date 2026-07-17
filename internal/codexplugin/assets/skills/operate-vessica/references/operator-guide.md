@@ -67,6 +67,8 @@ The command resolves compatible release images to immutable digests, provisions 
 
 One Railway Postgres service contains two isolated logical databases. The control plane uses `vessica_control`; the knowledge service uses `vessica_knowledge`, which alone has pgvector. Their credentials, URLs, migration histories, and application access remain separate.
 
+Connect Linear separately with `ves integration connect linear --project <id-slug-or-name> --dry-run --json`, then confirm with `--yes` and an idempotency key. Change the default with `ves integration switch-project linear --project <id-slug-or-name>` using the same dry-run and confirmation flow. These commands redeploy only the control plane.
+
 There is no local fallback. Resume the same hosted onboarding operation after correcting a typed failure.
 
 ## Failure routing

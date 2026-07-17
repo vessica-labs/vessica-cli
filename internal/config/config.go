@@ -59,6 +59,7 @@ type TrackerConfig struct {
 	Provider       string `yaml:"provider" json:"provider"` // linear | jira | none
 	Mode           string `yaml:"mode" json:"mode"`
 	TeamID         string `yaml:"team_id,omitempty" json:"team_id,omitempty"`
+	ProjectID      string `yaml:"project_id,omitempty" json:"project_id,omitempty"`
 	TodoStateID    string `yaml:"todo_state_id,omitempty" json:"todo_state_id,omitempty"`
 	WIPStateID     string `yaml:"wip_state_id,omitempty" json:"wip_state_id,omitempty"`
 	DoneStateID    string `yaml:"done_state_id,omitempty" json:"done_state_id,omitempty"`
@@ -217,6 +218,8 @@ func Set(c *Config, key, value string) error {
 		c.Tracker.Mode = value
 	case "tracker.team_id":
 		c.Tracker.TeamID = value
+	case "tracker.project_id":
+		c.Tracker.ProjectID = value
 	case "tracker.todo_state_id":
 		c.Tracker.TodoStateID = value
 	case "tracker.wip_state_id":
@@ -310,6 +313,7 @@ func flatten(c Config) map[string]string {
 		"tracker.provider":           c.Tracker.Provider,
 		"tracker.mode":               c.Tracker.Mode,
 		"tracker.team_id":            c.Tracker.TeamID,
+		"tracker.project_id":         c.Tracker.ProjectID,
 		"tracker.todo_state_id":      c.Tracker.TodoStateID,
 		"tracker.wip_state_id":       c.Tracker.WIPStateID,
 		"tracker.done_state_id":      c.Tracker.DoneStateID,
@@ -382,6 +386,9 @@ func ApplyEnv(c *Config) {
 	}
 	if v := os.Getenv("VES_LINEAR_TEAM_ID"); v != "" {
 		c.Tracker.TeamID = v
+	}
+	if v := os.Getenv("VES_LINEAR_PROJECT_ID"); v != "" {
+		c.Tracker.ProjectID = v
 	}
 	if v := os.Getenv("VES_LINEAR_TODO_STATE_ID"); v != "" {
 		c.Tracker.TodoStateID = v

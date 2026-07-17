@@ -148,6 +148,11 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		}
 		cfg.Tracker.Provider = "linear"
 		cfg.Tracker.TeamID, cfg.Tracker.TodoStateID = team.ID, states["todo"]
+		project, resolveErr := resolveLinearProject(discovery, team.ID, opts.LinearProject, cfg.Tracker.ProjectID)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		cfg.Tracker.ProjectID = project.ID
 		cfg.Tracker.WIPStateID, cfg.Tracker.DoneStateID = states["wip"], states["done"]
 		cfg.Tracker.BlockedStateID = states["blocked"]
 		cfg.Tracker.TriggerLabel = resolvedTriggerLabel(opts.TriggerLabel, cfg.Tracker.TriggerLabel)
@@ -264,7 +269,7 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		"control_plane_url": cfg.Hosted.ControlPlaneURL, "webhook_id": secrets.WebhookID,
 		"knowledge_endpoint": cfg.Knowledge.Endpoint, "knowledge_service_id": cfg.Knowledge.ServiceID,
 		"retrieval_mode": "lexical", "embedding_state": "not_configured",
-		"linear_connected": linear != nil, "linear_team": team.Name, "todo_state_id": cfg.Tracker.TodoStateID}, nil
+		"linear_connected": linear != nil, "linear_team": team.Name, "linear_project_id": cfg.Tracker.ProjectID, "todo_state_id": cfg.Tracker.TodoStateID}, nil
 }
 
 func linkRailwayWorkDir(ctx context.Context, workDir string, cfg config.Config) error {
