@@ -14,17 +14,15 @@ func TestParallelBuildGatesOverlapIndependentLanesAndPreserveBuildBeforeTest(t *
 	defer db.Close()
 	engine := &Engine{DB: db, Root: root}
 	commands := []namedBuildCommand{
-		{name: "lint", cmd: "sleep 0.20"},
-		{name: "lint-arch", cmd: "sleep 0.20"},
-		{name: "build", cmd: "sleep 0.20 && printf build > build.marker"},
-		{name: "test", cmd: "test -f build.marker && sleep 0.20"},
+		{name: "lint", cmd: "touch lint.started; for i in $(seq 1 200); do [ -f build.started ] && exit 0; sleep 0.01; done; exit 1"},
+		{name: "lint-arch", cmd: "true"},
+		{name: "build", cmd: "touch build.started; for i in $(seq 1 200); do if [ -f lint.started ]; then touch build.marker; exit 0; fi; sleep 0.01; done; exit 1"},
+		{name: "test", cmd: "test -f build.marker"},
 	}
-	started := time.Now()
-	if err := engine.runParallelBuildGates(context.Background(), runRecord, root, commands); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := engine.runParallelBuildGates(ctx, runRecord, root, commands); err != nil {
 		t.Fatal(err)
-	}
-	if elapsed := time.Since(started); elapsed >= 650*time.Millisecond {
-		t.Fatalf("independent gates did not overlap: %s", elapsed)
 	}
 }
 
