@@ -31,13 +31,13 @@ func (e *Engine) openSandbox(ctx context.Context, rec *state.Sandbox) (sandbox.S
 			return nil, err
 		}
 		workdirMode = "isolated_clone"
-	} else if rec.Branch != "" {
-		current, _ := repo.GitCommandContext(ctx, "-C", hostWorkdir, "branch", "--show-current").Output()
-		if strings.TrimSpace(string(current)) != rec.Branch {
-			if output, err := repo.GitCommandContext(ctx, "-C", hostWorkdir, "checkout", "-B", rec.Branch).CombinedOutput(); err != nil {
-				return nil, fmt.Errorf("checkout hosted run branch: %w: %s", err, strings.TrimSpace(string(output)))
-			}
+	} else {
+		var err error
+		hostWorkdir, err = e.prepareRailwayRunWorkdir(ctx, rec)
+		if err != nil {
+			return nil, err
 		}
+		workdirMode = "repository_checkpoint_worktree"
 	}
 	e.emit(ctx, rec.RunID, "run.infrastructure.stage", map[string]any{"stage": "integration_workdir", "duration_ms": time.Since(workdirStarted).Milliseconds(), "status": "completed", "mode": workdirMode, "cache_hit": rec.Backend == "railway"})
 	opts := sandbox.CreateOpts{
@@ -86,6 +86,47 @@ func (e *Engine) openSandbox(ctx context.Context, rec *state.Sandbox) (sandbox.S
 	rec.MetaJSON = string(meta)
 	_ = e.DB.UpdateSandbox(ctx, rec)
 	return sb, nil
+}
+
+func (e *Engine) prepareRailwayRunWorkdir(ctx context.Context, rec *state.Sandbox) (string, error) {
+	base := filepath.Join(filepath.Dir(e.Root), "runs", rec.RunID)
+	workdir := filepath.Join(base, "workspace")
+	if _, err := os.Stat(filepath.Join(workdir, ".git")); err == nil {
+		return workdir, nil
+	}
+	gitAtRoot := []string{"-c", "safe.directory=" + e.Root, "-C", e.Root}
+	_ = repo.GitCommandContext(ctx, append(gitAtRoot, "worktree", "remove", "--force", workdir)...).Run()
+	_ = os.RemoveAll(workdir)
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return "", err
+	}
+	branch := strings.TrimSpace(rec.Branch)
+	if branch == "" {
+		branch = "vessica/run/" + rec.RunID
+	}
+	out, err := repo.GitCommandContext(ctx, append(gitAtRoot, "worktree", "add", "-B", branch, workdir, "HEAD")...).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("create hosted run worktree: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	// Dependency trees are immutable inputs for a run unless their lockfile
+	// fingerprint changes during checkpoint sync. Share the prepared trees with
+	// the isolated worktree instead of copying or reinstalling them.
+	for _, relative := range []string{"node_modules", ".venv", "target", filepath.Join("vendor", "bundle"), ".gradle"} {
+		source := filepath.Join(e.Root, relative)
+		target := filepath.Join(workdir, relative)
+		if _, err := os.Stat(source); err != nil {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return "", err
+		}
+		if _, err := os.Lstat(target); os.IsNotExist(err) {
+			if err := os.Symlink(source, target); err != nil {
+				return "", fmt.Errorf("share repository dependency tree %s: %w", relative, err)
+			}
+		}
+	}
+	return workdir, nil
 }
 
 func (e *Engine) prepareRunWorkdir(ctx context.Context, rec *state.Sandbox) (string, error) {
