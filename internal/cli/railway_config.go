@@ -229,7 +229,21 @@ func verifyRailwayCLIVersion(ctx context.Context, path string) error {
 }
 
 func runRailway(ctx context.Context, dir string, stdin io.Reader, args ...string) ([]byte, error) {
-	output, err := runRailwayWithAuth(ctx, dir, stdin, true, args...)
+	var input []byte
+	if stdin != nil {
+		var err error
+		input, err = io.ReadAll(stdin)
+		if err != nil {
+			return nil, fmt.Errorf("read Railway command input: %w", err)
+		}
+	}
+	newInput := func() io.Reader {
+		if stdin == nil {
+			return nil
+		}
+		return bytes.NewReader(input)
+	}
+	output, err := runRailwayWithAuth(ctx, dir, newInput(), true, args...)
 	lower := strings.ToLower(firstNonEmpty(errorString(err), ""))
 	retryWithSession := strings.Contains(lower, "unauthorized") ||
 		strings.Contains(lower, "workspace") && strings.Contains(lower, "not found") ||
@@ -241,7 +255,7 @@ func runRailway(ctx context.Context, dir string, stdin io.Reader, args ...string
 	// surfaces (notably sandbox and SSH APIs) while the Railway CLI's own
 	// browser session remains healthy. An unauthorized response is safe to
 	// retry because Railway rejected the first request before applying it.
-	return runRailwayWithAuth(ctx, dir, stdin, false, args...)
+	return runRailwayWithAuth(ctx, dir, newInput(), false, args...)
 }
 
 func errorString(err error) string {
