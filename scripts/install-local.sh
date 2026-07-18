@@ -25,7 +25,9 @@ if [ "$installed_version" != "$built_version" ]; then
   exit 1
 fi
 
-"$installed_binary" setup codex --plugin --json >/dev/null
+plugin_workspace="$(mktemp -d)"
+trap 'rm -rf "$plugin_workspace"' EXIT
+"$installed_binary" --cwd "$plugin_workspace" setup codex --plugin --json >/dev/null
 
 if ! command -v codex >/dev/null 2>&1; then
   echo "Installed ves $installed_version and refreshed the plugin source; Codex is not on PATH, so its plugin cache was not refreshed." >&2
