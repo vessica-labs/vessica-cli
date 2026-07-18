@@ -104,7 +104,20 @@ func (e *Engine) prepareRailwayRunWorkdir(ctx context.Context, rec *state.Sandbo
 	if branch == "" {
 		branch = "vessica/run/" + rec.RunID
 	}
-	out, err := repo.GitCommandContext(ctx, append(gitAtRoot, "worktree", "add", "-B", branch, workdir, "HEAD")...).CombinedOutput()
+	startPoint := "HEAD"
+	if output, err := repo.GitCommandContext(ctx, append(gitAtRoot, "rev-parse", "HEAD")...).CombinedOutput(); err == nil {
+		startPoint = strings.TrimSpace(string(output))
+	}
+	// Checkpoints created by older workers may have the run branch checked out
+	// at the repository root. Git permits a branch in only one worktree, so
+	// detach that legacy checkout before moving the branch into the isolated
+	// run worktree. The captured start point preserves the completed run commit.
+	if output, err := repo.GitCommandContext(ctx, append(gitAtRoot, "branch", "--show-current")...).CombinedOutput(); err == nil && strings.TrimSpace(string(output)) == branch {
+		if output, err := repo.GitCommandContext(ctx, append(gitAtRoot, "checkout", "--detach", startPoint)...).CombinedOutput(); err != nil {
+			return "", fmt.Errorf("detach legacy hosted run checkout: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+	}
+	out, err := repo.GitCommandContext(ctx, append(gitAtRoot, "worktree", "add", "-B", branch, workdir, startPoint)...).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("create hosted run worktree: %w: %s", err, strings.TrimSpace(string(out)))
 	}
