@@ -43,6 +43,26 @@ Retained-run resume and refinement do not resynchronize the repository because
 the one-time checkpoint marker has already been consumed. This preserves the
 run branch and uncommitted preview state.
 
+## Operator checklist
+
+Before selecting a repository checkpoint for a fresh hosted run:
+
+- [ ] Confirm its recorded default-branch commit is still an acceptable starting
+  point. Fetch the current default-branch delta during sandbox setup; if the
+  checkpoint cannot be brought forward cleanly, do not use it.
+- [ ] Compare the recorded dependency-manifest fingerprint with the current
+  manifests and lockfiles. Refresh dependencies only when the fingerprint
+  changed; treat a missing, stale, or mismatched fingerprint as incompatible.
+- [ ] Verify the checkpoint attestation and the worker binary before executing
+  work. Accept the snapshot binary only when its recorded worker/toolchain
+  fingerprint matches; otherwise perform the full runtime verification or use
+  a verified worker download.
+- [ ] On any attestation, worker-binary, repository-sync, or dependency
+  verification failure, discard the candidate for this run and create a fresh
+  sandbox from the generic toolchain checkpoint. Do not repair or mutate the
+  golden repository checkpoint in place; retain the last known-good checkpoint
+  until a replacement has been fully verified and atomically published.
+
 ## Implemented waves
 
 ### Wave 0 — measurable baseline
