@@ -18,6 +18,8 @@ Hosted agent commands run as the unprivileged `vessica-agent` user with a dedica
 
 Repository build, validation, and preview commands use the same unprivileged boundary but do not receive the model credential. Working-tree content is writable by the isolated user; `.git` metadata remains privileged and orchestration Git commands disable repository hooks. Git trust is granted only for the exact generated worktree path and verified as the isolated user; `safe.directory=*` is never used. This prevents generated hooks or local Git configuration from executing later with worker authority.
 
+Runtime attestations and cached worker binaries are fingerprinted or SHA-256 verified before execution. A proactive repository checkpoint is captured only from a copy-on-write fork after run directories and agent authentication are removed and the checkpoint root passes a clean Git status check. Provider credentials and Railway variables are never written into the snapshot contract.
+
 ## Operational requirements
 
 - Configure a strong `VES_CONTROL_PLANE_API_TOKEN`, webhook secret, credential-encryption key, worker-download token, and OAuth credentials through Railway secrets.

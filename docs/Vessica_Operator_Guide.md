@@ -220,17 +220,21 @@ Playwright Chromium. Hosted checkpoints are named from the contract fingerprint,
 so a toolchain change creates a new checkpoint instead of silently mutating an
 existing one.
 
-Each attached repository can also have a derived repository checkpoint. Run
-`ves up --refresh --yes` after a material toolchain or dependency change to
-refresh the mapped commit and repository snapshot immediately. Normal source-only
-changes do not require a refresh: each sandbox fetches the remote Git delta while
-retaining warmed dependencies. Run receipts include `infrastructure` spans and
-`wall_elapsed` so operators can separate provisioning time from model and phase
-execution.
+Each attached repository also has a purpose-built derived checkpoint. First
+installation records its stack, package manager, manifests, workspace roots,
+and required tools as a reviewable specification. Run `ves up --refresh --yes`
+to force an immediate refresh. Normal runs fetch the default-branch delta and,
+after success, asynchronously fork and scrub the sandbox to capture the newer
+repository checkpoint. The active run does not wait for capture. Run receipts
+include `infrastructure` spans and `wall_elapsed` so operators can separate
+provisioning time from model and phase execution.
 
 For ticket worktrees, the worker reports `git_worktree_trust`,
 `worktree_dependencies`, and `coder_context_packet` infrastructure stages.
-`worktree_dependencies.mode` is `reflink`, `offline_install`, or `install`, and
+`worktree_dependencies.mode` is normally `snapshot_symlink`; `reflink`,
+`offline_install`, and `install` are compatibility fallbacks. `runtime_integrity`
+reports `snapshot_attestation` or `full_verify`, and `worker_download` reports
+`snapshot_binary` or `verified_download`. The
 `cache_hit` identifies paths that avoided a networked install. Engine-managed
 Codex events also report `mcp_policy`, `mcp_discovery`, and
 `mcp_disabled_count`. MCP servers are
@@ -238,8 +242,10 @@ disabled by default for these runs; set the worker variable
 `VES_CODEX_MCP_ALLOWLIST` to a comma-separated list only when a repository task
 requires a specific integration.
 
-An `xs` planning bundle can carry its single implementation ticket, allowing the
-ticketize phase to finish with `fast_path: true` and no second planning call.
+An explicitly declared, localized `xs` epic produces deterministic lean planning
+artifacts and a single implementation ticket, allowing both plan and ticketize
+to finish without model-backed decomposition. Ambiguous work still uses the
+planning model.
 Terminal epic status mirrors the run: draft PRs become `in_review`, successful
 non-review runs and approved merges become `completed`, and failed, cancelled,
 or rolled-back runs no longer remain stale at `planned`.

@@ -30,12 +30,12 @@ run request
   -> resolve compatible repository checkpoint
   -> create fresh Railway sandbox from checkpoint
   -> inject current variables and scoped worker database route
-  -> verify lightweight runtime integrity and Codex authentication
+  -> verify the checkpoint attestation and Codex authentication
   -> fetch and hard-reset to the current remote default branch
   -> refresh dependencies only if dependency manifests changed
   -> consume the one-time checkpoint marker
   -> create an isolated integration Git worktree
-  -> materialize path-specific dependency links from the baked package store
+  -> link immutable dependencies directly from the repository snapshot
   -> execute the Vessica phase graph
 ```
 
@@ -60,7 +60,11 @@ run branch and uncommitted preview state.
 - Keep the versioned toolchain checkpoint as the reproducible cold fallback.
 - Run the expensive synthetic package-script and Chromium launch smoke only
   when building the immutable checkpoint.
-- Use a lightweight version/browser-asset integrity check for every warm fork.
+- Persist a fingerprinted runtime attestation after the full checkpoint smoke
+  test. Warm forks use a subsecond attestation/path check and fall back to the
+  full version/browser check on any mismatch.
+- Persist the empty engine-managed MCP inventory in the checkpoint so the first
+  agent does not launch a discovery subprocess.
 
 ### Wave 2 — first-install repository analysis
 
@@ -79,8 +83,9 @@ run branch and uncommitted preview state.
 - Fetch only the Git delta and preserve installed dependency directories.
 - Refresh dependencies only when the manifest fingerprint changes.
 - Create an isolated Git worktree from the checkpoint checkout without a
-  second clone. Materialize pnpm's path-specific `node_modules` links once from
-  the baked store; share only dependency trees that are safe across worktrees.
+  second clone. Link the snapshot's immutable `node_modules` and other prepared
+  dependency trees directly into it, with package installation retained only
+  as a stale/missing-snapshot fallback.
 - Reuse a complete committed engineering pack or the CLI's embedded release
   pack instead of cloning the pack repository on each run.
 
@@ -94,6 +99,10 @@ run branch and uncommitted preview state.
   retained runs preserve their working state.
 - The generic toolchain checkpoint remains the automatic fallback when metadata
   is absent, stale, or invalid.
+- After a successful delta-based run, enqueue a copy-on-write fork that removes
+  run/auth state, verifies a clean root, captures the new default-branch
+  checkpoint, and atomically advances repository metadata. The active run never
+  waits for this proactive refresh.
 
 ### Wave 5 — benchmark and optimization loop
 
@@ -114,6 +123,8 @@ run branch and uncommitted preview state.
   agents run only targeted checks while editing.
 - Run build before tests for repositories whose rendered tests consume build
   output.
+- Run lint, architecture lint, and the build lane concurrently; run tests after
+  build. If any lane needs repair, rerun the complete gate set serially.
 - Remove preview PID/log artifacts before PR creation and retain a requested
   Railway sandbox until the launcher publishes its preview URL.
 
@@ -151,12 +162,18 @@ The post-benchmark runtime pass now includes:
    `safe.directory` for the unprivileged agent.
 4. Coders receive focused validation guidance and leave repository-wide gates to
    the engine.
-5. Railway worktrees try reflink dependency projection, then offline pnpm
-   reconstruction, before a normal install.
-6. Engine-managed Codex calls disable configured MCP servers by default and use
-   an explicit allowlist for tasks that need them.
+5. Railway worktrees link the immutable dependency tree from the repository
+   snapshot; reflink/offline/normal installs remain compatibility fallbacks.
+6. Engine-managed Codex calls consume a pre-attested MCP inventory, disable
+   configured MCP servers by default, and use an explicit allowlist for tasks
+   that need them.
 7. Epic status now follows completed, review, failure, cancellation, approval,
    and rollback outcomes instead of remaining stale at `planned`.
+8. Explicit, localized `xs` epics use deterministic lean planning artifacts and
+   skip the planning model call as well as duplicate ticketization.
+9. The release workflow builds amd64 and arm64 containers on native runners,
+   verifies both architectures, and publishes the multi-architecture manifest
+   atomically before creating the GitHub release.
 
 These paths emit explicit infrastructure or agent metadata so the next hosted
 benchmark can measure each saving independently. VM sizing remains unchanged.
@@ -172,16 +189,13 @@ benchmark can measure each saving independently. VM sizing remains unchanged.
 3. **Worker API boundary:** replace direct worker database access with a
    short-lived, least-privilege control-plane worker API. This removes database
    credentials from sandboxes and makes the fast route provider-independent.
-4. **Automatic refresh and garbage collection:** rebuild repository checkpoints
-   asynchronously after default-branch lockfile changes, retain the last known
-   good checkpoint, and garbage-collect unreferenced generations.
-5. **Stack and monorepo profiles:** persist detected workspace roots, package
-   managers, runtime versions, native packages, browsers, database clients, and
-   build tools as a reviewable checkpoint specification.
+4. **Checkpoint garbage collection:** retain the last known good checkpoint and
+   garbage-collect older unreferenced generations after a safety window.
+5. **Deeper monorepo profiles:** extend the persisted reviewable snapshot
+   specification with package-level workspace roots and repository-specific
+   native/database clients when evidence requires them.
 6. **SLO telemetry:** publish p50/p95 timing histograms by repository, stack,
    checkpoint generation, and phase before changing VM size.
-7. **Release acceleration:** replace emulated multi-architecture container
-   builds with native build matrices and merged manifests.
 
 VM sizing is not the primary constraint in this benchmark. The final build took
 about 5.6 seconds and tests about 0.6 seconds; the removed delays were database
