@@ -228,6 +228,22 @@ retaining warmed dependencies. Run receipts include `infrastructure` spans and
 `wall_elapsed` so operators can separate provisioning time from model and phase
 execution.
 
+For ticket worktrees, the worker reports `git_worktree_trust`,
+`worktree_dependencies`, and `coder_context_packet` infrastructure stages.
+`worktree_dependencies.mode` is `reflink`, `offline_install`, or `install`, and
+`cache_hit` identifies paths that avoided a networked install. Engine-managed
+Codex events also report `mcp_policy`, `mcp_discovery`, and
+`mcp_disabled_count`. MCP servers are
+disabled by default for these runs; set the worker variable
+`VES_CODEX_MCP_ALLOWLIST` to a comma-separated list only when a repository task
+requires a specific integration.
+
+An `xs` planning bundle can carry its single implementation ticket, allowing the
+ticketize phase to finish with `fast_path: true` and no second planning call.
+Terminal epic status mirrors the run: draft PRs become `in_review`, successful
+non-review runs and approved merges become `completed`, and failed, cancelled,
+or rolled-back runs no longer remain stale at `planned`.
+
 ### Linear projection failure
 
 Vessica remains canonical. Inspect Railway outbox/log status and retry synchronization; do not recreate local epics to compensate.

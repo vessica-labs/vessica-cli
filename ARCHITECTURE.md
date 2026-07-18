@@ -36,7 +36,15 @@ Hosted public previews use loopback-only Railway sandbox forwards owned by the s
 
 Railway worker sandboxes are horizontally scalable and separate from the singleton control plane. Agent processes run as an unprivileged user and receive an allowlisted environment rather than the control plane's environment.
 
-All repository-controlled execution—agent tools, build, validation, and preview—runs across that unprivileged boundary in hosted workers. Git metadata is not writable by the agent, and privileged orchestration Git commands disable repository hooks.
+All repository-controlled execution—agent tools, build, validation, and preview—runs across that unprivileged boundary in hosted workers. Git metadata is not writable by the agent, privileged orchestration Git commands disable repository hooks, and each generated worktree is registered as a single exact `safe.directory` for the agent before Codex starts. Wildcard trust is forbidden.
+
+Repository checkpoints are the warm source of toolchains, the checkout, and dependencies. Ticket worktrees project a baked `node_modules` tree with a copy-on-write reflink when the filesystem supports it, then try an offline package-manager reconstruction, and only then use the ordinary install contract. Each result is emitted as an infrastructure stage so receipts distinguish projection, offline reconstruction, and network fallback.
+
+The planning call may return a validated single ticket for `xs` work. The durable ticketization phase reuses that result instead of making a second model call; larger work retains dependency-aware ticketization. Coding agents receive a bounded, version-matched context packet containing current-run planning artifacts, relevant CLI/receipt contracts, and focused validation guidance. The engine—not the coding agent—owns repository-wide build, lint, test, preview, and receipt gates.
+
+Engine-managed Codex calls use a minimal MCP profile. Enabled MCP servers are discovered once per worker identity and disabled per invocation unless named in `VES_CODEX_MCP_ALLOWLIST`; this policy changes agent startup configuration without mutating the user's Codex configuration.
+
+Epic lifecycle state follows terminal run truth: planning produces `planned`, successful draft-PR runs produce `in_review`, fully terminal runs or approved merges produce `completed`, and failure, cancellation, or rollback produce their corresponding terminal epic state.
 
 Before enabling multiple control-plane replicas, replace process-local preview/stream coordination, audit every singleton loop, introduce distributed ownership for scheduled work, and test all claims and projections under concurrent Postgres writers.
 
