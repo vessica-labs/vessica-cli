@@ -33,9 +33,14 @@ type planningBundle struct {
 	Complexity            string         `json:"complexity"`
 	Rationale             string         `json:"complexity_rationale"`
 	Ticket                *plannedTicket `json:"ticket,omitempty"`
+	Mode                  string         `json:"-"`
 }
 
 func (e *Engine) generatePlanningBundle(ctx context.Context, r *state.Run, epic *state.Epic) (planningBundle, error) {
+	if bundle, ok := deterministicXSPlanningBundle(epic); ok {
+		bundle.Mode = "deterministic_xs"
+		return bundle, nil
+	}
 	if simulationMode() {
 		return planningBundle{
 			PRDMarkdown:           fmt.Sprintf("# %s\n\n## Problem\n\n%s\n\n## Requirements\n\n- Implement the requested behavior.\n- Preserve build, preview, and validation health.\n", epic.Title, epic.Body),
@@ -44,6 +49,7 @@ func (e *Engine) generatePlanningBundle(ctx context.Context, r *state.Run, epic 
 			TestScenariosMarkdown: fmt.Sprintf("# Test Scenarios: %s\n\n1. Happy path works\n2. Required validation or error state works\n3. Existing build and preview remain green\n", epic.Title),
 			Complexity:            "s",
 			Rationale:             "simulation fallback",
+			Mode:                  "simulation",
 		}, nil
 	}
 	prompt := fmt.Sprintf(`Create a lean planning bundle for this software epic.
@@ -91,7 +97,45 @@ Epic body:
 	if err != nil {
 		return planningBundle{}, err
 	}
+	bundle.Mode = "model"
 	return bundle, nil
+}
+
+// deterministicXSPlanningBundle bypasses the planner model only when the
+// author explicitly declares an XS task and the requested shape is localized.
+// The explicit declaration is intentional: ambiguous work still receives the
+// full model-based complexity assessment.
+func deterministicXSPlanningBundle(epic *state.Epic) (planningBundle, bool) {
+	if epic == nil {
+		return planningBundle{}, false
+	}
+	text := strings.TrimSpace(epic.Title + "\n" + epic.Body)
+	lower := strings.ToLower(text)
+	explicitXS := strings.Contains(lower, "complexity: xs") || strings.Contains(lower, "complexity=xs") ||
+		strings.Contains(lower, "intentionally xs") || strings.Contains(lower, "xs benchmark") || strings.Contains(lower, "[xs]")
+	localized := strings.Contains(lower, "one localized") || strings.Contains(lower, "single file") ||
+		strings.Contains(lower, "copy change") || strings.Contains(lower, "documentation") || strings.Contains(lower, "docs") ||
+		strings.Contains(lower, "readme") || strings.Contains(lower, "exactly one")
+	for _, disqualifier := range []string{"migration", "multiple services", "cross-module", "database schema", "breaking change"} {
+		if strings.Contains(lower, disqualifier) {
+			return planningBundle{}, false
+		}
+	}
+	if !explicitXS || !localized {
+		return planningBundle{}, false
+	}
+	ticket := deterministicXSTicket(epic, nil)
+	title := strings.TrimSpace(epic.Title)
+	body := strings.TrimSpace(epic.Body)
+	return planningBundle{
+		PRDMarkdown:           fmt.Sprintf("# %s\n\n## Outcome\n\n%s\n\n## Scope\n\nOne localized change; preserve existing behavior outside the request.\n", title, body),
+		ADRMarkdown:           fmt.Sprintf("# ADR: %s\n\n## Decision\n\nImplement the explicitly scoped XS change directly in the existing component without introducing a new abstraction.\n", title),
+		DesignSpecMarkdown:    fmt.Sprintf("# Design Spec: %s\n\n## Change\n\n%s\n\n## Boundaries\n\nKeep the implementation localized and use the repository's existing validation contract.\n", title, body),
+		TestScenariosMarkdown: fmt.Sprintf("# Test Scenarios: %s\n\n1. The requested localized outcome is present.\n2. Existing lint, build, test, and preview validation remain green.\n", title),
+		Complexity:            "xs",
+		Rationale:             "The epic explicitly declares a single localized XS change.",
+		Ticket:                &ticket,
+	}, true
 }
 
 func parsePlanningBundle(raw string) (planningBundle, error) {

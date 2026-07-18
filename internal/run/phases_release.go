@@ -43,43 +43,7 @@ func (e *Engine) phaseBuild(ctx context.Context, r *state.Run) error {
 		}
 	}
 	cmds := orderedBuildCommands(hy, lintArch)
-	for _, c := range cmds {
-		cmd := strings.TrimSpace(harness.ResolveNodeCommand(workdir, c.cmd))
-		if cmd == "" || strings.Contains(cmd, "configure ") {
-			_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "build", c.name, "", "skipped", map[string]any{"command": cmd})
-			e.emit(ctx, r.ID, "build.output", map[string]any{"step": c.name, "status": "skipped"})
-			continue
-		}
-		e.emit(ctx, r.ID, "build.output", map[string]any{"step": c.name, "command": cmd})
-		out, err := isolation.CommandContext(ctx, workdir, "bash", "-lc", cmd).CombinedOutput()
-		msg := redaction.Redact(string(out))
-		e.emit(ctx, r.ID, "build.output", map[string]any{"step": c.name, "output": truncate(msg, 4000)})
-		if err != nil {
-			if _, fixErr := e.invokeRunner(ctx, r, "build", "Fix build failure: "+c.name+"\n"+msg, "build", workdir); fixErr != nil && !simulationMode() {
-				return fixErr
-			}
-			out2, err2 := isolation.CommandContext(ctx, workdir, "bash", "-lc", cmd).CombinedOutput()
-			e.emit(ctx, r.ID, "build.output", map[string]any{"step": c.name + ":retry", "output": truncate(redaction.Redact(string(out2)), 4000)})
-			if err2 != nil {
-				if simulationMode() {
-					_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "build", c.name, "", "skipped", map[string]any{"command": cmd, "output": truncate(redaction.Redact(string(out2)), 4000), "simulation": true})
-					e.emit(ctx, r.ID, "warning", map[string]any{"message": c.name + " failed in simulation; continuing"})
-					continue
-				}
-				// Soft-fail lint; hard-fail test/build
-				if c.name == "lint" || c.name == "lint-arch" {
-					e.emit(ctx, r.ID, "warning", map[string]any{"message": c.name + " failed; continuing"})
-					continue
-				}
-				_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "build", c.name, "", "failed", map[string]any{"command": cmd, "output": truncate(redaction.Redact(string(out2)), 4000), "error": err2.Error()})
-				return fmt.Errorf("%s failed: %w", c.name, err2)
-			}
-			_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "build", c.name, "", "passed", map[string]any{"command": cmd, "output": truncate(redaction.Redact(string(out2)), 4000), "retried": true})
-			continue
-		}
-		_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "build", c.name, "", "passed", map[string]any{"command": cmd, "output": truncate(msg, 4000)})
-	}
-	return nil
+	return e.runParallelBuildGates(ctx, r, workdir, cmds)
 }
 
 func (e *Engine) phaseValidate(ctx context.Context, r *state.Run) error {

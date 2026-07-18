@@ -4,9 +4,29 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vessica-labs/vessica-cli/internal/state"
 )
+
+func TestParallelBuildGatesOverlapIndependentLanesAndPreserveBuildBeforeTest(t *testing.T) {
+	root, db, runRecord, _ := promptSandboxFixture(t)
+	defer db.Close()
+	engine := &Engine{DB: db, Root: root}
+	commands := []namedBuildCommand{
+		{name: "lint", cmd: "sleep 0.20"},
+		{name: "lint-arch", cmd: "sleep 0.20"},
+		{name: "build", cmd: "sleep 0.20 && printf build > build.marker"},
+		{name: "test", cmd: "test -f build.marker && sleep 0.20"},
+	}
+	started := time.Now()
+	if err := engine.runParallelBuildGates(context.Background(), runRecord, root, commands); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed >= 650*time.Millisecond {
+		t.Fatalf("independent gates did not overlap: %s", elapsed)
+	}
+}
 
 func TestParsePlanningBundleAcceptsValidatedXSTicket(t *testing.T) {
 	raw := `{

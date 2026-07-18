@@ -115,8 +115,9 @@ func (e *Engine) phasePlan(ctx context.Context, r *state.Run) error {
 		"complexity": bundle.Complexity,
 		"rationale":  bundle.Rationale,
 		"ticket":     bundle.Ticket,
+		"model":      firstNonEmptyString(bundle.Mode, "model"),
 	})
-	e.emit(ctx, r.ID, "agent.progress", map[string]any{"message": "plan artifacts created", "artifacts": []string{prd.ID, adr.ID, ts.ID, design.ID}, "complexity": bundle.Complexity})
+	e.emit(ctx, r.ID, "agent.progress", map[string]any{"message": "plan artifacts created", "artifacts": []string{prd.ID, adr.ID, ts.ID, design.ID}, "complexity": bundle.Complexity, "planning_mode": firstNonEmptyString(bundle.Mode, "model")})
 	return nil
 }
 
