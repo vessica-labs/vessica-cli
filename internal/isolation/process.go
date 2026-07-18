@@ -34,7 +34,11 @@ func TrustGitWorkdir(ctx context.Context, workdir string) error {
 		return fmt.Errorf("inspect Git worktree metadata: %w", err)
 	}
 	exact := exactSafeDirectoryRegex(workdir)
-	configure := CommandContext(ctx, workdir, "git", "config", "--global", "--replace-all", "safe.directory", workdir, exact)
+	// The agent-facing safe-git wrapper intentionally rejects config writes.
+	// This exact, engine-owned update is trusted orchestration, so use the real
+	// Git binary while still executing as the isolated user whose home owns the
+	// resulting global config.
+	configure := CommandContext(ctx, workdir, trustedGitConfigBinary(), "config", "--global", "--replace-all", "safe.directory", workdir, exact)
 	if output, err := configure.CombinedOutput(); err != nil {
 		return fmt.Errorf("trust isolated Git worktree %s: %w: %s", workdir, err, strings.TrimSpace(string(output)))
 	}
@@ -47,6 +51,16 @@ func TrustGitWorkdir(ctx context.Context, workdir string) error {
 
 func exactSafeDirectoryRegex(workdir string) string {
 	return "^" + regexp.QuoteMeta(workdir) + "$"
+}
+
+func trustedGitConfigBinary() string {
+	if configured := strings.TrimSpace(os.Getenv("VES_GIT_BINARY")); configured != "" {
+		return configured
+	}
+	if info, err := os.Stat("/usr/bin/git"); err == nil && !info.IsDir() {
+		return "/usr/bin/git"
+	}
+	return "git"
 }
 
 // ModelEnvironment adds only the model credential and external-sandbox marker

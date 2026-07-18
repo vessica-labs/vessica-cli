@@ -40,3 +40,10 @@ func TestExactSafeDirectoryRegexQuotesPathAndRejectsWildcard(t *testing.T) {
 		t.Fatal("safe.directory must never use a wildcard")
 	}
 }
+
+func TestTrustedGitConfigBinaryHonorsOrchestrationOverride(t *testing.T) {
+	t.Setenv("VES_GIT_BINARY", "/opt/vessica/real-git")
+	if got := trustedGitConfigBinary(); got != "/opt/vessica/real-git" {
+		t.Fatalf("git binary=%q", got)
+	}
+}
