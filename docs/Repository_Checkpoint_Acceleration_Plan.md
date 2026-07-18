@@ -43,6 +43,20 @@ Retained-run resume and refinement do not resynchronize the repository because
 the one-time checkpoint marker has already been consumed. This preserves the
 run branch and uncommitted preview state.
 
+## Warm snapshot operator checklist
+
+Before using a warm repository checkpoint:
+
+- Confirm its repository commit is fresh for the current default branch and
+  that its checkpoint attestation is valid.
+- Confirm the stored dependency fingerprint matches the current dependency
+  manifests; otherwise perform the required dependency refresh.
+- Verify the worker binary matches the attested toolchain fingerprint before
+  allowing the worker to boot from the checkpoint.
+- If any check is stale, missing, or cannot be trusted, use the verified
+  generic toolchain checkpoint baseline and perform repository sync instead of
+  reusing the warm snapshot.
+
 ## Implemented waves
 
 ### Wave 0 — measurable baseline
