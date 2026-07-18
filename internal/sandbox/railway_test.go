@@ -20,6 +20,7 @@ func TestRailwayObjectIDHandlesNestedResponses(t *testing.T) {
 		`{"id":"sandbox-1"}`,
 		`{"data":{"sandboxId":"sandbox-2"}}`,
 		`[{"sandbox_id":"sandbox-3"}]`,
+		"Warning: Railway sandboxes are experimental and may change.\n{\"id\":\"sandbox-4\"}",
 	} {
 		if id, err := railwayObjectID([]byte(raw)); err != nil || id == "" {
 			t.Fatalf("raw=%s id=%q err=%v", raw, id, err)

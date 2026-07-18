@@ -32,7 +32,13 @@ func (s *Server) SyncRunToLinear(ctx context.Context, runID string) error {
 	}
 	epicMapping, err := s.DB.GetExternalMapping(ctx, "linear", "epic", runRecord.EpicID)
 	if err != nil {
-		return err
+		// A configured Linear integration does not imply every locally-created
+		// epic was projected to Linear. Local runs should still complete and
+		// record their terminal knowledge without a projection mapping.
+		if runTerminalStatus(runRecord.Status) {
+			return s.recordTerminalRunKnowledge(ctx, runRecord, "")
+		}
+		return nil
 	}
 	artifacts, _ := s.DB.ListArtifactsForRun(ctx, runID)
 	sortLinearArtifacts(artifacts)

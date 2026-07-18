@@ -133,6 +133,41 @@ func TestSyncRunToLinearProjectsOrderedArtifactsAndTicketLifecycleComments(t *te
 	}
 }
 
+func TestSyncRunToLinearSkipsLocalEpicWithoutMapping(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	db, err := state.Open("sqlite", filepath.Join(root, "state.db"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.EnsureWorkspace(ctx, root, "hosted"); err != nil {
+		t.Fatal(err)
+	}
+	epic, err := db.CreateEpic(ctx, "Local epic", "body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runRecord, err := db.CreateRun(ctx, epic.ID, "", "codex", "model", "high", "railway", 1, false, "draft", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.UpsertTrackerIntegration(ctx, "linear", "connected", map[string]string{"team": "team-1"}, "", "oauth:linear"); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{DB: db, Config: config.TeamDefaults()}
+	if err := server.SyncRunToLinear(ctx, runRecord.ID); err != nil {
+		t.Fatal(err)
+	}
+	message, err := db.ClaimOutbox(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if message != nil {
+		t.Fatalf("unexpected Linear projection: %#v", message)
+	}
+}
+
 func TestCompleteLinearParentWhenEverySubIssueIsDone(t *testing.T) {
 	ctx := context.Background()
 	var updatedIssue, updatedState string

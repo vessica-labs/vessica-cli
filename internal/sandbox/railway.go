@@ -146,10 +146,6 @@ func (r *RailwaySandbox) CreateCheckpoint(ctx context.Context, name string) erro
 }
 
 func railwayObjectID(raw []byte) (string, error) {
-	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return "", fmt.Errorf("invalid JSON response: %w: %s", err, strings.TrimSpace(string(raw)))
-	}
 	var find func(any) string
 	find = func(v any) string {
 		switch x := v.(type) {
@@ -173,8 +169,22 @@ func railwayObjectID(raw []byte) (string, error) {
 		}
 		return ""
 	}
-	if id := find(value); id != "" {
-		return id, nil
+	decoded := false
+	for offset, char := range raw {
+		if char != '{' && char != '[' {
+			continue
+		}
+		var value any
+		if err := json.NewDecoder(bytes.NewReader(raw[offset:])).Decode(&value); err != nil {
+			continue
+		}
+		decoded = true
+		if id := find(value); id != "" {
+			return id, nil
+		}
+	}
+	if !decoded {
+		return "", fmt.Errorf("invalid JSON response: %s", strings.TrimSpace(string(raw)))
 	}
 	return "", fmt.Errorf("response did not include a sandbox id")
 }
