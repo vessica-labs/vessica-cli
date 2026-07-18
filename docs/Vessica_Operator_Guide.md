@@ -131,6 +131,39 @@ ves run rollback <run_id> --yes --idempotency-key rollback-<unique> --json
 
 Meaningful epic, run, ticket, blocker, follow-up, refinement, receipt, PR, and commit events become queryable episode memories. Heartbeats and polling noise do not.
 
+## Interpreting Run Timings
+
+Run timing categories identify the source of elapsed time in a run and help
+operators diagnose where it spent time. They are phase measurements, not a
+guarantee that two runs will have identical wall-clock behavior: worker
+availability, checkpoint reuse, repository changes, external authentication,
+and the work itself can all vary between runs.
+
+- **Queue** is time waiting for the control plane to schedule the run and for
+  worker capacity to become available.
+- **Sandbox create** is time to request, allocate, and prepare the isolated
+  sandbox that will execute the run.
+- **Checkpoint boot** is time to start the selected toolchain or
+  repository-bearing checkpoint after checkpoint resolution.
+- **Integrity** is runtime verification of the selected checkpoint and worker
+  artifacts. It reports `snapshot_attestation` when the snapshot attestation
+  is sufficient, or `full_verify` when a full verification is required.
+- **Auth** is time to verify the credentials and access needed by the worker
+  and its configured services.
+- **Repository sync** is time to incrementally synchronize the attached
+  repository from its default-branch Git delta into a repository-bearing
+  checkpoint or run sandbox.
+- **Planning** is time spent turning the approved work into the plan and
+  ticket-level implementation context.
+- **Coding** is time spent by the coding agent making the requested changes.
+- **Build** is time spent compiling, bundling, or otherwise producing the
+  repository's build artifacts.
+- **Validation** is time spent running the checks that establish the change is
+  ready for review, such as tests, linting, architecture checks, or browser
+  validation.
+- **Receipt** is time spent finalizing and recording the run evidence,
+  including the timing data, artifacts, and terminal outcome.
+
 ## Optional semantic retrieval
 
 No embeddings credential is used during quickstart. To opt in later, place the provider key in a local environment variable and name that variable to Vessica:
