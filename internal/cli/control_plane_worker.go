@@ -62,16 +62,21 @@ func ensureWorkerRepo(ctx context.Context, root, remote string) (map[string]any,
 		if markerRaw, markerErr := os.ReadFile(markerPath); markerErr == nil {
 			var marker reposnapshot.Checkpoint
 			_ = json.Unmarshal(markerRaw, &marker)
+			// Railway can restore checkpoint files with their original numeric
+			// owner while the downloaded worker runs as root. Trust only this
+			// resolved repository path for orchestration Git commands; repository
+			// build and model processes still run as the isolated agent user.
+			gitAtRoot := []string{"-c", "safe.directory=" + root, "-C", root}
 			fetchStarted := time.Now()
-			out, fetchErr := repo.GitCommandContext(ctx, "-C", root, "fetch", "--quiet", "--prune", repo.AuthenticatedRemote(remote), "+refs/heads/*:refs/remotes/origin/*").CombinedOutput()
+			out, fetchErr := repo.GitCommandContext(ctx, append(gitAtRoot, "fetch", "--quiet", "--prune", repo.AuthenticatedRemote(remote), "+refs/heads/*:refs/remotes/origin/*")...).CombinedOutput()
 			if fetchErr != nil {
 				return nil, fmt.Errorf("fetch repository checkpoint delta: %w: %s", fetchErr, strings.TrimSpace(string(out)))
 			}
 			target := "origin/HEAD"
-			if _, err := repo.GitCommandContext(ctx, "-C", root, "rev-parse", "--verify", target).CombinedOutput(); err != nil {
+			if _, err := repo.GitCommandContext(ctx, append(gitAtRoot, "rev-parse", "--verify", target)...).CombinedOutput(); err != nil {
 				target = "origin/main"
 			}
-			out, resetErr := repo.GitCommandContext(ctx, "-C", root, "reset", "--hard", target).CombinedOutput()
+			out, resetErr := repo.GitCommandContext(ctx, append(gitAtRoot, "reset", "--hard", target)...).CombinedOutput()
 			if resetErr != nil {
 				return nil, fmt.Errorf("reset repository checkpoint: %w: %s", resetErr, strings.TrimSpace(string(out)))
 			}
