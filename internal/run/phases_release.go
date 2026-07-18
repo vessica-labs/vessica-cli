@@ -42,12 +42,7 @@ func (e *Engine) phaseBuild(ctx context.Context, r *state.Run) error {
 			lintArch = filepath.Join(e.Root, lintArch)
 		}
 	}
-	cmds := []struct{ name, cmd string }{
-		{"lint", hy.Lint.Command},
-		{"lint-arch", "bash " + shellQuote(lintArch)},
-		{"test", hy.Test.Command},
-		{"build", hy.Build.Command},
-	}
+	cmds := orderedBuildCommands(hy, lintArch)
 	for _, c := range cmds {
 		cmd := strings.TrimSpace(harness.ResolveNodeCommand(workdir, c.cmd))
 		if cmd == "" || strings.Contains(cmd, "configure ") {
