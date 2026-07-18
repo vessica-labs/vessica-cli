@@ -103,3 +103,16 @@ func TestRunnerEnvironmentDoesNotInheritControlPlaneSecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestMinimalMCPConfigOverridesDisablesOnlyUnapprovedEnabledServers(t *testing.T) {
+	servers := []codexMCPServer{
+		{Name: "railway", Enabled: true},
+		{Name: "node-repl", Enabled: true},
+		{Name: "already-off", Enabled: false},
+	}
+	got := minimalMCPConfigOverrides(servers, "railway")
+	want := []string{`mcp_servers.node-repl.enabled=false`}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("overrides=%v want=%v", got, want)
+	}
+}

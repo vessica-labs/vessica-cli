@@ -29,3 +29,14 @@ func TestModelEnvironmentIncludesOnlyExplicitModelCredential(t *testing.T) {
 		t.Fatalf("model environment=%s", env)
 	}
 }
+
+func TestExactSafeDirectoryRegexQuotesPathAndRejectsWildcard(t *testing.T) {
+	got := exactSafeDirectoryRegex(`/tmp/a.b/[ticket]`)
+	want := `^/tmp/a\.b/\[ticket\]$`
+	if got != want {
+		t.Fatalf("regex=%q want=%q", got, want)
+	}
+	if got == "*" {
+		t.Fatal("safe.directory must never use a wildcard")
+	}
+}

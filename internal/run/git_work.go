@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/vessica-labs/vessica-cli/internal/isolation"
 	"github.com/vessica-labs/vessica-cli/internal/redaction"
@@ -27,6 +28,20 @@ func (e *Engine) prepareTicketWorktree(ctx context.Context, integrationWorkdir s
 	if err != nil {
 		return "", "", fmt.Errorf("git worktree add for ticket %s: %w: %s", ticket.ID, err, strings.TrimSpace(string(out)))
 	}
+	started := time.Now()
+	if err := isolation.PrepareWorkdir(ctx, workdir); err != nil {
+		return "", "", err
+	}
+	if err := isolation.TrustGitWorkdir(ctx, workdir); err != nil {
+		return "", "", err
+	}
+	e.emit(ctx, r.ID, "run.infrastructure.stage", map[string]any{
+		"stage":       "git_worktree_trust",
+		"ticket_id":   ticket.ID,
+		"duration_ms": time.Since(started).Milliseconds(),
+		"scope":       "exact",
+		"status":      "completed",
+	})
 	return workdir, branch, nil
 }
 

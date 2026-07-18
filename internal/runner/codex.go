@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -18,15 +19,28 @@ import (
 
 // CodexRunner invokes the Codex CLI when available; otherwise uses a deterministic local planner.
 type CodexRunner struct {
-	mu      sync.Mutex
-	cmd     *exec.Cmd
-	cancel  context.CancelFunc
-	events  chan Event
-	result  Result
-	input   Input
-	useStub bool
-	missing bool
+	mu           sync.Mutex
+	cmd          *exec.Cmd
+	cancel       context.CancelFunc
+	events       chan Event
+	result       Result
+	input        Input
+	useStub      bool
+	missing      bool
+	mcpPolicy    string
+	mcpDisabled  int
+	mcpDiscovery string
 }
+
+type codexMCPServer struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+}
+
+var codexMCPServerCache = struct {
+	sync.Mutex
+	servers map[string][]codexMCPServer
+}{servers: map[string][]codexMCPServer{}}
 
 func NewCodex() *CodexRunner {
 	_, err := exec.LookPath("codex")
@@ -69,6 +83,24 @@ func (c *CodexRunner) Start(ctx context.Context, task Task) error {
 	c.cancel = cancel
 	outFile := filepath.Join(os.TempDir(), fmt.Sprintf("ves-codex-%d.md", time.Now().UnixNano()))
 	args := []string{"exec", "--json", "--skip-git-repo-check", "--color", "never"}
+	workdir := firstNonEmpty(c.input.Workdir, c.input.RepoPath)
+	if err := isolation.PrepareWorkdir(runCtx, workdir); err != nil {
+		return err
+	}
+	c.mcpPolicy = strings.TrimSpace(c.input.Env["VES_CODEX_MCP_POLICY"])
+	c.mcpDiscovery = "skipped"
+	if c.mcpPolicy == "minimal" {
+		c.mcpDiscovery = "failed"
+		servers, err := configuredCodexMCPServers(runCtx, workdir, c.input.Env)
+		if err == nil {
+			overrides := minimalMCPConfigOverrides(servers, c.input.Env["VES_CODEX_MCP_ALLOWLIST"])
+			for _, override := range overrides {
+				args = append(args, "--config", override)
+			}
+			c.mcpDisabled = len(overrides)
+			c.mcpDiscovery = "completed"
+		}
+	}
 	if os.Getenv("VES_CODEX_EXTERNAL_SANDBOX") == "1" {
 		args = append(args, "--dangerously-bypass-approvals-and-sandbox")
 	}
@@ -79,10 +111,6 @@ func (c *CodexRunner) Start(ctx context.Context, task Task) error {
 		args = append(args, "--config", fmt.Sprintf("model_reasoning_effort=%q", effort))
 	}
 	args = append(args, "--output-last-message", outFile, prompt)
-	workdir := firstNonEmpty(c.input.Workdir, c.input.RepoPath)
-	if err := isolation.PrepareWorkdir(runCtx, workdir); err != nil {
-		return err
-	}
 	cmd := isolation.CommandContext(runCtx, workdir, "codex", args...)
 	cmd.Env = runnerEnvironment(c.input.Env)
 	stdout, err := cmd.StdoutPipe()
@@ -99,7 +127,11 @@ func (c *CodexRunner) Start(ctx context.Context, task Task) error {
 	}
 	go func() {
 		defer close(c.events)
-		c.events <- Event{Type: "agent.progress", Message: "codex started"}
+		c.events <- Event{Type: "agent.progress", Message: "codex started", Data: map[string]any{
+			"mcp_policy":         c.mcpPolicy,
+			"mcp_disabled_count": c.mcpDisabled,
+			"mcp_discovery":      c.mcpDiscovery,
+		}}
 		parser := newCodexEventParser()
 		var transcript bytes.Buffer
 		var transcriptMu sync.Mutex
@@ -159,6 +191,43 @@ func (c *CodexRunner) Start(ctx context.Context, task Task) error {
 		c.events <- Event{Type: "agent.message", Message: "codex completed", Data: map[string]any{"role": task.Name}}
 	}()
 	return nil
+}
+
+func configuredCodexMCPServers(ctx context.Context, workdir string, env map[string]string) ([]codexMCPServer, error) {
+	key := strings.Join([]string{os.Getenv("VES_RUNNER_USER"), os.Getenv("VES_RUNNER_HOME"), os.Getenv("CODEX_HOME")}, "\x00")
+	codexMCPServerCache.Lock()
+	defer codexMCPServerCache.Unlock()
+	if cached, ok := codexMCPServerCache.servers[key]; ok {
+		return append([]codexMCPServer(nil), cached...), nil
+	}
+	cmd := isolation.CommandContext(ctx, workdir, "codex", "mcp", "list", "--json")
+	cmd.Env = runnerEnvironment(env)
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("list Codex MCP servers: %w", err)
+	}
+	var servers []codexMCPServer
+	if err := json.Unmarshal(output, &servers); err != nil {
+		return nil, fmt.Errorf("parse Codex MCP server list: %w", err)
+	}
+	codexMCPServerCache.servers[key] = append([]codexMCPServer(nil), servers...)
+	return servers, nil
+}
+
+func minimalMCPConfigOverrides(servers []codexMCPServer, allowlist string) []string {
+	allowed := map[string]bool{}
+	for _, name := range strings.Split(allowlist, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			allowed[name] = true
+		}
+	}
+	var overrides []string
+	for _, server := range servers {
+		if server.Enabled && !allowed[server.Name] {
+			overrides = append(overrides, "mcp_servers."+server.Name+".enabled=false")
+		}
+	}
+	return overrides
 }
 
 func runnerEnvironment(extra map[string]string) []string {

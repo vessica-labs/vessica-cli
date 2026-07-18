@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -16,6 +17,36 @@ import (
 // processes. Explicit values are trusted orchestration inputs.
 func Environment(extra map[string]string) []string {
 	return environment(extra, false)
+}
+
+// TrustGitWorkdir records one exact worktree as safe for the isolated runner.
+// Hosted worktrees intentionally keep their Git metadata privileged, so Git's
+// ownership check must be satisfied without granting a wildcard exception.
+func TrustGitWorkdir(ctx context.Context, workdir string) error {
+	name := strings.TrimSpace(os.Getenv("VES_RUNNER_USER"))
+	workdir = strings.TrimSpace(workdir)
+	if name == "" || workdir == "" {
+		return nil
+	}
+	if _, err := os.Lstat(filepath.Join(workdir, ".git")); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect Git worktree metadata: %w", err)
+	}
+	exact := exactSafeDirectoryRegex(workdir)
+	configure := CommandContext(ctx, workdir, "git", "config", "--global", "--replace-all", "safe.directory", workdir, exact)
+	if output, err := configure.CombinedOutput(); err != nil {
+		return fmt.Errorf("trust isolated Git worktree %s: %w: %s", workdir, err, strings.TrimSpace(string(output)))
+	}
+	verify := CommandContext(ctx, workdir, "git", "-C", workdir, "status", "--porcelain", "--untracked-files=no")
+	if output, err := verify.CombinedOutput(); err != nil {
+		return fmt.Errorf("verify isolated Git worktree %s: %w: %s", workdir, err, strings.TrimSpace(string(output)))
+	}
+	return nil
+}
+
+func exactSafeDirectoryRegex(workdir string) string {
+	return "^" + regexp.QuoteMeta(workdir) + "$"
 }
 
 // ModelEnvironment adds only the model credential and external-sandbox marker
