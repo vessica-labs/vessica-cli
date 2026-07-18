@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/vessica-labs/vessica-cli/internal/config"
+	"github.com/vessica-labs/vessica-cli/internal/harness"
 	"github.com/vessica-labs/vessica-cli/internal/sandbox"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 )
@@ -54,6 +55,23 @@ func TestHostedValidationPreviewNeverPersistsLoopbackURL(t *testing.T) {
 	}
 	if !previewConnectionFailure(errors.New("page.goto: net::ERR_CONNECTION_REFUSED")) || previewConnectionFailure(errors.New("assertion failed")) {
 		t.Fatal("connection failure classification is incorrect")
+	}
+}
+
+func TestValidationPreviewIsOptionalForNonWebRuns(t *testing.T) {
+	runRecord := &state.Run{Preview: false}
+	hy := &harness.HarnessYAML{}
+	if validationNeedsPreview(runRecord, hy, t.TempDir()) {
+		t.Fatal("non-web run unexpectedly requires preview validation")
+	}
+	runRecord.Preview = true
+	if !validationNeedsPreview(runRecord, hy, t.TempDir()) {
+		t.Fatal("explicit preview request must require preview validation")
+	}
+	runRecord.Preview = false
+	hy.Preview.Command = "go run ./cmd/server"
+	if !validationNeedsPreview(runRecord, hy, t.TempDir()) {
+		t.Fatal("configured web preview should be used for validation")
 	}
 }
 

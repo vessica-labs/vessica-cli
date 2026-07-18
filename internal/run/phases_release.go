@@ -52,7 +52,8 @@ func (e *Engine) phaseValidate(ctx context.Context, r *state.Run) error {
 		// hosted PR, receipt, Linear, or dashboard projections.
 		defer func() { r.PreviewURL = "" }()
 	}
-	if err := isolation.PrepareWorkdir(ctx, e.runWorkdir(ctx, r)); err != nil {
+	workdir := e.runWorkdir(ctx, r)
+	if err := isolation.PrepareWorkdir(ctx, workdir); err != nil {
 		return err
 	}
 	e.emit(ctx, r.ID, "validation.step", map[string]any{"step": "load_test_scenarios"})
@@ -72,6 +73,16 @@ func (e *Engine) phaseValidate(ctx context.Context, r *state.Run) error {
 			_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "validate", "validation_step", "", "passed", map[string]any{"step_id": fmt.Sprintf("step_%d", i+1), "step": step, "simulation": true})
 			e.emit(ctx, r.ID, "validation.step", map[string]any{"step": step, "status": "passed_simulation"})
 		}
+		return nil
+	}
+	hy := e.loadRunHarness(workdir)
+	if !validationNeedsPreview(r, hy, workdir) {
+		for i, step := range steps {
+			stepID := fmt.Sprintf("step_%d", i+1)
+			_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "validate", "validation_step", "", "passed", map[string]any{"step_id": stepID, "step": step, "mode": "build_gates"})
+			e.emit(ctx, r.ID, "validation.step", map[string]any{"step_id": stepID, "step": step, "status": "covered_by_build_gates"})
+		}
+		_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "validate", "validation", "", "passed", map[string]any{"steps": len(steps), "mode": "build_gates"})
 		return nil
 	}
 	if r.PreviewURL == "" {
@@ -129,6 +140,14 @@ func (e *Engine) phaseValidate(ctx context.Context, r *state.Run) error {
 	}
 	_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "validate", "validation", "", "passed", map[string]any{"steps": len(steps), "preview_url": r.PreviewURL})
 	return nil
+}
+
+func validationNeedsPreview(r *state.Run, hy *harness.HarnessYAML, workdir string) bool {
+	if r.Preview {
+		return true
+	}
+	command := harness.ResolvePreviewCommand(workdir, hy.Preview.Command, hy.Preview.Port)
+	return command != "" && !strings.Contains(command, "configure preview")
 }
 
 func (e *Engine) phasePreview(ctx context.Context, r *state.Run) error {
