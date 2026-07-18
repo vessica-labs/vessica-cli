@@ -26,6 +26,24 @@ func TestDetectOmitsGuessedPreviewAndFindsSingleGoCommand(t *testing.T) {
 	}
 }
 
+func TestDetectDoesNotTreatGoCLIAsPreviewServer(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(root, "cmd", "demo")
+	if err := os.MkdirAll(entry, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	main := "package main\n\nfunc main() { root.Execute() }\n"
+	if err := os.WriteFile(filepath.Join(entry, "main.go"), []byte(main), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := Detect(root).PreviewCommand; got != "" {
+		t.Fatalf("CLI preview command=%q", got)
+	}
+}
+
 func TestWriteStartingFilesUsesRepositoryFindings(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/demo\n"), 0o644); err != nil {

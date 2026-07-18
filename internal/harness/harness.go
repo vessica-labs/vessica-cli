@@ -259,13 +259,13 @@ func Detect(root string) Detected {
 }
 
 func goPreviewCommand(root string) string {
-	if fileContains(filepath.Join(root, "main.go"), "package main") {
+	if entry := filepath.Join(root, "main.go"); fileContains(entry, "package main") && !isGoCLIEntry(entry) {
 		return "go run ."
 	}
 	entries, _ := filepath.Glob(filepath.Join(root, "cmd", "*", "main.go"))
 	var commands []string
 	for _, entry := range entries {
-		if fileContains(entry, "package main") {
+		if fileContains(entry, "package main") && !isGoCLIEntry(entry) {
 			commands = append(commands, "go run ./cmd/"+filepath.Base(filepath.Dir(entry)))
 		}
 	}
@@ -273,6 +273,20 @@ func goPreviewCommand(root string) string {
 		return commands[0]
 	}
 	return ""
+}
+
+func isGoCLIEntry(path string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	content := string(b)
+	for _, marker := range []string{"github.com/spf13/cobra", "github.com/urfave/cli", ".Execute()", ".ExecuteContext("} {
+		if strings.Contains(content, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func packageScripts(root string) map[string]string {
