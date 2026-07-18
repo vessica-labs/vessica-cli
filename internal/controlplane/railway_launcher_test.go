@@ -79,6 +79,15 @@ func TestRailwayWorkerEnvironmentIncludesHostedKnowledgeAuthority(t *testing.T) 
 	}
 }
 
+func TestRailwayWorkerEnvironmentPrefersDedicatedWorkerDatabaseURL(t *testing.T) {
+	t.Setenv("VES_CONTROL_DATABASE_WORKER_URL", "postgresql://public-proxy.example/database")
+	launcher := &RailwayLauncher{Config: config.Config{Hosted: config.HostedConfig{WorkerCheckpoint: "checkpoint"}}}
+	env := launcher.workerEnvironment("run_test", "https://github.com/acme/demo.git", "repository-checkpoint", time.Unix(100, 0))
+	if env["VES_CONTROL_DATABASE_URL"] != "control-plane.VES_CONTROL_DATABASE_WORKER_URL" {
+		t.Fatalf("VES_CONTROL_DATABASE_URL=%q", env["VES_CONTROL_DATABASE_URL"])
+	}
+}
+
 func TestRailwayLauncherPrefersCompatibleRepositoryCheckpoint(t *testing.T) {
 	checkpoint := reposnapshot.Checkpoint{SchemaVersion: reposnapshot.SchemaVersion, Name: "vessica-repo-ready", Status: "ready", ToolchainFingerprint: toolchain.Fingerprint()}
 	metadata, _ := json.Marshal(map[string]any{"repository_checkpoint": checkpoint})
