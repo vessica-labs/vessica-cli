@@ -13,4 +13,7 @@ func TestRepositoryCheckpointScrubUsesTrustedGit(t *testing.T) {
 	if !strings.Contains(script, "printf '%s' 'encoded' | base64 -d") {
 		t.Fatalf("checkpoint marker payload missing from scrub script:\n%s", script)
 	}
+	if !strings.Contains(script, "rm -f /workspace/repo/.vessica/config.yaml") {
+		t.Fatalf("run-local repository attachment was not scrubbed:\n%s", script)
+	}
 }
