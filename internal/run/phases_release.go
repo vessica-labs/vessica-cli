@@ -27,6 +27,9 @@ func (e *Engine) phaseBuild(ctx context.Context, r *state.Run) error {
 	if err := isolation.PrepareWorkdir(ctx, workdir); err != nil {
 		return err
 	}
+	if err := e.materializeWorktreeDependencies(ctx, r, workdir); err != nil {
+		return err
+	}
 	hy := e.loadRunHarness(workdir)
 	lintArch := strings.TrimSpace(hy.Lint.Arch)
 	if lintArch == "" {
@@ -414,6 +417,7 @@ func (e *Engine) phasePR(ctx context.Context, r *state.Run) error {
 	}
 	// Preview processes must never leak runtime output into the proposed source change.
 	_ = os.Remove(filepath.Join(workdir, ".vessica-preview.log"))
+	_ = os.Remove(filepath.Join(workdir, ".vessica-preview.pid"))
 	statusOut, err := repo.GitCommandContext(ctx, "-C", workdir, "status", "--porcelain").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git status: %w: %s", err, strings.TrimSpace(string(statusOut)))
@@ -484,7 +488,7 @@ func (e *Engine) phaseReceipt(ctx context.Context, r *state.Run) error {
 		}
 	}
 	e.emit(ctx, r.ID, "agent.progress", map[string]any{"message": "receipt finalized", "receipt_id": rcpt.ID})
-	if finalSandbox != nil && (!r.Preview || r.PreviewURL == "") {
+	if finalSandbox != nil && shouldDestroySandboxAfterReceipt(r) {
 		if err := retention.Destroy(ctx, e.DB, e.Root, finalSandbox, "no_preview"); err != nil {
 			e.emit(ctx, r.ID, "warning", map[string]any{"message": "could not clean up non-preview sandbox: " + err.Error()})
 		} else {

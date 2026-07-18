@@ -124,7 +124,7 @@ func (e *Engine) prepareRailwayRunWorkdir(ctx context.Context, rec *state.Sandbo
 	// Dependency trees are immutable inputs for a run unless their lockfile
 	// fingerprint changes during checkpoint sync. Share the prepared trees with
 	// the isolated worktree instead of copying or reinstalling them.
-	for _, relative := range []string{"node_modules", ".venv", "target", filepath.Join("vendor", "bundle"), ".gradle"} {
+	for _, relative := range []string{".venv", "target", filepath.Join("vendor", "bundle"), ".gradle"} {
 		source := filepath.Join(e.Root, relative)
 		target := filepath.Join(workdir, relative)
 		if _, err := os.Stat(source); err != nil {

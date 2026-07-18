@@ -13,7 +13,6 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/harness"
 	"github.com/vessica-labs/vessica-cli/internal/id"
 	"github.com/vessica-labs/vessica-cli/internal/pack"
-	"github.com/vessica-labs/vessica-cli/internal/redaction"
 	"github.com/vessica-labs/vessica-cli/internal/retention"
 	"github.com/vessica-labs/vessica-cli/internal/runner"
 	"github.com/vessica-labs/vessica-cli/internal/state"
@@ -252,12 +251,6 @@ func (e *Engine) phaseCode(ctx context.Context, r *state.Run, concurrency int) e
 		workdir = e.Root
 	}
 	e.emit(ctx, r.ID, "sandbox.ready", map[string]any{"sandbox_id": sb.ID(), "workdir": workdir})
-	if r.Preview && !simulationMode() {
-		if err := e.startPreviewInSandbox(ctx, r, sbRec, sb, workdir, "code"); err != nil {
-			e.emit(ctx, r.ID, "preview.deferred", map[string]any{"phase": "code", "message": redaction.Redact(err.Error())})
-		}
-	}
-
 	if r.TicketID != "" {
 		ticket, err := e.DB.GetTicket(ctx, r.TicketID)
 		if err != nil {
@@ -404,7 +397,9 @@ Engine-managed lifecycle:
 - Vessica has already claimed this ticket for this run.
 - Do not run ves ticket claim, close, heartbeat, release, or memory commands.
 - Do not attempt to discover or use the internal Vessica agent id.
-- Make the code changes in this worktree, run relevant local checks, and return a concise evidence summary.
+- Make the code changes in this worktree and run only targeted checks needed while coding.
+- Do not run repository-wide build, lint, or test commands and do not start a preview server; Vessica runs those gates once after integration.
+- Return a concise evidence summary.
 
 Use TDD where helpful. Return changed files and commands run.`, ticket.ID, ticket.Title, ticket.Body)
 			ticketCtx := context.WithValue(ctx, runnerTicketIDKey, ticket.ID)

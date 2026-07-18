@@ -73,11 +73,11 @@ func (e *Engine) mergeTicketBranch(ctx context.Context, integrationWorkdir, bran
 func statusFiles(status string) []string {
 	var files []string
 	for _, line := range strings.Split(status, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+		line = strings.TrimRight(line, "\r")
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		if len(line) > 3 {
+		if len(line) >= 4 {
 			files = append(files, strings.TrimSpace(line[3:]))
 		}
 	}

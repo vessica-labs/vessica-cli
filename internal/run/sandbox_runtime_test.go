@@ -22,7 +22,7 @@ func TestPrepareRailwayRunWorkdirUsesIsolatedWorktreeAndSharesDependencies(t *te
 	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("checkpoint\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(root, "node_modules", "demo"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, ".venv", "demo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	gitRuntimeTest(t, root, "add", "README.md")
@@ -41,9 +41,12 @@ func TestPrepareRailwayRunWorkdirUsesIsolatedWorktreeAndSharesDependencies(t *te
 	if branch != record.Branch {
 		t.Fatalf("branch=%q", branch)
 	}
-	dependencyPath := filepath.Join(workdir, "node_modules")
+	dependencyPath := filepath.Join(workdir, ".venv")
 	if info, err := os.Lstat(dependencyPath); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		t.Fatalf("dependency path is not a symlink: info=%v err=%v", info, err)
+	}
+	if _, err := os.Lstat(filepath.Join(workdir, "node_modules")); !os.IsNotExist(err) {
+		t.Fatalf("pnpm node_modules must be materialized per worktree, err=%v", err)
 	}
 }
 
