@@ -24,7 +24,10 @@ var DocFiles = []string{
 const PnpmVersion = "11.9.0"
 
 func PnpmBootstrapCommand() string {
-	return "corepack enable && corepack prepare pnpm@" + PnpmVersion + " --activate"
+	// Hosted repository commands run as an unprivileged user and cannot create
+	// Corepack shims in /usr/local/bin. Install the shims in the runner's home
+	// instead, then put that directory first for the rest of the shell chain.
+	return `mkdir -p "$HOME/.local/bin" && corepack enable --install-directory "$HOME/.local/bin" && corepack prepare pnpm@` + PnpmVersion + ` --activate && export PATH="$HOME/.local/bin:$PATH"`
 }
 
 type HarnessYAML struct {
@@ -396,6 +399,16 @@ func nodePreviewCommand(root string, scripts map[string]string, configured strin
 	portEnv := ""
 	if port > 0 {
 		portEnv = fmt.Sprintf("PORT=%d ", port)
+	}
+	if strings.Contains(script, "vinext") {
+		command := portEnv + "pnpm run " + name
+		if !strings.Contains(script, "--hostname") {
+			command += " --hostname 0.0.0.0"
+		}
+		if port > 0 && !strings.Contains(script, "--port") {
+			command += fmt.Sprintf(" --port %d", port)
+		}
+		return command
 	}
 	if strings.Contains(script, "vite") {
 		command := portEnv + "pnpm run " + name + " --"

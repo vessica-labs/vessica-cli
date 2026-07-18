@@ -32,7 +32,14 @@ func (l *RailwayLauncher) SandboxLogs(ctx context.Context, record *state.Sandbox
 		return "", err
 	}
 	var output bytes.Buffer
-	code, err := rs.Exec(ctx, []string{"bash", "-lc", "tail -n 200 /workspace/repo/.vessica-preview.log /workspace/.vessica-preview.log 2>/dev/null || true"}, &output, &output)
+	logCommand := strings.Join([]string{
+		"for log in /workspace/repo/.vessica-preview.log /workspace/.vessica-preview.log /workspace/repo/.vessica/sandboxes/*/workspace/.vessica-preview.log; do",
+		"  test -f \"$log\" || continue",
+		"  printf '==> %s <==\\n' \"$log\"",
+		"  tail -n 200 \"$log\"",
+		"done",
+	}, "\n")
+	code, err := rs.Exec(ctx, []string{"bash", "-lc", logCommand}, &output, &output)
 	if err != nil || code != 0 {
 		return "", fmt.Errorf("read Railway sandbox logs: exit %d: %w", code, err)
 	}

@@ -14,6 +14,13 @@ func TestResolvePreviewCommandForVite(t *testing.T) {
 	}
 }
 
+func TestResolvePreviewCommandForVinextBindsSandboxInterface(t *testing.T) {
+	root := writePackage(t, `{"scripts":{"dev":"WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev"},"devDependencies":{"vinext":"latest"}}`)
+	if got := ResolvePreviewCommand(root, "PORT=3000 pnpm run dev", 3000); got != "PORT=3000 pnpm run dev --hostname 0.0.0.0 --port 3000" {
+		t.Fatalf("command=%q", got)
+	}
+}
+
 func TestResolvePreviewCommandFallsBackToWatchedNodeServer(t *testing.T) {
 	root := writePackage(t, `{"scripts":{"start":"node server.mjs"}}`)
 	if got := ResolvePreviewCommand(root, "npm run dev", 3000); got != "PORT=3000 node --watch-path=. server.mjs" {
@@ -26,7 +33,7 @@ func TestPreviewInstallCommandUsesPnpmLockfile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := PreviewInstallCommand(root); got != "corepack enable && corepack prepare pnpm@11.9.0 --activate && pnpm install --frozen-lockfile" {
+	if got := PreviewInstallCommand(root); got != `mkdir -p "$HOME/.local/bin" && corepack enable --install-directory "$HOME/.local/bin" && corepack prepare pnpm@11.9.0 --activate && export PATH="$HOME/.local/bin:$PATH" && pnpm install --frozen-lockfile` {
 		t.Fatalf("command=%q", got)
 	}
 }

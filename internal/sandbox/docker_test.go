@@ -112,6 +112,19 @@ func TestWaitForHTTPFails(t *testing.T) {
 	}
 }
 
+func TestPreviewStartupTimeoutAllowsHostedColdStarts(t *testing.T) {
+	t.Setenv("VES_PREVIEW_STARTUP_TIMEOUT", "")
+	t.Setenv("VES_CODEX_EXTERNAL_SANDBOX", "1")
+	if got := previewStartupTimeout(); got != 2*time.Minute {
+		t.Fatalf("previewStartupTimeout() = %s, want 2m", got)
+	}
+
+	t.Setenv("VES_PREVIEW_STARTUP_TIMEOUT", "45s")
+	if got := previewStartupTimeout(); got != 45*time.Second {
+		t.Fatalf("previewStartupTimeout() = %s, want 45s", got)
+	}
+}
+
 func TestRewriteHealthcheckURL(t *testing.T) {
 	got := rewriteHealthcheckURL("http://localhost:3000/health", "http://127.0.0.1:49152")
 	if got != "http://127.0.0.1:49152/health" {
