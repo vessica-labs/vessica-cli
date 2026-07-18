@@ -85,8 +85,8 @@ func repositoryCheckpointScrubScript(encodedCheckpoint string) string {
 		"test -x \"$trusted_git\" || trusted_git=/usr/lib/safe-tools/git",
 		"rm -rf /workspace/runs /home/vessica-agent/.codex/auth.json /workspace/" + reposnapshot.CandidateFile,
 		"rm -f /workspace/repo/.vessica/config.yaml",
-		"\"$trusted_git\" -C /workspace/repo worktree prune",
-		"test -z \"$(\"$trusted_git\" -C /workspace/repo status --porcelain)\"",
+		"\"$trusted_git\" -c safe.directory=/workspace/repo -C /workspace/repo worktree prune",
+		"test -z \"$(\"$trusted_git\" -c safe.directory=/workspace/repo -C /workspace/repo status --porcelain)\"",
 		"printf '%s' " + shellQuoteCP(encodedCheckpoint) + " | base64 -d >/workspace/" + reposnapshot.MarkerFile,
 		"chmod 0644 /workspace/" + reposnapshot.MarkerFile,
 	}, "\n")
