@@ -58,16 +58,10 @@ func (l *RailwayLauncher) RefreshRepositoryCheckpoint(ctx context.Context, repos
 		_ = fork.Destroy(cleanup)
 	}()
 	encoded, _ := json.Marshal(checkpoint)
-	script := strings.Join([]string{
-		"set -euo pipefail",
-		"rm -rf /workspace/runs /home/vessica-agent/.codex/auth.json /workspace/" + reposnapshot.CandidateFile,
-		"git -C /workspace/repo worktree prune",
-		"test -z \"$(git -C /workspace/repo status --porcelain)\"",
-		"printf '%s' " + shellQuoteCP(base64.StdEncoding.EncodeToString(encoded)) + " | base64 -d >/workspace/" + reposnapshot.MarkerFile,
-		"chmod 0644 /workspace/" + reposnapshot.MarkerFile,
-	}, "\n")
-	if code, execErr := fork.Exec(ctx, []string{"bash", "-lc", script}, io.Discard, io.Discard); execErr != nil || code != 0 {
-		return fmt.Errorf("prepare repository checkpoint fork: exit %d: %w", code, execErr)
+	script := repositoryCheckpointScrubScript(base64.StdEncoding.EncodeToString(encoded))
+	var output bytes.Buffer
+	if code, execErr := fork.Exec(ctx, []string{"bash", "-lc", script}, &output, &output); execErr != nil || code != 0 {
+		return fmt.Errorf("prepare repository checkpoint fork: exit %d: %w: %s", code, execErr, strings.TrimSpace(output.String()))
 	}
 	if err := fork.CreateCheckpoint(ctx, checkpoint.Name); err != nil {
 		return err
@@ -82,4 +76,17 @@ func (l *RailwayLauncher) RefreshRepositoryCheckpoint(ctx context.Context, repos
 	}
 	_, err = l.DB.UpdateRepositoryMetadata(ctx, repositoryID, metadata)
 	return err
+}
+
+func repositoryCheckpointScrubScript(encodedCheckpoint string) string {
+	return strings.Join([]string{
+		"set -euo pipefail",
+		"trusted_git=/usr/bin/git",
+		"test -x \"$trusted_git\" || trusted_git=/usr/lib/safe-tools/git",
+		"rm -rf /workspace/runs /home/vessica-agent/.codex/auth.json /workspace/" + reposnapshot.CandidateFile,
+		"\"$trusted_git\" -C /workspace/repo worktree prune",
+		"test -z \"$(\"$trusted_git\" -C /workspace/repo status --porcelain)\"",
+		"printf '%s' " + shellQuoteCP(encodedCheckpoint) + " | base64 -d >/workspace/" + reposnapshot.MarkerFile,
+		"chmod 0644 /workspace/" + reposnapshot.MarkerFile,
+	}, "\n")
 }
