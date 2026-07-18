@@ -1,0 +1,11 @@
+preview:
+    command: go run ./cmd/ves
+    port: 8080
+    healthcheck: http://localhost:8080/
+build:
+    command: go build ./...
+test:
+    command: go test ./...
+lint:
+    command: go vet ./...
+    arch: .vessica/lint-arch.sh
