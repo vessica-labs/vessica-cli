@@ -64,6 +64,20 @@ func railwayCreatedServiceID(raw []byte) (string, error) {
 	return objectID(raw)
 }
 
+func ensureRailwayServiceDomain(ctx context.Context, workDir string, cfg config.Config, serviceID string) (string, error) {
+	args := []string{"--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", serviceID}
+	if raw, err := runRailway(ctx, workDir, nil, append([]string{"domain", "list"}, append(args, "--json")...)...); err == nil {
+		if domain, parseErr := objectString(raw, "domain"); parseErr == nil {
+			return domain, nil
+		}
+	}
+	raw, err := runRailway(ctx, workDir, nil, append([]string{"domain"}, append(args, "-p", "8080", "--json")...)...)
+	if err != nil {
+		return "", err
+	}
+	return objectString(raw, "domain")
+}
+
 func waitForHostedHealth(ctx context.Context, url string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 5 * time.Second}

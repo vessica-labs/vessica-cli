@@ -372,11 +372,7 @@ func ensureRailwayDomain(ctx context.Context, workDir string, cfg *config.Config
 	if cfg.Hosted.ControlPlaneURL != "" {
 		return nil
 	}
-	raw, err := runRailway(ctx, workDir, nil, "domain", "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Hosted.ServiceID, "-p", "8080", "--json")
-	if err != nil {
-		return err
-	}
-	domain, err := objectString(raw, "domain")
+	domain, err := ensureRailwayServiceDomain(ctx, workDir, *cfg, cfg.Hosted.ServiceID)
 	if err != nil {
 		return err
 	}

@@ -40,11 +40,7 @@ func ensureRailwayPreviewEdge(ctx context.Context, workDir string, cfg *config.C
 		}
 	}
 	if cfg.Hosted.PreviewURL == "" {
-		raw, err := runRailway(ctx, workDir, nil, "domain", "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Hosted.PreviewServiceID, "-p", "8080", "--json")
-		if err != nil {
-			return err
-		}
-		domain, err := objectString(raw, "domain")
+		domain, err := ensureRailwayServiceDomain(ctx, workDir, *cfg, cfg.Hosted.PreviewServiceID)
 		if err != nil {
 			return err
 		}
