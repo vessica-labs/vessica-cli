@@ -8,7 +8,7 @@ import (
 )
 
 func TestCheckpointNameAndMetadataRoundTrip(t *testing.T) {
-	checkpoint := Checkpoint{SchemaVersion: SchemaVersion, Name: Name("github.com/acme/demo", strings.Repeat("a", 40), strings.Repeat("b", 64), "toolchain123"), Status: "ready", ToolchainFingerprint: "toolchain123"}
+	checkpoint := Checkpoint{SchemaVersion: SchemaVersion, Name: Name("github.com/acme/demo", strings.Repeat("a", 40), strings.Repeat("b", 64), "spec123", "toolchain123"), Status: "ready", ToolchainFingerprint: "toolchain123"}
 	if len(checkpoint.Name) > 64 || !strings.HasPrefix(checkpoint.Name, "vessica-repo-") {
 		t.Fatalf("name=%q", checkpoint.Name)
 	}
@@ -47,5 +47,12 @@ func TestDependencyFingerprintIgnoresSourceChanges(t *testing.T) {
 	stack, command := DependencyInstallCommand(root)
 	if stack != "node" || !strings.Contains(command, "frozen-lockfile") {
 		t.Fatalf("stack=%s command=%s", stack, command)
+	}
+}
+
+func TestInferSpecificationCapturesPurposeBuiltNodeContract(t *testing.T) {
+	spec, fingerprint := InferSpecification([]string{"package.json", "pnpm-lock.yaml", "app/page.tsx"}, "node")
+	if spec.PackageManager != "pnpm" || len(spec.Manifests) != 2 || len(spec.RequiredTools) != 2 || fingerprint == "" {
+		t.Fatalf("spec=%#v fingerprint=%q", spec, fingerprint)
 	}
 }

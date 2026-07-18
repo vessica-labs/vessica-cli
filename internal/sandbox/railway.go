@@ -119,6 +119,32 @@ func (r *RailwaySandbox) Create(ctx context.Context, opts CreateOpts) error {
 	return nil
 }
 
+// Fork creates a copy-on-write sandbox from an existing run sandbox. It is
+// used to scrub run state before capturing a proactive repository checkpoint.
+func (r *RailwaySandbox) Fork(ctx context.Context) (*RailwaySandbox, error) {
+	args := append(r.baseArgs(), "fork", r.sandboxID, "--json")
+	output, err := r.command(ctx, args...).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("railway sandbox fork: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	id, err := railwayObjectID(output)
+	if err != nil {
+		return nil, err
+	}
+	fork := NewRailway(r.cli, r.projectID, r.environmentID, id)
+	fork.apiToken, fork.cliHome, fork.persistCLI = r.apiToken, r.cliHome, r.persistCLI
+	return fork, nil
+}
+
+func (r *RailwaySandbox) CreateCheckpoint(ctx context.Context, name string) error {
+	args := append(r.baseArgs(), "checkpoint", "create", name, "--id", r.sandboxID, "--json")
+	output, err := r.command(ctx, args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("railway checkpoint create: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return r.persistSession()
+}
+
 func railwayObjectID(raw []byte) (string, error) {
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {

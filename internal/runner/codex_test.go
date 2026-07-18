@@ -116,3 +116,22 @@ func TestMinimalMCPConfigOverridesDisablesOnlyUnapprovedEnabledServers(t *testin
 		t.Fatalf("overrides=%v want=%v", got, want)
 	}
 }
+
+func TestConfiguredCodexMCPServersUsesSnapshotInventory(t *testing.T) {
+	codexMCPServerCache.Lock()
+	codexMCPServerCache.servers = map[string][]codexMCPServer{}
+	codexMCPServerCache.sources = map[string]string{}
+	codexMCPServerCache.Unlock()
+	t.Setenv("VES_RUNNER_USER", "snapshot-test")
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	if err := os.WriteFile(path, []byte(`[{"name":"railway","enabled":true}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	servers, source, err := configuredCodexMCPServers(context.Background(), t.TempDir(), map[string]string{"VES_CODEX_MCP_SERVERS_FILE": path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source != "snapshot" || len(servers) != 1 || servers[0].Name != "railway" {
+		t.Fatalf("servers=%v source=%q", servers, source)
+	}
+}

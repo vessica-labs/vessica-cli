@@ -166,6 +166,7 @@ func (l *RailwayLauncher) launch(ctx context.Context, runRecord *state.Run, from
 	if latest.ReceiptID != "" {
 		_, _ = receipt.Finalize(ctx, l.DB, latest)
 	}
+	l.enqueueRepositoryCheckpointRefresh(ctx, latest, rs, repositoryRecord)
 	sbRecord, _ = l.DB.GetSandboxForRun(ctx, runRecord.ID)
 	if latest.Preview && sbRecord != nil && sbRecord.PreviewPort > 0 {
 		publicPreview, publishErr := l.publishPreview(ctx, rs, latest, sbRecord)
@@ -262,15 +263,16 @@ func railwayWorkerBootstrapCommand(workerURL, workerCommand string) string {
 		"export NODE_PATH=/usr/local/lib/node_modules",
 		"export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright",
 		"export VES_TOOLCHAIN_VERIFY_STARTED_AT_MS=$(date +%s%3N)",
-		toolchain.AgentRuntimeVerifyCommand(),
+		"if " + toolchain.RuntimeAttestationCommand() + "; then export VES_RUNTIME_ATTESTATION_CACHE_HIT=1; else export VES_RUNTIME_ATTESTATION_CACHE_HIT=0; " + toolchain.AgentRuntimeVerifyCommand() + "; fi",
 		"export VES_TOOLCHAIN_VERIFIED_AT_MS=$(date +%s%3N)",
 		"if test -n \"${VES_CODEX_AUTH_B64:-}\"; then runuser --user vessica-agent --preserve-environment -- env HOME=/home/vessica-agent codex login status >/dev/null; else test -n \"${OPENAI_API_KEY:-}\" || { echo 'Codex authentication is unavailable' >&2; exit 1; }; fi",
 		"export VES_AUTH_VERIFIED_AT_MS=$(date +%s%3N)",
-		"worker_bin=$(mktemp /tmp/ves-worker.XXXXXX)",
-		"trap 'rm -f \"$worker_bin\"' EXIT",
+		"install -d -m 0755 /opt/vessica/bin",
+		"worker_bin=/opt/vessica/bin/ves-worker",
+		"worker_digest=$(curl -fsSI -H \"Authorization: Bearer $VES_WORKER_DOWNLOAD_TOKEN\" " + shellQuoteCP(workerURL) + " | awk -F': ' 'tolower($1)==\"x-vessica-worker-sha256\" {gsub(/\\r/,\"\",$2); print $2}')",
+		"test -n \"$worker_digest\" || { echo 'worker metadata did not include a digest' >&2; exit 1; }",
 		"export VES_WORKER_DOWNLOAD_STARTED_AT_MS=$(date +%s%3N)",
-		"curl -fsSL -H \"Authorization: Bearer $VES_WORKER_DOWNLOAD_TOKEN\" " + shellQuoteCP(workerURL) + " -o \"$worker_bin\"",
-		"chmod +x \"$worker_bin\"",
+		"if test -x \"$worker_bin\" && test \"$(cat \"$worker_bin.sha256\" 2>/dev/null || true)\" = \"$worker_digest\"; then export VES_WORKER_CACHE_HIT=1; else export VES_WORKER_CACHE_HIT=0; worker_tmp=$(mktemp /tmp/ves-worker.XXXXXX); trap 'rm -f \"$worker_tmp\"' EXIT; curl -fsSL -H \"Authorization: Bearer $VES_WORKER_DOWNLOAD_TOKEN\" " + shellQuoteCP(workerURL) + " -o \"$worker_tmp\"; echo \"$worker_digest  $worker_tmp\" | sha256sum -c -; install -m 0755 \"$worker_tmp\" \"$worker_bin\"; printf '%s\\n' \"$worker_digest\" >\"$worker_bin.sha256\"; fi",
 		"export VES_WORKER_DOWNLOADED_AT_MS=$(date +%s%3N)",
 		"\"$worker_bin\" " + workerCommand,
 	}, "\n")

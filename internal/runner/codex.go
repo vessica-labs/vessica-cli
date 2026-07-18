@@ -40,7 +40,8 @@ type codexMCPServer struct {
 var codexMCPServerCache = struct {
 	sync.Mutex
 	servers map[string][]codexMCPServer
-}{servers: map[string][]codexMCPServer{}}
+	sources map[string]string
+}{servers: map[string][]codexMCPServer{}, sources: map[string]string{}}
 
 func NewCodex() *CodexRunner {
 	_, err := exec.LookPath("codex")
@@ -91,14 +92,14 @@ func (c *CodexRunner) Start(ctx context.Context, task Task) error {
 	c.mcpDiscovery = "skipped"
 	if c.mcpPolicy == "minimal" {
 		c.mcpDiscovery = "failed"
-		servers, err := configuredCodexMCPServers(runCtx, workdir, c.input.Env)
+		servers, discovery, err := configuredCodexMCPServers(runCtx, workdir, c.input.Env)
 		if err == nil {
 			overrides := minimalMCPConfigOverrides(servers, c.input.Env["VES_CODEX_MCP_ALLOWLIST"])
 			for _, override := range overrides {
 				args = append(args, "--config", override)
 			}
 			c.mcpDisabled = len(overrides)
-			c.mcpDiscovery = "completed"
+			c.mcpDiscovery = discovery
 		}
 	}
 	if os.Getenv("VES_CODEX_EXTERNAL_SANDBOX") == "1" {
@@ -193,24 +194,54 @@ func (c *CodexRunner) Start(ctx context.Context, task Task) error {
 	return nil
 }
 
-func configuredCodexMCPServers(ctx context.Context, workdir string, env map[string]string) ([]codexMCPServer, error) {
+func configuredCodexMCPServers(ctx context.Context, workdir string, env map[string]string) ([]codexMCPServer, string, error) {
 	key := strings.Join([]string{os.Getenv("VES_RUNNER_USER"), os.Getenv("VES_RUNNER_HOME"), os.Getenv("CODEX_HOME")}, "\x00")
 	codexMCPServerCache.Lock()
 	defer codexMCPServerCache.Unlock()
 	if cached, ok := codexMCPServerCache.servers[key]; ok {
-		return append([]codexMCPServer(nil), cached...), nil
+		return append([]codexMCPServer(nil), cached...), "memory_cache", nil
+	}
+	if raw := strings.TrimSpace(env["VES_CODEX_MCP_SERVERS_JSON"]); raw != "" {
+		servers, err := decodeCodexMCPServers([]byte(raw))
+		if err != nil {
+			return nil, "environment", err
+		}
+		codexMCPServerCache.servers[key] = append([]codexMCPServer(nil), servers...)
+		codexMCPServerCache.sources[key] = "snapshot"
+		return servers, "snapshot", nil
+	}
+	if cacheFile := strings.TrimSpace(env["VES_CODEX_MCP_SERVERS_FILE"]); cacheFile != "" {
+		raw, err := os.ReadFile(filepath.Clean(cacheFile))
+		if err == nil {
+			servers, decodeErr := decodeCodexMCPServers(raw)
+			if decodeErr != nil {
+				return nil, "snapshot", decodeErr
+			}
+			codexMCPServerCache.servers[key] = append([]codexMCPServer(nil), servers...)
+			codexMCPServerCache.sources[key] = "snapshot"
+			return servers, "snapshot", nil
+		}
 	}
 	cmd := isolation.CommandContext(ctx, workdir, "codex", "mcp", "list", "--json")
 	cmd.Env = runnerEnvironment(env)
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("list Codex MCP servers: %w", err)
+		return nil, "command", fmt.Errorf("list Codex MCP servers: %w", err)
 	}
-	var servers []codexMCPServer
-	if err := json.Unmarshal(output, &servers); err != nil {
-		return nil, fmt.Errorf("parse Codex MCP server list: %w", err)
+	servers, err := decodeCodexMCPServers(output)
+	if err != nil {
+		return nil, "command", err
 	}
 	codexMCPServerCache.servers[key] = append([]codexMCPServer(nil), servers...)
+	codexMCPServerCache.sources[key] = "command"
+	return servers, "command", nil
+}
+
+func decodeCodexMCPServers(raw []byte) ([]codexMCPServer, error) {
+	var servers []codexMCPServer
+	if err := json.Unmarshal(raw, &servers); err != nil {
+		return nil, fmt.Errorf("parse Codex MCP server list: %w", err)
+	}
 	return servers, nil
 }
 

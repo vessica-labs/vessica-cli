@@ -14,13 +14,21 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/state"
 )
 
-// materializeWorktreeDependencies creates the path-specific links used by a
-// Node package manager. The repository checkpoint already contains the package
-// store, but pnpm node_modules metadata cannot safely be shared by symlink
-// across Git worktrees.
+// materializeWorktreeDependencies is a fallback for repositories whose
+// checkpoint did not contain a dependency tree. Purpose-built Railway
+// checkpoints share their immutable node_modules tree into the isolated run
+// worktree, avoiding a copy or package-manager invocation on the critical path.
 func (e *Engine) materializeWorktreeDependencies(ctx context.Context, r *state.Run, workdir string) error {
 	target := filepath.Join(workdir, "node_modules")
 	if _, err := os.Stat(target); err == nil {
+		mode := "existing"
+		if info, linkErr := os.Lstat(target); linkErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			mode = "snapshot_symlink"
+		}
+		e.emit(ctx, r.ID, "run.infrastructure.stage", map[string]any{
+			"stage": "worktree_dependencies", "duration_ms": 0, "status": "completed",
+			"cache_hit": true, "mode": mode,
+		})
 		return nil
 	}
 	install := strings.TrimSpace(harness.PreviewInstallCommand(workdir))

@@ -14,6 +14,7 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/repo"
 	"github.com/vessica-labs/vessica-cli/internal/reposnapshot"
 	"github.com/vessica-labs/vessica-cli/internal/state"
+	"github.com/vessica-labs/vessica-cli/internal/toolchain"
 )
 
 func recordBootstrapTimings(ctx context.Context, db *state.DB, runID string, local []map[string]any) {
@@ -42,7 +43,16 @@ func recordBootstrapTimings(ctx context.Context, db *state.DB, runID string, loc
 	}
 	for _, item := range remote {
 		if item.start > 0 && item.end >= item.start {
-			_, _ = db.AppendEvent(ctx, runID, "", "run.infrastructure.stage", map[string]any{"stage": item.name, "duration_ms": item.end - item.start, "status": "completed"})
+			detail := map[string]any{"stage": item.name, "duration_ms": item.end - item.start, "status": "completed"}
+			if item.name == "runtime_integrity" {
+				detail["cache_hit"] = os.Getenv("VES_RUNTIME_ATTESTATION_CACHE_HIT") == "1"
+				detail["mode"] = map[bool]string{true: "snapshot_attestation", false: "full_verify"}[detail["cache_hit"].(bool)]
+			}
+			if item.name == "worker_download" {
+				detail["cache_hit"] = os.Getenv("VES_WORKER_CACHE_HIT") == "1"
+				detail["mode"] = map[bool]string{true: "snapshot_binary", false: "verified_download"}[detail["cache_hit"].(bool)]
+			}
+			_, _ = db.AppendEvent(ctx, runID, "", "run.infrastructure.stage", detail)
 		}
 	}
 	for _, item := range local {
@@ -98,8 +108,31 @@ func ensureWorkerRepo(ctx context.Context, root, remote string) (map[string]any,
 				}
 				dependencyMS = time.Since(dependencyStarted).Milliseconds()
 			}
+			commitOutput, commitErr := repo.GitCommandContext(ctx, append(gitAtRoot, "rev-parse", "HEAD")...).Output()
+			if commitErr != nil {
+				return nil, fmt.Errorf("resolve refreshed checkpoint commit: %w", commitErr)
+			}
+			files, inventoryErr := reposnapshot.RepositoryFiles(root)
+			if inventoryErr != nil {
+				return nil, inventoryErr
+			}
+			specification, specificationFingerprint := reposnapshot.InferSpecification(files, stack)
+			commit := strings.TrimSpace(string(commitOutput))
+			candidate := reposnapshot.Checkpoint{
+				SchemaVersion: reposnapshot.SchemaVersion, Status: "ready", BaseCommit: commit,
+				DependencyFingerprint: dependencyFingerprint, ToolchainFingerprint: toolchain.Fingerprint(),
+				Stack: stack, DependencyState: map[bool]string{true: "ready", false: marker.DependencyState}[install != ""],
+				Specification: specification, SpecificationFingerprint: specificationFingerprint,
+				PreparedAt: time.Now().UTC().Format(time.RFC3339Nano),
+			}
+			candidate.Name = reposnapshot.Name(state.CanonicalRepositoryRemote(remote), commit, dependencyFingerprint, specificationFingerprint, toolchain.Fingerprint())
+			candidateRaw, _ := json.Marshal(candidate)
+			candidatePath := filepath.Join(filepath.Dir(root), reposnapshot.CandidateFile)
+			if err := os.WriteFile(candidatePath, candidateRaw, 0o644); err != nil {
+				return nil, fmt.Errorf("write repository checkpoint candidate: %w", err)
+			}
 			_ = os.Remove(markerPath)
-			return map[string]any{"cache_hit": true, "mode": "checkpoint_delta", "stack": stack, "base_commit": marker.BaseCommit, "dependency_cache_hit": !dependenciesUpdated, "dependency_refresh_ms": dependencyMS, "git_sync_ms": time.Since(fetchStarted).Milliseconds()}, nil
+			return map[string]any{"cache_hit": true, "mode": "checkpoint_delta", "stack": stack, "base_commit": marker.BaseCommit, "target_commit": commit, "checkpoint_refresh_needed": candidate.Name != marker.Name, "dependency_cache_hit": !dependenciesUpdated, "dependency_refresh_ms": dependencyMS, "git_sync_ms": time.Since(fetchStarted).Milliseconds()}, nil
 		}
 		return map[string]any{"cache_hit": true, "mode": "retained_sandbox"}, nil
 	}

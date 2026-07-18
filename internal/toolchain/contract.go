@@ -12,6 +12,9 @@ import (
 	"strings"
 )
 
+const RuntimeManifestPath = "/opt/vessica/runtime-manifest.json"
+const MCPInventoryPath = "/opt/vessica/codex-mcp-servers.json"
+
 // Tool is one executable capability required by a Vessica coding agent.
 type Tool struct {
 	Name       string   `json:"name"`
@@ -218,6 +221,10 @@ func CheckpointInstallCommand() string {
 		"chmod -R a+rX /opt/ms-playwright",
 		AgentShellVerifyCommand(),
 		AgentProjectSmokeCommand(false),
+		"install -d -m 0755 /opt/vessica",
+		"printf '%s\\n' " + shellQuote(fmt.Sprintf(`{"schema":1,"toolchain_fingerprint":"%s","contract_version":"%s"}`, Fingerprint(), ContractVersion)) + " >" + RuntimeManifestPath,
+		"printf '[]\\n' >" + MCPInventoryPath,
+		"chmod 0644 " + RuntimeManifestPath + " " + MCPInventoryPath,
 	}, "\n")
 }
 
@@ -305,6 +312,22 @@ func RuntimeShellVerifyCommand() string {
 
 func AgentRuntimeVerifyCommand() string {
 	return "runuser --user vessica-agent --preserve-environment -- env HOME=/home/vessica-agent NODE_PATH=/usr/local/lib/node_modules PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright bash -c " + shellQuote(RuntimeShellVerifyCommand())
+}
+
+// RuntimeAttestationCommand is the subsecond warm-fork check. The expensive
+// version and browser probes run while creating the immutable toolchain
+// checkpoint; each fork verifies that exact attestation plus required paths.
+func RuntimeAttestationCommand() string {
+	commands := []string{
+		"test -r " + shellQuote(RuntimeManifestPath),
+		"jq -e --arg fingerprint " + shellQuote(Fingerprint()) + " '.schema == 1 and .toolchain_fingerprint == $fingerprint' " + shellQuote(RuntimeManifestPath) + " >/dev/null",
+		"test -d /opt/ms-playwright",
+		"test -r " + shellQuote(MCPInventoryPath),
+	}
+	for _, executable := range []string{"node", "pnpm", "codex", "go", "yq", "rg", "git", "runuser"} {
+		commands = append(commands, "command -v "+shellQuote(executable)+" >/dev/null")
+	}
+	return strings.Join(commands, " && ")
 }
 
 // AgentProjectSmokeCommand verifies package scripts, browser startup, preview

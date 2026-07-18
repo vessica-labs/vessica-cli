@@ -18,10 +18,10 @@ func TestRailwayWorkerBootstrapUsesOuterSandbox(t *testing.T) {
 	if !strings.Contains(script, "export VES_CODEX_EXTERNAL_SANDBOX=1") {
 		t.Fatalf("bootstrap does not configure Codex for the Railway isolation boundary:\n%s", script)
 	}
-	if !strings.Contains(script, "worker_bin=$(mktemp ") || strings.Contains(script, "-o /tmp/ves\n") {
-		t.Fatalf("bootstrap does not download workers atomically:\n%s", script)
+	if !strings.Contains(script, "worker_bin=/opt/vessica/bin/ves-worker") || !strings.Contains(script, "sha256sum -c -") || !strings.Contains(script, "worker_tmp=$(mktemp ") {
+		t.Fatalf("bootstrap does not resolve a verified cached worker atomically:\n%s", script)
 	}
-	for _, required := range []string{"export HOME=/home/vessica-agent", "export NPM_CONFIG_PREFIX=/usr/local", "export NODE_PATH=/usr/local/lib/node_modules", "export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright", "useradd --create-home", "auth.json", "chown vessica-agent:vessica-agent", "chmod 0600", "codex login status", "VES_BOOTSTRAP_STARTED_AT_MS", "VES_TOOLCHAIN_VERIFIED_AT_MS", "VES_WORKER_DOWNLOADED_AT_MS", "command -v runuser", "command -v find", toolchain.YQVersion, "command -v", "runuser --user vessica-agent"} {
+	for _, required := range []string{"export HOME=/home/vessica-agent", "export NPM_CONFIG_PREFIX=/usr/local", "export NODE_PATH=/usr/local/lib/node_modules", "export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright", "useradd --create-home", "auth.json", "chown vessica-agent:vessica-agent", "chmod 0600", "codex login status", "VES_BOOTSTRAP_STARTED_AT_MS", "VES_TOOLCHAIN_VERIFIED_AT_MS", "VES_WORKER_DOWNLOADED_AT_MS", "VES_RUNTIME_ATTESTATION_CACHE_HIT", "VES_WORKER_CACHE_HIT", "command -v runuser", "command -v find", toolchain.YQVersion, "command -v", "runuser --user vessica-agent"} {
 		if !strings.Contains(script, required) {
 			t.Fatalf("bootstrap is missing toolchain preflight %q:\n%s", required, script)
 		}

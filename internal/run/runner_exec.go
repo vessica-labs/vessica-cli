@@ -37,6 +37,9 @@ func (e *Engine) invokeRunner(ctx context.Context, r *state.Run, phase, prompt, 
 	if allowlist := strings.TrimSpace(os.Getenv("VES_CODEX_MCP_ALLOWLIST")); allowlist != "" {
 		in.Env["VES_CODEX_MCP_ALLOWLIST"] = allowlist
 	}
+	if cacheFile := strings.TrimSpace(os.Getenv("VES_CODEX_MCP_SERVERS_FILE")); cacheFile != "" {
+		in.Env["VES_CODEX_MCP_SERVERS_FILE"] = cacheFile
+	}
 	if phase == "code" && agentRole == "coder" {
 		in.Env["VES_ENGINE_MANAGED_RUN"] = "1"
 		in.Env["VES_RUN_ID"] = r.ID

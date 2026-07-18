@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/vessica-labs/vessica-cli/internal/knowledgegateway"
+	"github.com/vessica-labs/vessica-cli/internal/reposnapshot"
 	"github.com/vessica-labs/vessica-cli/internal/retention"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 	"github.com/vessica-labs/vessica-cli/internal/tracker"
@@ -56,6 +57,18 @@ func (s *Server) processJob(ctx context.Context, job *state.Job) error {
 			return err
 		}
 		return s.SyncRunToLinear(ctx, payload.RunID)
+	case "refresh_repository_checkpoint":
+		var payload repositoryCheckpointRefreshPayload
+		if err := json.Unmarshal([]byte(job.PayloadJSON), &payload); err != nil {
+			return err
+		}
+		launcher, ok := s.Launcher.(interface {
+			RefreshRepositoryCheckpoint(context.Context, string, string, reposnapshot.Checkpoint) error
+		})
+		if !ok {
+			return fmt.Errorf("run launcher does not support repository checkpoint refresh")
+		}
+		return launcher.RefreshRepositoryCheckpoint(ctx, payload.RepositoryID, payload.SandboxID, payload.Checkpoint)
 	default:
 		return fmt.Errorf("unsupported job kind %s", job.Kind)
 	}

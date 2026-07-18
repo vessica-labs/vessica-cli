@@ -33,6 +33,7 @@ func (l *RailwayLauncher) workerEnvironment(runID, repositoryRemote, checkpoint 
 		"VES_KNOWLEDGE_TOKEN":         service + ".VES_KNOWLEDGE_TOKEN",
 		"VES_KNOWLEDGE_WORKSPACE_ID":  service + ".VES_KNOWLEDGE_WORKSPACE_ID",
 		"VES_CODEX_EXTERNAL_SANDBOX":  "1",
+		"VES_CODEX_MCP_SERVERS_FILE":  "/opt/vessica/codex-mcp-servers.json",
 		"VES_RUNNER_USER":             "vessica-agent",
 		"VES_RUNNER_HOME":             "/home/vessica-agent",
 		"GITHUB_TOKEN":                service + ".GITHUB_TOKEN",

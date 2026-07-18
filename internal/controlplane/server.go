@@ -14,7 +14,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -23,6 +22,7 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/config"
 	"github.com/vessica-labs/vessica-cli/internal/id"
 	"github.com/vessica-labs/vessica-cli/internal/receipt"
+	"github.com/vessica-labs/vessica-cli/internal/reposnapshot"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 	"github.com/vessica-labs/vessica-cli/internal/tracker"
 )
@@ -51,6 +51,9 @@ type Server struct {
 	projectionMu        sync.Mutex
 	importMu            sync.Mutex
 	mutationMu          sync.Mutex
+	binaryDigestOnce    sync.Once
+	binaryDigest        string
+	binaryDigestErr     error
 }
 
 type linearWebhookPayload struct {
@@ -67,6 +70,12 @@ type runJobPayload struct {
 	ExternalIssue string `json:"external_issue_id"`
 	IntegrationID string `json:"integration_id"`
 	FromPhase     string `json:"from_phase,omitempty"`
+}
+
+type repositoryCheckpointRefreshPayload struct {
+	RepositoryID string                  `json:"repository_id"`
+	SandboxID    string                  `json:"sandbox_id"`
+	Checkpoint   reposnapshot.Checkpoint `json:"checkpoint"`
 }
 
 func (s *Server) Handler() http.Handler {
@@ -408,26 +417,6 @@ func (s *Server) handleLinearWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"accepted": true, "duplicate": duplicate})
-}
-
-func (s *Server) handleWorkerBinary(w http.ResponseWriter, r *http.Request) {
-	if !constantToken(r.Header.Get("Authorization"), s.WorkerDownloadToken) {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "unauthorized"})
-		return
-	}
-	path := s.BinaryPath
-	if path == "" {
-		path = "/proc/self/exe"
-	}
-	file, err := os.Open(filepath.Clean(path))
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "worker binary unavailable"})
-		return
-	}
-	defer file.Close()
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", `attachment; filename="ves"`)
-	_, _ = io.Copy(w, file)
 }
 
 func (s *Server) requireAPIAuth(next http.HandlerFunc) http.HandlerFunc {

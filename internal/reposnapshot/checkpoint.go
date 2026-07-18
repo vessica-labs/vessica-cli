@@ -10,12 +10,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 const MarkerFile = ".vessica-repository-checkpoint.json"
+const CandidateFile = ".vessica-repository-checkpoint-candidate.json"
 
 var dependencyFiles = []string{
 	"package.json", "pnpm-lock.yaml", "package-lock.json", "yarn.lock",
@@ -27,15 +29,28 @@ var dependencyFiles = []string{
 // repository checkout and its warmed dependency state. Secrets and Railway
 // variables are never part of this document or the checkpoint contract.
 type Checkpoint struct {
-	SchemaVersion         int    `json:"schema_version"`
-	Name                  string `json:"name"`
-	Status                string `json:"status"`
-	BaseCommit            string `json:"base_commit"`
-	DependencyFingerprint string `json:"dependency_fingerprint"`
-	ToolchainFingerprint  string `json:"toolchain_fingerprint"`
-	Stack                 string `json:"stack"`
-	DependencyState       string `json:"dependency_state"`
-	PreparedAt            string `json:"prepared_at"`
+	SchemaVersion            int           `json:"schema_version"`
+	Name                     string        `json:"name"`
+	Status                   string        `json:"status"`
+	BaseCommit               string        `json:"base_commit"`
+	DependencyFingerprint    string        `json:"dependency_fingerprint"`
+	ToolchainFingerprint     string        `json:"toolchain_fingerprint"`
+	Stack                    string        `json:"stack"`
+	DependencyState          string        `json:"dependency_state"`
+	SpecificationFingerprint string        `json:"specification_fingerprint"`
+	Specification            Specification `json:"specification"`
+	PreparedAt               string        `json:"prepared_at"`
+}
+
+// Specification is the reviewable purpose-built snapshot contract inferred
+// on first installation. It records what the snapshot warmed without storing
+// credentials or environment values.
+type Specification struct {
+	Stack          string   `json:"stack"`
+	PackageManager string   `json:"package_manager,omitempty"`
+	Manifests      []string `json:"manifests,omitempty"`
+	RequiredTools  []string `json:"required_tools,omitempty"`
+	WorkspaceRoots []string `json:"workspace_roots,omitempty"`
 }
 
 type repositoryMetadata struct {
@@ -45,9 +60,10 @@ type repositoryMetadata struct {
 
 // Name returns a bounded immutable checkpoint name. A new repository commit,
 // dependency graph, or base toolchain produces a different name.
-func Name(canonicalRemote, commit, dependencyFingerprint, toolchainFingerprint string) string {
+func Name(canonicalRemote, commit, dependencyFingerprint, specificationFingerprint, toolchainFingerprint string) string {
 	remote := shortHash(canonicalRemote, 10)
-	return fmt.Sprintf("vessica-repo-%s-%s-%s-%s", remote, short(commit, 10), short(dependencyFingerprint, 10), short(toolchainFingerprint, 10))
+	contract := shortHash(dependencyFingerprint+"\x00"+specificationFingerprint, 10)
+	return fmt.Sprintf("vessica-repo-%s-%s-%s-%s", remote, short(commit, 10), contract, short(toolchainFingerprint, 10))
 }
 
 // Ready reports whether the snapshot can safely derive from the active worker
@@ -148,6 +164,74 @@ func DependencyInstallCommand(root string) (stack, command string) {
 	default:
 		return "generic", ""
 	}
+}
+
+// InferSpecification derives a portable, secret-free snapshot recipe from the
+// repository inventory collected during orientation.
+func InferSpecification(files []string, stack string) (Specification, string) {
+	present := map[string]bool{}
+	for _, file := range files {
+		present[filepath.ToSlash(strings.TrimSpace(file))] = true
+	}
+	spec := Specification{Stack: stack, WorkspaceRoots: []string{"."}}
+	for _, name := range dependencyFiles {
+		if present[name] {
+			spec.Manifests = append(spec.Manifests, name)
+		}
+	}
+	switch {
+	case present["pnpm-lock.yaml"]:
+		spec.PackageManager, spec.RequiredTools = "pnpm", []string{"node", "pnpm"}
+	case present["package-lock.json"]:
+		spec.PackageManager, spec.RequiredTools = "npm", []string{"node", "npm"}
+	case present["yarn.lock"]:
+		spec.PackageManager, spec.RequiredTools = "yarn", []string{"node", "corepack"}
+	case present["go.mod"]:
+		spec.PackageManager, spec.RequiredTools = "go-modules", []string{"go"}
+	case present["requirements.txt"] || present["pyproject.toml"]:
+		spec.PackageManager, spec.RequiredTools = "python", []string{"python3", "pip"}
+	case present["Cargo.toml"]:
+		spec.PackageManager, spec.RequiredTools = "cargo", []string{"cargo", "rustc"}
+	case present["Gemfile"]:
+		spec.PackageManager, spec.RequiredTools = "bundler", []string{"ruby", "bundle"}
+	case present["pom.xml"]:
+		spec.PackageManager, spec.RequiredTools = "maven", []string{"java", "mvn"}
+	case present["build.gradle"] || present["build.gradle.kts"]:
+		spec.PackageManager, spec.RequiredTools = "gradle", []string{"java", "gradle"}
+	}
+	encoded, _ := json.Marshal(spec)
+	sum := sha256.Sum256(encoded)
+	return spec, hex.EncodeToString(sum[:])
+}
+
+// RepositoryFiles returns the bounded inventory used by the snapshot spec.
+func RepositoryFiles(root string) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relative, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		relative = filepath.ToSlash(relative)
+		if entry.IsDir() {
+			if relative == ".git" || relative == "node_modules" || relative == ".venv" || relative == "vendor" {
+				return filepath.SkipDir
+			}
+			if strings.Count(relative, "/") >= 3 {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if len(files) < 1000 {
+			files = append(files, relative)
+		}
+		return nil
+	})
+	sort.Strings(files)
+	return files, err
 }
 
 func short(value string, length int) string {

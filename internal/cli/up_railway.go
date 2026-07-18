@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -277,7 +278,7 @@ type railwayOrientation struct {
 func runRailwayOrientation(ctx context.Context, cfg config.Config, remote string) (railwayOrientation, error) {
 	cloneRemote := orientationCloneRemote(remote)
 	base := []string{"sandbox", "-p", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID}
-	args := append(append([]string{}, base...), "create", "--checkpoint", cfg.Hosted.WorkerCheckpoint, "--private-network", "--idle-timeout-minutes", "20", "--variable", "VES_REPO_REMOTE="+cloneRemote, "--variable", "GITHUB_TOKEN=control-plane.GITHUB_TOKEN", "--json")
+	args := append(append([]string{}, base...), "create", "--checkpoint", cfg.Hosted.WorkerCheckpoint, "--private-network", "--idle-timeout-minutes", "20", "--variable", "VES_REPO_REMOTE="+cloneRemote, "--variable", "GITHUB_TOKEN=control-plane.GITHUB_TOKEN", "--variable", "VES_CONTROL_PLANE_URL="+cfg.Hosted.ControlPlaneURL, "--variable", "VES_WORKER_DOWNLOAD_TOKEN=control-plane.VES_WORKER_DOWNLOAD_TOKEN", "--json")
 	raw, err := runRailway(ctx, "", nil, args...)
 	if err != nil {
 		return railwayOrientation{}, err
@@ -307,7 +308,18 @@ git -C /workspace/repo remote set-url origin "$VES_REPO_REMOTE"
 commit=$(git -C /workspace/repo rev-parse HEAD)
 clone_finished=$(date +%s%3N)
 rm -f "$askpass"
-unset GITHUB_TOKEN VES_REPO_REMOTE
+if test -n "${VES_CONTROL_PLANE_URL:-}" && test -n "${VES_WORKER_DOWNLOAD_TOKEN:-}"; then
+  install -d -m 0755 /opt/vessica/bin
+  worker_url="${VES_CONTROL_PLANE_URL%/}/internal/worker/ves"
+  worker_digest=$(curl -fsSI -H "Authorization: Bearer $VES_WORKER_DOWNLOAD_TOKEN" "$worker_url" | awk -F': ' 'tolower($1)=="x-vessica-worker-sha256" {gsub(/\r/,"",$2); print $2}')
+  worker_tmp=$(mktemp)
+  curl -fsSL -H "Authorization: Bearer $VES_WORKER_DOWNLOAD_TOKEN" "$worker_url" -o "$worker_tmp"
+  echo "$worker_digest  $worker_tmp" | sha256sum -c -
+  install -m 0755 "$worker_tmp" /opt/vessica/bin/ves-worker
+  printf '%s\n' "$worker_digest" >/opt/vessica/bin/ves-worker.sha256
+  rm -f "$worker_tmp"
+fi
+unset GITHUB_TOKEN VES_REPO_REMOTE VES_CONTROL_PLANE_URL VES_WORKER_DOWNLOAD_TOKEN
 
 dependency_fingerprint=$(python3 - <<'PY'
 import hashlib, os
@@ -420,14 +432,16 @@ find /workspace/repo -maxdepth 3 -type f -not -path '*/.git/*' -not -path '*/nod
 		return railwayOrientation{}, fmt.Errorf("orientation sandbox did not report its dependency contract")
 	}
 	orientation.Checkpoint.SchemaVersion = reposnapshot.SchemaVersion
-	orientation.Checkpoint.Name = reposnapshot.Name(state.CanonicalRepositoryRemote(remote), commit, orientation.Checkpoint.DependencyFingerprint, toolchain.Fingerprint())
+	orientation.Checkpoint.Specification, orientation.Checkpoint.SpecificationFingerprint = reposnapshot.InferSpecification(orientation.Files, orientation.Checkpoint.Stack)
+	orientation.Checkpoint.Name = reposnapshot.Name(state.CanonicalRepositoryRemote(remote), commit, orientation.Checkpoint.DependencyFingerprint, orientation.Checkpoint.SpecificationFingerprint, toolchain.Fingerprint())
 	orientation.Checkpoint.Status = "ready"
 	orientation.Checkpoint.BaseCommit = commit
 	orientation.Checkpoint.ToolchainFingerprint = toolchain.Fingerprint()
 	orientation.Checkpoint.PreparedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	list, listErr := runRailway(ctx, "", nil, append(base, "checkpoint", "list", "--json")...)
 	if listErr != nil || !bytes.Contains(list, []byte(orientation.Checkpoint.Name)) {
-		marker := "tmp=$(mktemp); jq --arg name " + orientation.Checkpoint.Name + " '.checkpoint_name=$name' /workspace/.vessica-repository-checkpoint.json >\"$tmp\" && mv \"$tmp\" /workspace/.vessica-repository-checkpoint.json && chmod 0644 /workspace/.vessica-repository-checkpoint.json"
+		checkpointJSON, _ := json.Marshal(orientation.Checkpoint)
+		marker := "printf '%s' " + strconv.Quote(base64.StdEncoding.EncodeToString(checkpointJSON)) + " | base64 -d >/workspace/.vessica-repository-checkpoint.json && chmod 0644 /workspace/.vessica-repository-checkpoint.json"
 		if _, err := runRailway(ctx, "", nil, append(base, "exec", "--id", sandboxID, "--timeout", "60", "--", "bash", "-lc", marker)...); err != nil {
 			return railwayOrientation{}, err
 		}
