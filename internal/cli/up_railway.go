@@ -110,6 +110,15 @@ func railwayUpPreflight(ctx context.Context, root string) map[string]any {
 	return result
 }
 
+func railwayWorkspaceName(selector string, workspaces []railwayWorkspaceChoice) string {
+	for _, workspace := range workspaces {
+		if selector == workspace.ID || strings.EqualFold(selector, workspace.Name) {
+			return workspace.Name
+		}
+	}
+	return ""
+}
+
 func discoverRailwayInstallations(ctx context.Context, workspace string) ([]railwayInstallationCandidate, error) {
 	raw, err := runRailwaySession(ctx, "", nil, "list", "--json")
 	if err != nil {
@@ -197,7 +206,7 @@ func verifiedInstallationIdentity(ctx context.Context, candidate railwayInstalla
 func recoverRailwayInstallation(ctx context.Context, candidate railwayInstallationCandidate) (config.Config, railwaySecrets, error) {
 	cfg := config.Defaults()
 	cfg.Sandbox.Backend = "railway"
-	cfg.Hosted = config.HostedConfig{Provider: "railway", WorkspaceID: candidate.WorkspaceID, ProjectID: candidate.ProjectID, EnvironmentID: candidate.EnvironmentID, ServiceID: candidate.ServiceID, ControlPlaneURL: candidate.Endpoint}
+	cfg.Hosted = config.HostedConfig{Provider: "railway", WorkspaceID: candidate.WorkspaceID, WorkspaceName: candidate.WorkspaceName, ProjectID: candidate.ProjectID, EnvironmentID: candidate.EnvironmentID, ServiceID: candidate.ServiceID, ControlPlaneURL: candidate.Endpoint}
 	if err := reconcileRailwayResourceIDs(ctx, &cfg); err != nil {
 		return cfg, railwaySecrets{}, err
 	}

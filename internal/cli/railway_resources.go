@@ -14,8 +14,8 @@ const railwayControlPlaneProjectName = "vessica-control-plane"
 func createRailwayResources(ctx context.Context, workDir, root string, cfg *config.Config, opts railwayUpOptions) error {
 	if cfg.Hosted.ProjectID == "" {
 		args := []string{"init", "--name", railwayControlPlaneProjectName, "--json"}
-		if opts.Workspace != "" {
-			args = append(args, "--workspace", opts.Workspace)
+		if workspace := firstNonEmpty(opts.WorkspaceName, opts.Workspace); workspace != "" {
+			args = append(args, "--workspace", workspace)
 		}
 		raw, err := runRailway(ctx, workDir, nil, args...)
 		if err != nil {

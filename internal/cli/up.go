@@ -104,6 +104,7 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 			opts.Workspace = selected
 		}
 	}
+	workspaceName := railwayWorkspaceName(opts.Workspace, workspaces)
 	plan := map[string]any{"repository": profile, "workspace": opts.Workspace, "railway_project_name": railwayControlPlaneProjectName, "retrieval": map[string]any{"mode": "lexical", "embedding_state": "not_configured", "upgrade_optional": true}, "resources": []string{"control-plane", "knowledge-server", "Postgres (vessica_control and vessica_knowledge)", "Railway sandbox checkpoint"}, "harness_action": map[string]string{"absent": "create", "partial": "audit and preserve", "present": "audit and preserve"}[profile.Harness], "linear": "not connected", "railway_preflight": preflight}
 	if app.Flags.DryRun {
 		return app.dryRun("up", plan)
@@ -229,7 +230,7 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 		_ = emit("service_deploy", "skipped", "existing hosted services are healthy")
 	} else {
 		_ = emit("resource_provision", "running", "provisioning Railway services")
-		result, err = railwayUp(cmd.Context(), app, railwayUpOptions{Workspace: opts.Workspace, Image: defaultControlPlaneImage(), Progress: func(message string) {
+		result, err = railwayUp(cmd.Context(), app, railwayUpOptions{Workspace: opts.Workspace, WorkspaceName: workspaceName, Image: defaultControlPlaneImage(), Progress: func(message string) {
 			_ = emit("resource_provision", "running", message)
 		}})
 		if err != nil {

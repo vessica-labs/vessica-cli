@@ -87,6 +87,12 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 	}
 	cfg := app.Config
 	cfg.Hosted.Provider, cfg.Hosted.WorkerCheckpoint = "railway", opts.WorkerCheckpoint
+	if strings.TrimSpace(opts.Workspace) != "" {
+		cfg.Hosted.WorkspaceID = opts.Workspace
+	}
+	if strings.TrimSpace(opts.WorkspaceName) != "" {
+		cfg.Hosted.WorkspaceName = opts.WorkspaceName
+	}
 	workDir, err := os.MkdirTemp("", "ves-railway-up-*")
 	if err != nil {
 		return nil, err
@@ -286,8 +292,8 @@ func linkRailwayWorkDir(ctx context.Context, workDir string, cfg config.Config) 
 		return fmt.Errorf("Railway project and environment ids are required before linking the provisioning workspace")
 	}
 	args := []string{"link", "--project", cfg.Hosted.ProjectID, "--environment", cfg.Hosted.EnvironmentID}
-	if strings.TrimSpace(cfg.Hosted.WorkspaceID) != "" {
-		args = append(args, "--workspace", cfg.Hosted.WorkspaceID)
+	if workspace := firstNonEmpty(cfg.Hosted.WorkspaceName, cfg.Hosted.WorkspaceID); strings.TrimSpace(workspace) != "" {
+		args = append(args, "--workspace", workspace)
 	}
 	args = append(args, "--json")
 	if _, err := runRailway(ctx, workDir, nil, args...); err != nil {

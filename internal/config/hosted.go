@@ -5,6 +5,7 @@ package config
 type HostedConfig struct {
 	Provider          string `yaml:"provider,omitempty" json:"provider,omitempty"`
 	WorkspaceID       string `yaml:"workspace_id,omitempty" json:"workspace_id,omitempty"`
+	WorkspaceName     string `yaml:"workspace_name,omitempty" json:"workspace_name,omitempty"`
 	ProjectID         string `yaml:"project_id,omitempty" json:"project_id,omitempty"`
 	EnvironmentID     string `yaml:"environment_id,omitempty" json:"environment_id,omitempty"`
 	ServiceID         string `yaml:"service_id,omitempty" json:"service_id,omitempty"`

@@ -21,11 +21,11 @@ type railwaySecrets struct {
 }
 
 type railwayUpOptions struct {
-	Workspace, Source, Image, RuntimeToken, LinearToken, GitHubToken, OpenAIKey, PreviewOrigin        string
-	Team, LinearProject, TodoState, WIPState, DoneState, BlockedState, TriggerLabel, WorkerCheckpoint string
-	KnowledgeImage, KnowledgeSource, EmbeddingAPIKey, EmbeddingAPIKeyEnv                              string
-	EnableLinear                                                                                      bool
-	Progress                                                                                          func(string)
+	Workspace, WorkspaceName, Source, Image, RuntimeToken, LinearToken, GitHubToken, OpenAIKey, PreviewOrigin string
+	Team, LinearProject, TodoState, WIPState, DoneState, BlockedState, TriggerLabel, WorkerCheckpoint         string
+	KnowledgeImage, KnowledgeSource, EmbeddingAPIKey, EmbeddingAPIKeyEnv                                      string
+	EnableLinear                                                                                              bool
+	Progress                                                                                                  func(string)
 }
 
 func defaultControlPlaneImage() string {
