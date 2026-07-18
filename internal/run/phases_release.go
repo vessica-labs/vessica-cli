@@ -407,6 +407,30 @@ func (e *Engine) phasePR(ctx context.Context, r *state.Run) error {
 	}
 
 	workdir := e.runWorkdir(ctx, r)
+	if workdir == e.Root && r.SandboxBackend == "railway" {
+		// Runs retained from before repository-checkpoint worktrees stored the
+		// checkpoint root as their workdir. Migrate them lazily so a resume from
+		// PR keeps the completed commit while restoring the isolation invariant.
+		sbRecord, err := e.DB.GetSandboxForRun(ctx, r.ID)
+		if err != nil {
+			return fmt.Errorf("load retained Railway sandbox: %w", err)
+		}
+		migrationStarted := time.Now()
+		workdir, err = e.prepareRailwayRunWorkdir(ctx, sbRecord)
+		if err != nil {
+			return err
+		}
+		metadata := map[string]any{}
+		_ = json.Unmarshal([]byte(sbRecord.MetaJSON), &metadata)
+		metadata["host_workdir"] = workdir
+		metadata["branch"] = sbRecord.Branch
+		encoded, _ := json.Marshal(metadata)
+		sbRecord.MetaJSON = string(encoded)
+		if err := e.DB.UpdateSandbox(ctx, sbRecord); err != nil {
+			return fmt.Errorf("persist retained Railway worktree: %w", err)
+		}
+		e.emit(ctx, r.ID, "run.infrastructure.stage", map[string]any{"stage": "integration_workdir", "duration_ms": time.Since(migrationStarted).Milliseconds(), "status": "completed", "mode": "repository_checkpoint_worktree_migration", "cache_hit": true})
+	}
 	if workdir == e.Root && !simulationMode() {
 		return fmt.Errorf("refusing to create PR from workspace root; run checkout was not isolated")
 	}

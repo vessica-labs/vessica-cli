@@ -132,7 +132,10 @@ func (l *RailwayLauncher) launch(ctx context.Context, runRecord *state.Run, from
 
 	rs := l.lookup(runRecord.ID)
 	workerURL := strings.TrimRight(l.PublicURL, "/") + "/internal/worker/ves"
-	bootstrap := railwayWorkerBootstrap(workerURL, runRecord.ID, fromPhase)
+	// A retained sandbox keeps the environment from its original creation.
+	// Override the request timestamp for every launch so resume and retry spans
+	// measure the current worker start rather than the age of the sandbox.
+	bootstrap := "export VES_SANDBOX_REQUESTED_AT_MS=" + fmt.Sprint(requestedAt.UnixMilli()) + "\n" + railwayWorkerBootstrap(workerURL, runRecord.ID, fromPhase)
 	logPath := filepath.Join(os.TempDir(), "ves-railway-"+runRecord.ID+".log")
 	logFile, _ := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	writer := io.Writer(os.Stdout)
