@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
+	"github.com/vessica-labs/vessica-cli/internal/repo"
 	"github.com/vessica-labs/vessica-cli/internal/reposnapshot"
 )
 
@@ -68,7 +68,7 @@ func TestEnsureWorkerRepoUsesCheckpointDeltaAndKeepsDependencies(t *testing.T) {
 
 func gitTest(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	command := exec.Command("git", args...)
+	command := repo.GitCommandContext(context.Background(), args...)
 	command.Dir = dir
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, output)
