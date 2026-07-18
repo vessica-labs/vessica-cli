@@ -72,13 +72,22 @@ func TestPublishEpicCreatesHostedGraphAndRealLinearIssues(t *testing.T) {
 	if response.Epic == nil || len(response.Tickets) != 1 || len(response.LinearTickets) != 1 {
 		t.Fatalf("response=%#v", response)
 	}
-	start := httptest.NewRequest(http.MethodPost, "/api/v1/epics/"+response.Epic.ID+"/runs", nil)
+	start := httptest.NewRequest(http.MethodPost, "/api/v1/epics/"+response.Epic.ID+"/runs", strings.NewReader(`{"concurrency":2,"preview":false,"pr_mode":"none","model":"test-model","reasoning_effort":"low"}`))
 	start.Header.Set("Authorization", "Bearer secret")
 	start.Header.Set("Idempotency-Key", "run-1")
 	startRec := httptest.NewRecorder()
 	server.Handler().ServeHTTP(startRec, start)
 	if startRec.Code != http.StatusAccepted {
 		t.Fatalf("start status=%d body=%s", startRec.Code, startRec.Body.String())
+	}
+	var started struct {
+		Run state.Run `json:"run"`
+	}
+	if err := json.Unmarshal(startRec.Body.Bytes(), &started); err != nil {
+		t.Fatal(err)
+	}
+	if started.Run.Concurrency != 2 || started.Run.Preview || started.Run.PRMode != "none" || started.Run.Model != "test-model" || started.Run.ReasoningEffort != "low" {
+		t.Fatalf("hosted options were not preserved: %#v", started.Run)
 	}
 }
 

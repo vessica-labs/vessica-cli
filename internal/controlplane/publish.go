@@ -3,6 +3,7 @@ package controlplane
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 
@@ -29,6 +30,17 @@ type publishEpicResponse struct {
 	LinearIdentifier string            `json:"linear_identifier"`
 	LinearURL        string            `json:"linear_url"`
 	LinearTickets    []publishedTicket `json:"linear_tickets"`
+}
+
+type startEpicRunRequest struct {
+	Runner          string `json:"runner"`
+	Model           string `json:"model"`
+	ReasoningEffort string `json:"reasoning_effort"`
+	Concurrency     int    `json:"concurrency"`
+	Preview         *bool  `json:"preview"`
+	PRMode          string `json:"pr_mode"`
+	StartAt         string `json:"start_at"`
+	StopAfter       string `json:"stop_after"`
 }
 
 func (s *Server) handleEpics(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +118,21 @@ func (s *Server) handlePublishEpic(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleStartEpicRun(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	request := startEpicRunRequest{Concurrency: 3, PRMode: "draft"}
+	defaultPreview := true
+	request.Preview = &defaultPreview
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil && err != io.EOF {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	if request.Concurrency < 1 || request.Concurrency > 16 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "concurrency must be between 1 and 16"})
+		return
+	}
+	if request.PRMode != "none" && request.PRMode != "draft" && request.PRMode != "ready" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "pr_mode must be none, draft, or ready"})
+		return
+	}
 	epicID := r.PathValue("epic_id")
 	if _, err := s.DB.GetEpic(ctx, epicID); err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
@@ -137,7 +164,19 @@ func (s *Server) handleStartEpicRun(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	runRecord, err := s.DB.CreateRun(ctx, epicID, "", s.Config.Runner.Default, s.Config.Runner.Model, s.Config.Runner.ReasoningEffort, "railway", 3, true, "draft", "", "")
+	runnerName := request.Runner
+	if runnerName == "" {
+		runnerName = s.Config.Runner.Default
+	}
+	model := request.Model
+	if model == "" {
+		model = s.Config.Runner.Model
+	}
+	reasoningEffort := request.ReasoningEffort
+	if reasoningEffort == "" {
+		reasoningEffort = s.Config.Runner.ReasoningEffort
+	}
+	runRecord, err := s.DB.CreateRun(ctx, epicID, "", runnerName, model, reasoningEffort, "railway", request.Concurrency, *request.Preview, request.PRMode, request.StartAt, request.StopAfter)
 	if err != nil {
 		writeJSON(w, 500, map[string]any{"error": err.Error()})
 		return
@@ -152,7 +191,7 @@ func (s *Server) handleStartEpicRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) projectPublishedEpic(ctx context.Context, created *state.CreatedEpicSpec) (*publishEpicResponse, error) {
-	if s.Linear == nil {
+	if s.Linear == nil || s.Config.Tracker.Provider != "linear" || strings.TrimSpace(s.Config.Tracker.TeamID) == "" || strings.TrimSpace(s.Config.Tracker.TriggerLabel) == "" {
 		return &publishEpicResponse{Epic: created.Epic, Tickets: created.Tickets}, nil
 	}
 	label, err := s.Linear.EnsureIssueLabel(ctx, s.Config.Tracker.TeamID, s.Config.Tracker.TriggerLabel)

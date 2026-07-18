@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/vessica-labs/vessica-cli/internal/id"
 	"github.com/vessica-labs/vessica-cli/internal/output"
 	"github.com/vessica-labs/vessica-cli/internal/run"
 	"github.com/vessica-labs/vessica-cli/internal/state"
@@ -49,18 +50,23 @@ func (a *App) executeHostedPreview(ctx context.Context, runID string, browser bo
 	return a.Printer.Success(map[string]string{"url": runRecord.PreviewURL})
 }
 
-func (a *App) startHostedEpicRun(ctx context.Context, hostedEpicID string) (map[string]any, error) {
+func (a *App) startHostedEpicRun(ctx context.Context, hostedEpicID string, options run.Options) (map[string]any, error) {
 	secrets, err := loadRailwaySecrets(a.Root)
 	if err != nil {
 		return nil, err
 	}
 	key := a.Flags.IdempotencyKey
 	if key == "" {
-		key = "run-" + hostedEpicID
+		key = "run-" + hostedEpicID + "-" + id.New(id.Run)
 	}
 	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/epics/" + hostedEpicID + "/runs"
+	body := map[string]any{
+		"runner": options.Runner, "model": options.Model, "reasoning_effort": options.ReasoningEffort,
+		"concurrency": options.Concurrency, "preview": options.Preview, "pr_mode": options.PRMode,
+		"start_at": options.StartAt, "stop_after": options.StopAfter,
+	}
 	var result map[string]any
-	if err := hostedRequestWithKey(ctx, http.MethodPost, endpoint, secrets.APIToken, key, nil, &result); err != nil {
+	if err := hostedRequestWithKey(ctx, http.MethodPost, endpoint, secrets.APIToken, key, body, &result); err != nil {
 		return nil, err
 	}
 	return result, nil

@@ -32,7 +32,12 @@ func newRunEpicCmd(app *App) *cobra.Command {
 				if err := app.requireYes("start the hosted epic run"); err != nil {
 					return err
 				}
-				result, err := app.startHostedEpicRun(cmd.Context(), args[0])
+				hostedOptions := run.Options{
+					Runner: runnerName, Model: model, ReasoningEffort: reasoningEffort,
+					Concurrency: concurrency, Preview: preview || openPreview, PRMode: prMode,
+					StartAt: startAt, StopAfter: stopAfter,
+				}
+				result, err := app.startHostedEpicRun(cmd.Context(), args[0], hostedOptions)
 				if err != nil {
 					return err
 				}
