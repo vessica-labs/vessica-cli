@@ -229,7 +229,15 @@ func verifyRailwayCLIVersion(ctx context.Context, path string) error {
 }
 
 func runRailway(ctx context.Context, dir string, stdin io.Reader, args ...string) ([]byte, error) {
-	return runRailwayWithAuth(ctx, dir, stdin, true, args...)
+	output, err := runRailwayWithAuth(ctx, dir, stdin, true, args...)
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "unauthorized") {
+		return output, err
+	}
+	// A retained OAuth credential can expire or be rejected by newer Railway
+	// surfaces (notably sandbox and SSH APIs) while the Railway CLI's own
+	// browser session remains healthy. An unauthorized response is safe to
+	// retry because Railway rejected the first request before applying it.
+	return runRailwayWithAuth(ctx, dir, stdin, false, args...)
 }
 
 func runRailwaySession(ctx context.Context, dir string, stdin io.Reader, args ...string) ([]byte, error) {

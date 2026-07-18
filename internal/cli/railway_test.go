@@ -366,6 +366,31 @@ func TestRunRailwaySSHKeysFallsBackToCLISession(t *testing.T) {
 	}
 }
 
+func TestRunRailwayFallsBackToCLISessionWhenStoredOAuthIsUnauthorized(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(bin, "railway")
+	content := "#!/bin/sh\nif [ -n \"$RAILWAY_API_TOKEN\" ]; then echo 'Unauthorized.' >&2; exit 1; fi\nprintf 'session:%s' \"$*\"\n"
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("VES_AUTH_STORE", "file")
+	t.Setenv("RAILWAY_TOKEN", "")
+	t.Setenv("RAILWAY_API_TOKEN", "")
+	if err := auth.SaveOAuth(&auth.OAuthCredential{Provider: "railway", ClientID: "client", TokenURL: "https://example.invalid", AccessToken: "expired-oauth", ExpiresAt: time.Now().Add(time.Hour), UpdatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	output, err := runRailway(context.Background(), "", nil, "sandbox", "list", "--json")
+	if err != nil || string(output) != "session:sandbox list --json" {
+		t.Fatalf("output=%q err=%v", output, err)
+	}
+}
+
 func TestSetRailwayVariableDeletesEmptyValues(t *testing.T) {
 	home := t.TempDir()
 	bin := filepath.Join(home, "bin")

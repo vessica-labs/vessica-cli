@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -334,7 +335,7 @@ func newConfigCmd(app *App) *cobra.Command {
 			if err := config.Set(&app.Config, args[0], args[1]); err != nil {
 				return app.Printer.Fail("invalid_key", err.Error(), "")
 			}
-			if err := config.Save(app.Root, app.Config); err != nil {
+			if err := saveCommandConfig(app); err != nil {
 				return err
 			}
 			return app.Printer.Success(map[string]string{"key": args[0], "value": args[1]})
@@ -352,13 +353,26 @@ func newConfigCmd(app *App) *cobra.Command {
 			if err := config.Unset(&app.Config, args[0]); err != nil {
 				return app.Printer.Fail("invalid_key", err.Error(), "")
 			}
-			if err := config.Save(app.Root, app.Config); err != nil {
+			if err := saveCommandConfig(app); err != nil {
 				return err
 			}
 			return app.Printer.Success(map[string]string{"unset": args[0]})
 		},
 	})
 	return cmd
+}
+
+func saveCommandConfig(app *App) error {
+	if config.IsHostedAttachment(app.Config) {
+		secrets, err := loadRailwaySecrets(app.Root)
+		if err != nil {
+			return fmt.Errorf("load hosted installation credentials: %w", err)
+		}
+		if err := saveHostedClientConfig(app.Config, secrets); err != nil {
+			return fmt.Errorf("save hosted installation config: %w", err)
+		}
+	}
+	return config.Save(app.Root, app.Config)
 }
 
 func fileExists(p string) bool {
