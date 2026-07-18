@@ -2,10 +2,8 @@ package controlplane
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 
@@ -77,6 +75,10 @@ func (s *Server) processLinearDelivery(ctx context.Context, deliveryID string) e
 		return s.DB.CompleteWebhookDelivery(ctx, delivery.ID)
 	}
 	if err := s.ImportLinearIssue(ctx, payload.Data.ID); err != nil {
+		_ = s.DB.FailWebhookDelivery(ctx, delivery.ID, err.Error())
+		return err
+	}
+	if err := s.completeLinearParentIfAllChildrenDone(ctx, payload.Data.ID); err != nil {
 		_ = s.DB.FailWebhookDelivery(ctx, delivery.ID, err.Error())
 		return err
 	}
@@ -185,80 +187,6 @@ func (s *Server) processRunEpic(ctx context.Context, job *state.Job) error {
 		return launchErr
 	}
 	return s.SyncRunToLinear(ctx, runRecord.ID)
-}
-
-func (s *Server) SyncRunToLinear(ctx context.Context, runID string) error {
-	s.projectionMu.Lock()
-	defer s.projectionMu.Unlock()
-	runRecord, err := s.DB.GetRun(ctx, runID)
-	if err != nil {
-		return err
-	}
-	integration, integrationErr := s.DB.GetTrackerIntegration(ctx, "linear")
-	if integrationErr != nil && s.Config.Tracker.Provider != "linear" {
-		if runTerminalStatus(runRecord.Status) {
-			return s.recordTerminalRunKnowledge(ctx, runRecord, "")
-		}
-		return nil
-	}
-	if integrationErr != nil {
-		return integrationErr
-	}
-	epicMapping, err := s.DB.GetExternalMapping(ctx, "linear", "epic", runRecord.EpicID)
-	if err != nil {
-		return err
-	}
-	artifacts, _ := s.DB.ListArtifactsForRun(ctx, runID)
-	for _, artifact := range artifacts {
-		body := fmt.Sprintf("<!-- vessica:artifact:%s:v%d -->\n## %s\n\n%s", artifact.ID, artifact.Version, artifact.Title, artifact.Body)
-		_, _ = s.DB.EnqueueOutbox(ctx, integration.ID, "linear.comment", fmt.Sprintf("linear:artifact:%s:v%d", artifact.ID, artifact.Version), map[string]any{"issue_id": epicMapping.ExternalID, "entity_type": "artifact_comment", "local_id": artifact.ID, "body": body})
-	}
-	tickets, _ := s.DB.ListTicketsForRun(ctx, runRecord.EpicID, runID)
-	for _, ticket := range tickets {
-		stateID := s.Config.Tracker.TodoStateID
-		if ticket.Status == "claimed" || ticket.Status == "in_progress" {
-			stateID = s.Config.Tracker.WIPStateID
-		} else if ticket.Status == "closed" {
-			stateID = s.Config.Tracker.DoneStateID
-		} else if ticket.Status == "blocked" && s.Config.Tracker.BlockedStateID != "" {
-			stateID = s.Config.Tracker.BlockedStateID
-		}
-		key := fmt.Sprintf("linear:ticket:%s:%s", ticket.ID, ticket.Status)
-		_, _ = s.DB.EnqueueOutbox(ctx, integration.ID, "linear.subissue", key, map[string]any{"parent_id": epicMapping.ExternalID, "ticket_id": ticket.ID, "title": ticket.Title, "description": ticket.Body, "state_id": stateID})
-	}
-	if runRecord.Status == "completed" {
-		previewURL := s.projectedPreviewURL(runRecord)
-		body := fmt.Sprintf("<!-- vessica:run:%s -->\nVessica completed the run.\n\n- Preview: %s\n- Draft PR: %s\n- Receipt: `%s`", runID, previewURL, runRecord.PRURL, runRecord.ReceiptID)
-		acceptURL, rollbackURL := s.reviewURL(runID, "approve"), s.reviewURL(runID, "rollback")
-		if acceptURL != "" && rollbackURL != "" && runRecord.PRMode != "merged" && runRecord.PRMode != "rolled_back" {
-			body += fmt.Sprintf("\n\n**[Accept and Merge](%s)** · [Rollback](%s)", acceptURL, rollbackURL)
-		}
-		_, _ = s.DB.EnqueueOutbox(ctx, integration.ID, "linear.comment", completionProjectionKey(runRecord), map[string]any{"issue_id": epicMapping.ExternalID, "entity_type": "run_comment", "local_id": runID, "body": body})
-	}
-	if runTerminalStatus(runRecord.Status) {
-		return s.recordTerminalRunKnowledge(ctx, runRecord, epicMapping.ExternalID)
-	}
-	return nil
-}
-
-func completionProjectionKey(runRecord *state.Run) string {
-	digest := sha256.Sum256([]byte(runRecord.PreviewURL))
-	return fmt.Sprintf("linear:run:completed:v5:%s:%x", runRecord.ID, digest[:8])
-}
-
-// projectedPreviewURL returns only a preview that was externally healthchecked
-// and persisted by the control plane. Never synthesize a success-shaped URL.
-func (s *Server) projectedPreviewURL(runRecord *state.Run) string {
-	if runRecord == nil || !runRecord.Preview {
-		return ""
-	}
-	if runRecord.SandboxBackend == "railway" {
-		parsed, err := url.Parse(runRecord.PreviewURL)
-		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Query().Get("cap") == "" {
-			return ""
-		}
-	}
-	return runRecord.PreviewURL
 }
 
 func (s *Server) recordTerminalRunKnowledge(ctx context.Context, runRecord *state.Run, linearIssueID string) error {
@@ -379,7 +307,10 @@ func (s *Server) processOutbox(ctx context.Context, message *state.OutboxMessage
 	}
 	switch message.Operation {
 	case "linear.issue_state":
-		return s.Linear.UpdateIssueState(ctx, payload.IssueID, payload.StateID)
+		if err := s.Linear.UpdateIssueState(ctx, payload.IssueID, payload.StateID); err != nil {
+			return err
+		}
+		return s.completeLinearParentIfAllChildrenDone(ctx, payload.IssueID)
 	case "linear.comment":
 		mapping, err := s.DB.GetExternalMapping(ctx, "linear", payload.EntityType, payload.LocalID)
 		if err == nil {
@@ -394,7 +325,10 @@ func (s *Server) processOutbox(ctx context.Context, message *state.OutboxMessage
 	case "linear.subissue":
 		mapping, err := s.DB.GetExternalMapping(ctx, "linear", "ticket", payload.TicketID)
 		if err == nil {
-			return s.Linear.UpdateIssueState(ctx, mapping.ExternalID, payload.StateID)
+			if err := s.Linear.UpdateIssueState(ctx, mapping.ExternalID, payload.StateID); err != nil {
+				return err
+			}
+			return s.completeLinearParentIfAllChildrenDone(ctx, mapping.ExternalID)
 		}
 		parent, err := s.Linear.GetIssue(ctx, payload.ParentID)
 		if err != nil {
@@ -404,8 +338,10 @@ func (s *Server) processOutbox(ctx context.Context, message *state.OutboxMessage
 		if err != nil {
 			return err
 		}
-		_, err = s.DB.UpsertExternalMapping(ctx, "linear", "ticket", payload.TicketID, child.ID, map[string]any{"identifier": child.Identifier, "url": child.URL}, "synced")
-		return err
+		if _, err = s.DB.UpsertExternalMapping(ctx, "linear", "ticket", payload.TicketID, child.ID, map[string]any{"identifier": child.Identifier, "url": child.URL}, "synced"); err != nil {
+			return err
+		}
+		return s.completeLinearParentIfAllChildrenDone(ctx, child.ID)
 	default:
 		return fmt.Errorf("unsupported outbox operation %s", message.Operation)
 	}

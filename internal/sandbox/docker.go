@@ -347,8 +347,14 @@ func (l *LocalDevSandbox) StartPreview(ctx context.Context, command string, port
 	if os.Getenv("VES_CODEX_EXTERNAL_SANDBOX") == "1" {
 		logPath := filepath.Join(l.workdir, ".vessica-preview.log")
 		pidPath := filepath.Join(l.workdir, ".vessica-preview.pid")
-		script := "if test -f " + shellQuote(pidPath) + " && kill -0 $(cat " + shellQuote(pidPath) + ") 2>/dev/null; then exit 0; fi; " +
-			"nohup bash -lc " + shellQuote(command) + " >>" + shellQuote(logPath) + " 2>&1 </dev/null & echo $! >" + shellQuote(pidPath)
+		script := "if test -f " + shellQuote(pidPath) + "; then preview_pgid=$(cat " + shellQuote(pidPath) + "); " +
+			"if kill -0 -- -$preview_pgid 2>/dev/null; then exit 0; fi; fi; " +
+			// Older workers killed only the preview wrapper and could leave Vinext
+			// children occupying the configured port. This cleanup is deliberately
+			// user-scoped and process-specific so a retained sandbox can recover.
+			"pkill -TERM -u $(id -u) -f '[v]inext.* dev' 2>/dev/null || true; sleep 1; " +
+			"pkill -KILL -u $(id -u) -f '[v]inext.* dev' 2>/dev/null || true; " +
+			"nohup setsid bash -lc " + shellQuote(command) + " >>" + shellQuote(logPath) + " 2>&1 </dev/null & echo $! >" + shellQuote(pidPath)
 		if output, err := isolation.CommandContext(ctx, l.workdir, "bash", "-lc", script).CombinedOutput(); err != nil {
 			return "", fmt.Errorf("start detached preview: %w: %s", err, strings.TrimSpace(string(output)))
 		}
@@ -376,7 +382,7 @@ func (l *LocalDevSandbox) StartPreview(ctx context.Context, command string, port
 	} else {
 		healthcheck = rewriteHealthcheckURL(healthcheck, url)
 	}
-	if err := waitForHTTP(ctx, healthcheck, 30*time.Second); err != nil {
+	if err := waitForHTTP(ctx, healthcheck, previewStartupTimeout()); err != nil {
 		_ = l.StopPreview(context.Background())
 		return "", err
 	}
@@ -387,7 +393,9 @@ func (l *LocalDevSandbox) StartPreview(ctx context.Context, command string, port
 func (l *LocalDevSandbox) StopPreview(ctx context.Context) error {
 	if os.Getenv("VES_CODEX_EXTERNAL_SANDBOX") == "1" {
 		pidPath := filepath.Join(l.workdir, ".vessica-preview.pid")
-		stop := "test -f " + shellQuote(pidPath) + " && kill $(cat " + shellQuote(pidPath) + ") 2>/dev/null || true; rm -f " + shellQuote(pidPath)
+		stop := "if test -f " + shellQuote(pidPath) + "; then preview_pgid=$(cat " + shellQuote(pidPath) + "); " +
+			"kill -TERM -- -$preview_pgid 2>/dev/null || true; sleep 1; kill -KILL -- -$preview_pgid 2>/dev/null || true; fi; " +
+			"rm -f " + shellQuote(pidPath)
 		_ = isolation.CommandContext(ctx, l.workdir, "bash", "-lc", stop).Run()
 	}
 	if l.previewCmd != nil && l.previewCmd.Process != nil {
@@ -398,10 +406,14 @@ func (l *LocalDevSandbox) StopPreview(ctx context.Context) error {
 		_ = l.previewLog.Close()
 		l.previewLog = nil
 	}
-	if l.previewLogPath != "" {
+	// Hosted Railway workers keep the preview log in the retained workspace so
+	// `ves sandbox logs` can explain startup failures after the worker exits.
+	// The PR phase removes this runtime-only file before source changes are
+	// committed, so retaining it here cannot leak into the proposed change.
+	if l.previewLogPath != "" && os.Getenv("VES_CODEX_EXTERNAL_SANDBOX") != "1" {
 		_ = os.Remove(l.previewLogPath)
-		l.previewLogPath = ""
 	}
+	l.previewLogPath = ""
 	l.previewURL = ""
 	return nil
 }
@@ -452,6 +464,18 @@ func waitForHTTP(ctx context.Context, url string, timeout time.Duration) error {
 		}
 	}
 	return fmt.Errorf("preview healthcheck failed for %s: %w", url, lastErr)
+}
+
+func previewStartupTimeout() time.Duration {
+	if raw := strings.TrimSpace(os.Getenv("VES_PREVIEW_STARTUP_TIMEOUT")); raw != "" {
+		if timeout, err := time.ParseDuration(raw); err == nil && timeout > 0 {
+			return timeout
+		}
+	}
+	if os.Getenv("VES_CODEX_EXTERNAL_SANDBOX") == "1" {
+		return 2 * time.Minute
+	}
+	return 30 * time.Second
 }
 
 func rewriteHealthcheckURL(healthcheck, previewURL string) string {

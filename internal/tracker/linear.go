@@ -63,6 +63,9 @@ type LinearIssue struct {
 	Labels struct {
 		Nodes []LinearLabel `json:"nodes"`
 	} `json:"labels"`
+	Children struct {
+		Nodes []LinearIssue `json:"nodes"`
+	} `json:"children"`
 }
 
 type LinearComment struct {
@@ -155,7 +158,7 @@ func (c *LinearClient) GetIssue(ctx context.Context, issueID string) (*LinearIss
 	var data struct {
 		Issue LinearIssue `json:"issue"`
 	}
-	query := `query VessicaIssue($id: String!) { issue(id: $id) { id identifier title description url parent { id } team { id name key } state { id name type } labels { nodes { id name } } } }`
+	query := `query VessicaIssue($id: String!) { issue(id: $id) { id identifier title description url parent { id } team { id name key } state { id name type } labels { nodes { id name } } children { nodes { id identifier state { id name type } } } } }`
 	if err := c.graphql(ctx, query, map[string]any{"id": issueID}, &data); err != nil {
 		return nil, err
 	}

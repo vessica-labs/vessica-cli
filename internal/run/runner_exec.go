@@ -83,6 +83,13 @@ func (e *Engine) invokeRunner(ctx context.Context, r *state.Run, phase, prompt, 
 						e.emit(ctx, r.ID, "warning", map[string]any{"message": "runner did not report changed files; git diff will be used", "role": agentRole})
 					}
 				}
+				if strings.TrimSpace(res.Output) != "" {
+					e.emitRunner(ctx, r, phase, agentRole, runner.Event{
+						Type:    "agent.output",
+						Message: res.Output,
+						Data:    map[string]any{"kind": "summary", "status": "completed"},
+					})
+				}
 				return res, nil
 			}
 			e.emitRunner(ctx, r, phase, agentRole, ev)

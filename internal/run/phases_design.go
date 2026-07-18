@@ -407,7 +407,8 @@ Engine-managed lifecycle:
 - Make the code changes in this worktree, run relevant local checks, and return a concise evidence summary.
 
 Use TDD where helpful. Return changed files and commands run.`, ticket.ID, ticket.Title, ticket.Body)
-			res, err := e.invokeRunner(ctx, r, "code", prompt, "coder", ticketWorkdir)
+			ticketCtx := context.WithValue(ctx, runnerTicketIDKey, ticket.ID)
+			res, err := e.invokeRunner(ticketCtx, r, "code", prompt, "coder", ticketWorkdir)
 			if err != nil {
 				errs[i] = err
 				return
