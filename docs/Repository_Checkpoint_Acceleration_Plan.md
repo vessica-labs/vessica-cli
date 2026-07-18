@@ -29,12 +29,13 @@ checkpointed. Railway injects them for each new sandbox.
 run request
   -> resolve compatible repository checkpoint
   -> create fresh Railway sandbox from checkpoint
-  -> inject current variables and private-network mode
+  -> inject current variables and scoped worker database route
   -> verify lightweight runtime integrity and Codex authentication
   -> fetch and hard-reset to the current remote default branch
   -> refresh dependencies only if dependency manifests changed
   -> consume the one-time checkpoint marker
-  -> use /workspace/repo directly as the integration checkout
+  -> create an isolated integration Git worktree
+  -> materialize path-specific dependency links from the baked package store
   -> execute the Vessica phase graph
 ```
 
@@ -77,8 +78,9 @@ run branch and uncommitted preview state.
 - Prefer a compatible repository checkpoint over the generic toolchain base.
 - Fetch only the Git delta and preserve installed dependency directories.
 - Refresh dependencies only when the manifest fingerprint changes.
-- Use the checkpoint checkout directly instead of cloning a second integration
-  worktree.
+- Create an isolated Git worktree from the checkpoint checkout without a
+  second clone. Materialize pnpm's path-specific `node_modules` links once from
+  the baked store; share only dependency trees that are safe across worktrees.
 - Reuse a complete committed engineering pack or the CLI's embedded release
   pack instead of cloning the pack repository on each run.
 
@@ -101,6 +103,77 @@ run branch and uncommitted preview state.
 - Attribute remaining time to Railway boot, network/control-plane work, model
   inference, repository commands, validation, preview publication, or PR work.
 
+### Wave 6 — orchestration critical path
+
+- Route short-lived workers through Railway's public Postgres proxy while
+  preserving the scoped Vessica database role and database. The persistent
+  control plane continues to use the private database address.
+- Start preview only after integration and build, never speculatively before a
+  coding agent can begin.
+- Make repository-wide lint, build, test, and preview engine-owned gates; coding
+  agents run only targeted checks while editing.
+- Run build before tests for repositories whose rendered tests consume build
+  output.
+- Remove preview PID/log artifacts before PR creation and retain a requested
+  Railway sandbox until the launcher publishes its preview URL.
+
+## Production benchmark
+
+The final benchmark used the repository checkpoint
+`vessica-repo-a987fb8602-ae022121ef-c2ca74fecb-87a7ba273f` and a one-sentence
+documentation epic. It completed all planning, coding, lint, architecture lint,
+build, tests, browser validation, preview publication, draft PR creation, and
+receipt finalization.
+
+| Measurement | Baseline | Final | Improvement |
+| --- | ---: | ---: | ---: |
+| Request to terminal completion | 666.0 s | 122.7 s | 81.6% |
+| Sandbox to worker ready | 154.3 s | 13.5 s | 91.3% |
+| Worker database open | 134.0 s | 0.079 s | 99.9% |
+| Repository synchronization | 2.10 s | 1.13 s | 46.5% |
+| Integration worktree | 7 ms | 48 ms | isolation added for correctness |
+| Worktree dependency materialization | implicit repair | 9.04 s | deterministic cache-backed step |
+| Total worker process | 632.7 s | 120.3 s | 81.0% |
+
+The final draft PR changed exactly one documentation file, all harness gates
+passed, and the public preview returned HTTP 200. These are single-run values,
+not percentile claims.
+
+## Next optimization waves
+
+1. **XS fast path:** combine planning and ticketization, or deterministically
+   produce one ticket, for changes classified `xs`. The final run still spent
+   about 31 seconds across two model-backed planning calls.
+2. **Per-run receipt scope:** when an epic is intentionally rerun, report only
+   artifacts and tickets whose `source_run_id` matches the receipt, while
+   linking prior attempts separately.
+3. **Worktree package projection:** reduce the 9-second pnpm link
+   materialization using a checkpointed store plus reflink/overlay projection
+   or a package-manager-native deployment layout.
+4. **Preview reuse:** reuse the validation preview in the explicit preview
+   phase instead of issuing a second start request, even though the current
+   second request is subsecond.
+5. **Worker API boundary:** replace direct worker database access with a
+   short-lived, least-privilege control-plane worker API. This removes database
+   credentials from sandboxes and makes the fast route provider-independent.
+6. **Automatic refresh and garbage collection:** rebuild repository checkpoints
+   asynchronously after default-branch lockfile changes, retain the last known
+   good checkpoint, and garbage-collect unreferenced generations.
+7. **Stack and monorepo profiles:** persist detected workspace roots, package
+   managers, runtime versions, native packages, browsers, database clients, and
+   build tools as a reviewable checkpoint specification.
+8. **SLO telemetry:** publish p50/p95 timing histograms by repository, stack,
+   checkpoint generation, and phase before changing VM size.
+9. **Release acceleration:** replace emulated multi-architecture container
+   builds with native build matrices and merged manifests.
+
+VM sizing is not the primary constraint in this benchmark. The final build took
+about 5.6 seconds and tests about 0.6 seconds; the removed delays were database
+network readiness, speculative preview waiting, duplicate validation, and
+repair-agent work. Increase CPU or memory only when telemetry shows sustained
+CPU saturation, memory pressure, or materially CPU-bound builds after these
+orchestration improvements.
+
 ## Security contract
 
 - Clone credentials exist only during checkout and are removed before repository
@@ -108,6 +181,9 @@ run branch and uncommitted preview state.
 - Git remotes stored on disk never contain tokens.
 - Dependency commands run as `vessica-agent`; Railway variables and model/provider
   credentials are not inherited by those commands.
+- The worker database route keeps the scoped Vessica role/database credentials;
+  only the Railway host and port use the authenticated public proxy. Moving to
+  a short-lived worker API remains the preferred long-term boundary.
 - Each run receives a new filesystem fork and cannot mutate the golden snapshot.
 - `.git` metadata remains protected from coding-agent processes during execution.
 
