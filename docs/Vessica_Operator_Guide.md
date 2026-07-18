@@ -131,6 +131,58 @@ ves run rollback <run_id> --yes --idempotency-key rollback-<unique> --json
 
 Meaningful epic, run, ticket, blocker, follow-up, refinement, receipt, PR, and commit events become queryable episode memories. Heartbeats and polling noise do not.
 
+## Interpreting Run Timings
+
+Use `ves run receipt <run_id> --json` to compare `elapsed` (run start to
+finish) with `wall_elapsed` (request creation to finish). The receipt's
+`infrastructure` entries break out provisioning and worker-preparation spans;
+the run view and its phase events identify planning, coding, build, and
+validation work. A span is diagnostic evidence, not a separate lifecycle
+action.
+
+- **Queue** (`control_plane_queue`) is the time from run creation until the
+  control plane begins the launch request. A high value points to dispatch or
+  control-plane scheduling delay, before checkpoint resolution or sandbox
+  creation.
+- **Sandbox create** (`sandbox_create`) is Railway's creation of a fresh
+  sandbox from the resolved checkpoint. Compare its `checkpoint_kind` with
+  other runs; it does not include the later worker bootstrap.
+- **Checkpoint boot** (`checkpoint_boot`) is the interval from the sandbox
+  request to the worker bootstrap starting. It covers restoring and starting
+  the selected checkpoint, not repository synchronization or phase execution.
+- **Integrity** (`runtime_integrity`) verifies that the restored runtime matches
+  the worker contract before work begins. `snapshot_attestation` is the normal
+  fast attestation path; `full_verify` is used when that cached attestation is
+  not usable. A repository checkpoint that is absent, stale, or incompatible
+  instead selects the generic toolchain checkpoint fallback before this stage.
+- **Authentication** (`codex_auth_verify`, with `worker_auth_setup` when
+  present) verifies the Codex login and configures the worker's scoped
+  authentication. Investigate a failure here as credential provisioning or
+  verification, rather than as a model or ticket failure.
+- **Repository sync** (`repository_sync`) prepares the worker checkout. A
+  repository checkpoint normally reports `checkpoint_delta`: it fetches the
+  default-branch delta, resets to it, and refreshes dependencies only when the
+  manifest fingerprint changed. `full_clone` means no repository checkout was
+  available, while `retained_sandbox` preserves an already-running run's
+  working state rather than synchronizing it again.
+- **Planning** is time spent producing the plan, design artifacts, and ticket
+  decomposition. It is chiefly model and artifact work; an explicitly
+  localized `xs` epic can take the deterministic lean planning path instead.
+- **Coding** is ticket implementation time, including the coding agent's work,
+  ticket worktrees, and integration of completed ticket changes. Compare it by
+  ticket when concurrency is enabled rather than treating parallel ticket
+  durations as additive.
+- **Build** is the harness build-gate work: lint, architecture lint, build, and
+  test commands, plus any build-repair attempts. A long build span identifies
+  repository commands or repair work after coding, not sandbox provisioning.
+- **Validation** is execution of the declared validation steps and any bounded
+  repair/retry cycle they require. It is distinct from build gates even when
+  the harness records validation as covered by those gates.
+- **Receipt timing** is summarized by `elapsed` and `wall_elapsed`, rather than
+  by adding the listed spans. `wall_elapsed - elapsed` exposes time before the
+  run started, including queueing; neither value proves that every phase ran
+  serially or that a later checkpoint refresh delayed the active run.
+
 ## Optional semantic retrieval
 
 No embeddings credential is used during quickstart. To opt in later, place the provider key in a local environment variable and name that variable to Vessica:
