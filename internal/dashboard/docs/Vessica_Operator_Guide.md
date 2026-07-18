@@ -220,6 +220,14 @@ Playwright Chromium. Hosted checkpoints are named from the contract fingerprint,
 so a toolchain change creates a new checkpoint instead of silently mutating an
 existing one.
 
+Each attached repository can also have a derived repository checkpoint. Run
+`ves up --refresh --yes` after a material toolchain or dependency change to
+refresh the mapped commit and repository snapshot immediately. Normal source-only
+changes do not require a refresh: each sandbox fetches the remote Git delta while
+retaining warmed dependencies. Run receipts include `infrastructure` spans and
+`wall_elapsed` so operators can separate provisioning time from model and phase
+execution.
+
 ### Linear projection failure
 
 Vessica remains canonical. Inspect Railway outbox/log status and retry synchronization; do not recreate local epics to compensate.

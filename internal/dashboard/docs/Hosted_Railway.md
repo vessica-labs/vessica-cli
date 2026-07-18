@@ -43,6 +43,14 @@ New installations always create the Railway project as `vessica-control-plane`, 
 
 Provisioning creates only one managed Postgres service. It waits for the service variables, connects through the public bootstrap endpoint without logging the URL, creates or reconciles both fixed database roles and databases under an advisory lock, enables `vector` in `vessica_knowledge`, and then configures the application services. Repeating or resuming the operation reuses the same Railway service and logical databases.
 
+The remote repository-orientation step also captures an immutable Railway disk
+checkpoint containing `/workspace/repo`, installed dependencies, and warmed
+package caches. Its name is fingerprinted by repository, commit, dependency
+manifests, and worker toolchain. Runs prefer this checkpoint and fall back to the
+generic toolchain checkpoint when repository metadata is absent or incompatible.
+Variables, credentials, and private-network mode are always supplied at sandbox
+creation and are not part of either checkpoint.
+
 Onboarding records a durable operation journal. Provider-login interruptions,
 deploy failures, Sandbox Priority Boarding, and readiness timeouts can be
 continued with `ves up resume <operation-id> --yes --stream jsonl`; do not start

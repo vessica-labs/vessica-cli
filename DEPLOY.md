@@ -11,7 +11,15 @@ bootstrap scripts verify compatible CLI archives against published checksums;
 missing or mismatched release metadata is a hard failure, not permission to use
 an unverified binary.
 
-The worker checkpoint also provides the common coding-agent baseline: `rg`, `fd`, `jq`, checksum-pinned `yq`, `bat`, Git/Git LFS/GitHub CLI, checksum-pinned Go and Node runtimes, Python, build tools, archive tools, and process diagnostics. Its checkpoint name is derived from the toolchain contract. Checkpoint creation and every worker launch verify the contract as the unprivileged `vessica-agent` user, including an actual headless Chromium launch. Use `ves toolchain verify --json` to run the same machine-readable readiness check locally.
+The worker checkpoint also provides the common coding-agent baseline: `rg`, `fd`, `jq`, checksum-pinned `yq`, `bat`, Git/Git LFS/GitHub CLI, checksum-pinned Go and Node runtimes, Python, build tools, archive tools, and process diagnostics. Its checkpoint name is derived from the toolchain contract. Checkpoint creation verifies the complete contract as the unprivileged `vessica-agent` user, including an actual headless Chromium launch. Every worker launch performs a lightweight pinned-version and browser-asset integrity check. Use `ves toolchain verify --json` to run the full machine-readable readiness check locally.
+
+`ves up` also derives a repository-bearing Railway checkpoint from that base.
+It contains a clean remote checkout, dependency-manifest fingerprint, installed
+dependencies, and warmed caches, but no variables or credentials. Warm runs
+boot from this checkpoint, fetch only the remote delta, and use the checkout
+directly. A changed toolchain invalidates the derived checkpoint; a changed
+dependency fingerprint refreshes dependencies. See
+`docs/Repository_Checkpoint_Acceleration_Plan.md` for lifecycle and telemetry.
 
 Before production deployment, verify required secrets described in `SECURITY.md`, Postgres pool limits, public dashboard/preview origins, and the health endpoint. A successful build is not sufficient: verify the terminal Railway deployment status and a live readiness request.
 

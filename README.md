@@ -83,6 +83,13 @@ ves up
 
 `ves up` scans the repository, shows one Railway infrastructure plan, provisions the hosted control plane and lexical knowledge service, prepares the cloud runner checkpoint, attaches the repository, and creates a repository-specific harness when one is absent. Lexical retrieval is healthy immediately and requires no embeddings API key.
 
+The first remote repository scan now produces a repository-bearing Railway disk
+checkpoint derived from the pinned worker toolchain. It pre-installs the detected
+stack's dependencies and preserves package caches. Later runs restore that disk,
+fetch only the Git delta, and skip dependency installation when lockfiles are
+unchanged. Secrets, Railway variables, and network mode are injected per run and
+are never captured in the checkpoint.
+
 Provider authentication is part of `ves up` and opens only when a valid session is unavailable. Vessica reuses Codex authentication for cloud agents and never asks for an OpenAI API key during quickstart.
 
 ### 4. Create and run an epic
