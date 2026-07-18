@@ -10,12 +10,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	appservice "github.com/vessica-labs/vessica-cli/internal/app"
 	"github.com/vessica-labs/vessica-cli/internal/auth"
 	"github.com/vessica-labs/vessica-cli/internal/dashboard"
+	"github.com/vessica-labs/vessica-cli/internal/id"
 	"github.com/vessica-labs/vessica-cli/internal/version"
 )
 
@@ -36,7 +38,11 @@ func newDashboardCmd(app *App) *cobra.Command {
 		defer app.closeDB()
 		if app.Config.Hosted.ControlPlaneURL != "" {
 			if open {
-				if err := auth.OpenBrowser(app.Config.Hosted.ControlPlaneURL); err != nil {
+				target, err := hostedDashboardOpenURL(cmd.Context(), app)
+				if err != nil {
+					return err
+				}
+				if err := auth.OpenBrowser(target); err != nil {
 					return err
 				}
 			}
@@ -69,6 +75,25 @@ func newDashboardCmd(app *App) *cobra.Command {
 	}}
 	cmd.AddCommand(serve, status)
 	return cmd
+}
+
+func hostedDashboardOpenURL(ctx context.Context, app *App) (string, error) {
+	base := strings.TrimRight(app.Config.Hosted.ControlPlaneURL, "/")
+	secrets, err := loadRailwaySecrets(app.Root)
+	if err != nil {
+		return "", fmt.Errorf("load hosted dashboard credentials: %w", err)
+	}
+	if strings.TrimSpace(secrets.ServiceToken) == "" {
+		return "", fmt.Errorf("hosted dashboard owner recovery credential is unavailable; run ves up to repair the workspace attachment")
+	}
+	claimURL, required, err := ensureHostedOwnerClaim(ctx, base, secrets.ServiceToken, id.New("dashboard"))
+	if err != nil {
+		return "", fmt.Errorf("prepare hosted dashboard access: %w", err)
+	}
+	if required {
+		return claimURL, nil
+	}
+	return base, nil
 }
 
 func dashboardRuntimePath(root string) string {
