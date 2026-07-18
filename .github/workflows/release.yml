@@ -10,8 +10,8 @@ permissions:
   packages: write
 
 jobs:
-  release:
-    needs: package
+  release-assets:
+    name: Build release assets
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -101,7 +101,7 @@ jobs:
             "knowledge_server_image": "ghcr.io/vessica-labs/vessica-knowledge-server:v0.4.0"
           }
           EOF
-      - name: Create GitHub release
+      - name: Create draft GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -109,6 +109,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "Vessica CLI $GITHUB_REF_NAME" \
             --generate-notes \
+            --draft \
             --verify-tag
 
   package-build:
@@ -194,3 +195,15 @@ jobs:
             sleep 5
           done
           exit 1
+
+  release:
+    name: Publish verified release
+    needs:
+      - package
+      - release-assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish GitHub release after package verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --verify-tag

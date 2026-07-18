@@ -285,7 +285,12 @@ func linkRailwayWorkDir(ctx context.Context, workDir string, cfg config.Config) 
 	if cfg.Hosted.ProjectID == "" || cfg.Hosted.EnvironmentID == "" {
 		return fmt.Errorf("Railway project and environment ids are required before linking the provisioning workspace")
 	}
-	if _, err := runRailway(ctx, workDir, nil, "link", "--project", cfg.Hosted.ProjectID, "--environment", cfg.Hosted.EnvironmentID, "--json"); err != nil {
+	args := []string{"link", "--project", cfg.Hosted.ProjectID, "--environment", cfg.Hosted.EnvironmentID}
+	if strings.TrimSpace(cfg.Hosted.WorkspaceID) != "" {
+		args = append(args, "--workspace", cfg.Hosted.WorkspaceID)
+	}
+	args = append(args, "--json")
+	if _, err := runRailway(ctx, workDir, nil, args...); err != nil {
 		return fmt.Errorf("link Railway provisioning workspace: %w", err)
 	}
 	return nil

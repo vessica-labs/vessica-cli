@@ -173,7 +173,8 @@ The post-benchmark runtime pass now includes:
    skip the planning model call as well as duplicate ticketization.
 9. The release workflow builds amd64 and arm64 containers on native runners,
    verifies both architectures, and publishes the multi-architecture manifest
-   atomically before creating the GitHub release.
+   atomically. Archive/plugin assembly runs in parallel as a draft release; the
+   release becomes public only after both paths pass.
 
 These paths emit explicit infrastructure or agent metadata so the next hosted
 benchmark can measure each saving independently. VM sizing remains unchanged.

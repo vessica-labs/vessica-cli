@@ -149,7 +149,7 @@ func TestLinkRailwayWorkDirUsesExistingProjectAndEnvironment(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("VES_TEST_COMMAND_LOG", logPath)
 	t.Setenv("RAILWAY_TOKEN", "test-token")
-	cfg := config.Config{Hosted: config.HostedConfig{ProjectID: "project-1", EnvironmentID: "environment-1"}}
+	cfg := config.Config{Hosted: config.HostedConfig{WorkspaceID: "workspace-1", ProjectID: "project-1", EnvironmentID: "environment-1"}}
 	if err := linkRailwayWorkDir(context.Background(), workDir, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestLinkRailwayWorkDirUsesExistingProjectAndEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := resolvedWorkDir + "|link --project project-1 --environment environment-1 --json\n"
+	want := resolvedWorkDir + "|link --project project-1 --environment environment-1 --workspace workspace-1 --json\n"
 	if string(commands) != want {
 		t.Fatalf("command=%q want=%q", commands, want)
 	}
