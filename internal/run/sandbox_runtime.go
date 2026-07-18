@@ -180,6 +180,35 @@ func (e *Engine) runWorkdir(ctx context.Context, r *state.Run) string {
 	return e.Root
 }
 
+func (e *Engine) migrateRetainedRailwayWorkdir(ctx context.Context, r *state.Run) (string, error) {
+	if r.SandboxBackend != "railway" {
+		return e.Root, nil
+	}
+	// Runs retained from before repository-checkpoint worktrees stored the
+	// checkpoint root as their workdir. Migrate them lazily so a resume from PR
+	// keeps the completed commit while restoring the isolation invariant.
+	sbRecord, err := e.DB.GetSandboxForRun(ctx, r.ID)
+	if err != nil {
+		return "", fmt.Errorf("load retained Railway sandbox: %w", err)
+	}
+	migrationStarted := time.Now()
+	workdir, err := e.prepareRailwayRunWorkdir(ctx, sbRecord)
+	if err != nil {
+		return "", err
+	}
+	metadata := map[string]any{}
+	_ = json.Unmarshal([]byte(sbRecord.MetaJSON), &metadata)
+	metadata["host_workdir"] = workdir
+	metadata["branch"] = sbRecord.Branch
+	encoded, _ := json.Marshal(metadata)
+	sbRecord.MetaJSON = string(encoded)
+	if err := e.DB.UpdateSandbox(ctx, sbRecord); err != nil {
+		return "", fmt.Errorf("persist retained Railway worktree: %w", err)
+	}
+	e.emit(ctx, r.ID, "run.infrastructure.stage", map[string]any{"stage": "integration_workdir", "duration_ms": time.Since(migrationStarted).Milliseconds(), "status": "completed", "mode": "repository_checkpoint_worktree_migration", "cache_hit": true})
+	return workdir, nil
+}
+
 func (e *Engine) previewPort(workdir string) int {
 	if hy, err := harness.Load(workdir); err == nil && hy.Preview.Port > 0 {
 		return hy.Preview.Port
@@ -225,6 +254,14 @@ func runnerTimeout() time.Duration {
 
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
+}
+
+func previewConnectionFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "err_connection_refused") || strings.Contains(message, "connection refused") || strings.Contains(message, "econnrefused")
 }
 
 // OpenPreview opens preview URL in browser when possible.
