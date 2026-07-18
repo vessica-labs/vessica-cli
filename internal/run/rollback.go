@@ -46,6 +46,9 @@ func (e *Engine) RollbackRun(ctx context.Context, runID string) (*RollbackResult
 	if err := e.DB.UpdateRun(ctx, r); err != nil {
 		return nil, err
 	}
+	if _, err := e.DB.UpdateEpic(ctx, r.EpicID, "", "", state.EpicStatusRolledBack); err != nil {
+		return nil, fmt.Errorf("mark epic rolled back: %w", err)
+	}
 	_, _ = e.DB.CreateRunEvidence(ctx, runID, "rollback", "pr_close", "", "passed", map[string]any{"rolled_back_at": state.Now()})
 	if sandboxRecord, getErr := e.DB.GetSandboxForRun(ctx, runID); getErr == nil {
 		if destroyErr := retention.Destroy(ctx, e.DB, e.Root, sandboxRecord, "rolled_back"); destroyErr != nil {

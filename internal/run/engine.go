@@ -58,31 +58,6 @@ type Options struct {
 	RunID           string
 }
 
-type plannedTicket struct {
-	Type                string   `json:"type"`
-	Title               string   `json:"title"`
-	Body                string   `json:"body"`
-	AcceptanceCriteria  []string `json:"acceptance_criteria"`
-	DependsOnTitles     []string `json:"depends_on_titles"`
-	SplitJustification  string   `json:"split_justification"`
-	EstimatedComplexity string   `json:"estimated_complexity"`
-}
-
-type ticketPlan struct {
-	Complexity string          `json:"complexity"`
-	Rationale  string          `json:"complexity_rationale"`
-	Tickets    []plannedTicket `json:"tickets"`
-}
-
-type planningBundle struct {
-	PRDMarkdown           string `json:"prd_markdown"`
-	ADRMarkdown           string `json:"adr_markdown"`
-	DesignSpecMarkdown    string `json:"design_spec_markdown"`
-	TestScenariosMarkdown string `json:"test_scenarios_markdown"`
-	Complexity            string `json:"complexity"`
-	Rationale             string `json:"complexity_rationale"`
-}
-
 func (e *Engine) emit(ctx context.Context, runID, typ string, payload any) {
 	if m, ok := payload.(map[string]any); ok {
 		if msg, ok := m["message"].(string); ok {
@@ -367,6 +342,9 @@ func (e *Engine) execute(ctx context.Context, r *state.Run, opts Options) (*stat
 			if persistErr := e.DB.UpdateRun(ctx, r); persistErr != nil {
 				phaseErr = errors.Join(phaseErr, fmt.Errorf("persist failed run: %w", persistErr))
 			}
+			if _, persistErr := e.DB.UpdateEpic(ctx, r.EpicID, "", "", state.EpicStatusFailed); persistErr != nil {
+				phaseErr = errors.Join(phaseErr, fmt.Errorf("persist failed epic: %w", persistErr))
+			}
 			if sbRec, sbErr := e.DB.GetSandboxForRun(ctx, r.ID); sbErr == nil {
 				if persistErr := retention.MarkFailed(ctx, e.DB, sbRec); persistErr != nil {
 					phaseErr = errors.Join(phaseErr, fmt.Errorf("mark sandbox failed: %w", persistErr))
@@ -384,10 +362,14 @@ func (e *Engine) execute(ctx context.Context, r *state.Run, opts Options) (*stat
 		if err := e.takeEventError(); err != nil {
 			r.Status = "failed"
 			r.Error = err.Error()
+			r.FinishedAt = state.Now()
 			if persistErr := e.DB.SetPhaseStatus(ctx, r.ID, phase, "failed", err.Error()); persistErr != nil {
 				err = errors.Join(err, persistErr)
 			}
 			if persistErr := e.DB.UpdateRun(ctx, r); persistErr != nil {
+				err = errors.Join(err, persistErr)
+			}
+			if _, persistErr := e.DB.UpdateEpic(ctx, r.EpicID, "", "", state.EpicStatusFailed); persistErr != nil {
 				err = errors.Join(err, persistErr)
 			}
 			return r, err
@@ -416,11 +398,19 @@ func (e *Engine) execute(ctx context.Context, r *state.Run, opts Options) (*stat
 		if err := e.DB.UpdateRun(ctx, r); err != nil {
 			return r, fmt.Errorf("persist terminal run: %w", err)
 		}
+		if r.Status == "completed" {
+			if _, err := e.DB.UpdateEpic(ctx, r.EpicID, "", "", terminalEpicStatus(r)); err != nil {
+				return r, fmt.Errorf("persist terminal epic status: %w", err)
+			}
+		}
 		e.emit(ctx, r.ID, "run.completed", map[string]any{"status": r.Status})
 		if err := e.takeEventError(); err != nil {
 			r.Status = "failed"
 			r.Error = err.Error()
 			if persistErr := e.DB.UpdateRun(ctx, r); persistErr != nil {
+				err = errors.Join(err, persistErr)
+			}
+			if _, persistErr := e.DB.UpdateEpic(ctx, r.EpicID, "", "", state.EpicStatusFailed); persistErr != nil {
 				err = errors.Join(err, persistErr)
 			}
 			return r, err
@@ -440,6 +430,13 @@ func (e *Engine) execute(ctx context.Context, r *state.Run, opts Options) (*stat
 		}
 	}
 	return result, runErr
+}
+
+func terminalEpicStatus(r *state.Run) string {
+	if strings.TrimSpace(r.PRURL) != "" && r.PRMode != "merged" {
+		return state.EpicStatusInReview
+	}
+	return state.EpicStatusCompleted
 }
 
 func phaseIndex(name string) int {

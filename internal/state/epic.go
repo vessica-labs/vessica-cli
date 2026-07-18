@@ -8,6 +8,16 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/id"
 )
 
+const (
+	EpicStatusDraft      = "draft"
+	EpicStatusPlanned    = "planned"
+	EpicStatusInReview   = "in_review"
+	EpicStatusCompleted  = "completed"
+	EpicStatusFailed     = "failed"
+	EpicStatusCancelled  = "cancelled"
+	EpicStatusRolledBack = "rolled_back"
+)
+
 func (db *DB) CreateEpic(ctx context.Context, title, body string) (*Epic, error) {
 	repository, err := db.GetRepository(ctx, "")
 	if err != nil {
@@ -35,7 +45,7 @@ func (db *DB) CreateEpicForRepository(ctx context.Context, repositoryID, title, 
 		RepositoryID: repository.ID,
 		Title:        title,
 		Body:         body,
-		Status:       "draft",
+		Status:       EpicStatusDraft,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}

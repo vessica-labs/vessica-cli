@@ -30,12 +30,26 @@ func (e *Engine) invokeRunner(ctx context.Context, r *state.Run, phase, prompt, 
 		AllowStub:       simulationMode(),
 		Model:           r.Model,
 		ReasoningEffort: r.ReasoningEffort,
+		Env: map[string]string{
+			"VES_CODEX_MCP_POLICY": "minimal",
+		},
+	}
+	if allowlist := strings.TrimSpace(os.Getenv("VES_CODEX_MCP_ALLOWLIST")); allowlist != "" {
+		in.Env["VES_CODEX_MCP_ALLOWLIST"] = allowlist
 	}
 	if phase == "code" && agentRole == "coder" {
-		in.Env = map[string]string{
-			"VES_ENGINE_MANAGED_RUN": "1",
-			"VES_RUN_ID":             r.ID,
-		}
+		in.Env["VES_ENGINE_MANAGED_RUN"] = "1"
+		in.Env["VES_RUN_ID"] = r.ID
+		packet, meta := e.coderContextPacket(ctx, r, workdir, prompt)
+		in.ArtifactContext = packet
+		e.emit(ctx, r.ID, "run.infrastructure.stage", map[string]any{
+			"stage":       "coder_context_packet",
+			"duration_ms": meta.Duration.Milliseconds(),
+			"artifacts":   meta.Artifacts,
+			"contracts":   meta.Contracts,
+			"bytes":       meta.Bytes,
+			"status":      "completed",
+		})
 	}
 	systemPrompt := e.agentSystemPrompt(agentRole, workdir, phase)
 	promptRaw, _ := json.Marshal(map[string]any{

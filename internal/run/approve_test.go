@@ -68,6 +68,13 @@ func TestApproveRunMarksReadyMergesAndRecordsEvidence(t *testing.T) {
 	if storedRun.PRMode != "merged" {
 		t.Fatalf("pr_mode=%q", storedRun.PRMode)
 	}
+	storedEpic, err := db.GetEpic(context.Background(), runRecord.EpicID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedEpic.Status != "completed" {
+		t.Fatalf("epic status=%q", storedEpic.Status)
+	}
 	evidence, err := db.ListRunEvidence(context.Background(), runRecord.ID)
 	if err != nil {
 		t.Fatal(err)

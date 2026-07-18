@@ -74,4 +74,11 @@ func TestRunLifecyclePropagatesSandboxDestructionFailure(t *testing.T) {
 	if _, err = service.Cancel(ctx, runRecord.ID, "test"); !errors.Is(err, want) {
 		t.Fatalf("cancel error=%v, want wrapped backend error", err)
 	}
+	storedEpic, err := db.GetEpic(ctx, epic.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedEpic.Status != state.EpicStatusCancelled {
+		t.Fatalf("epic status=%q", storedEpic.Status)
+	}
 }

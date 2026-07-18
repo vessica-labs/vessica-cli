@@ -9,6 +9,32 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/state"
 )
 
+type plannedTicket struct {
+	Type                string   `json:"type"`
+	Title               string   `json:"title"`
+	Body                string   `json:"body"`
+	AcceptanceCriteria  []string `json:"acceptance_criteria"`
+	DependsOnTitles     []string `json:"depends_on_titles"`
+	SplitJustification  string   `json:"split_justification"`
+	EstimatedComplexity string   `json:"estimated_complexity"`
+}
+
+type ticketPlan struct {
+	Complexity string          `json:"complexity"`
+	Rationale  string          `json:"complexity_rationale"`
+	Tickets    []plannedTicket `json:"tickets"`
+}
+
+type planningBundle struct {
+	PRDMarkdown           string         `json:"prd_markdown"`
+	ADRMarkdown           string         `json:"adr_markdown"`
+	DesignSpecMarkdown    string         `json:"design_spec_markdown"`
+	TestScenariosMarkdown string         `json:"test_scenarios_markdown"`
+	Complexity            string         `json:"complexity"`
+	Rationale             string         `json:"complexity_rationale"`
+	Ticket                *plannedTicket `json:"ticket,omitempty"`
+}
+
 func (e *Engine) generatePlanningBundle(ctx context.Context, r *state.Run, epic *state.Epic) (planningBundle, error) {
 	if simulationMode() {
 		return planningBundle{
@@ -28,7 +54,8 @@ Return only JSON matching this shape:
   "prd_markdown": "# ...",
   "adr_markdown": "# ...",
   "design_spec_markdown": "# ...",
-  "test_scenarios_markdown": "# ..."
+  "test_scenarios_markdown": "# ...",
+  "ticket": null
 }
 
 Planning policy:
@@ -38,7 +65,12 @@ Planning policy:
 - Keep DesignSpec under 600 words.
 - Keep TestScenarios to at most 5 numbered scenarios.
 - For trivial/localized work, be very brief and concrete.
-- Do not include implementation tickets here.
+- Do not include implementation tickets here except for the xs fast path below.
+- When complexity is xs, include exactly one implementation ticket in the ticket field
+  using the normal ticket fields: type, title, body, acceptance_criteria,
+  depends_on_titles, estimated_complexity, and split_justification.
+- For complexity s or larger, return ticket: null; ticketization will perform
+  the dependency-aware decomposition separately.
 - Each markdown field must start with a level-one heading.
 
 Complexity rubric:
@@ -82,6 +114,17 @@ func parsePlanningBundle(raw string) (planningBundle, error) {
 		if strings.TrimSpace(body) == "" || !strings.HasPrefix(strings.TrimSpace(body), "#") {
 			return planningBundle{}, fmt.Errorf("planning bundle field %s must be non-empty markdown starting with #", name)
 		}
+	}
+	if bundle.Complexity == "xs" && bundle.Ticket != nil {
+		plan, err := normalizeTicketPlan(ticketPlan{
+			Complexity: "xs",
+			Rationale:  bundle.Rationale,
+			Tickets:    []plannedTicket{*bundle.Ticket},
+		})
+		if err != nil {
+			return planningBundle{}, fmt.Errorf("validate xs planning ticket: %w", err)
+		}
+		bundle.Ticket = &plan.Tickets[0]
 	}
 	return bundle, nil
 }
@@ -227,6 +270,10 @@ func parseTicketPlanEnvelope(raw string) (ticketPlan, error) {
 	} else if err := json.Unmarshal([]byte(raw), &plan); err != nil {
 		return ticketPlan{}, fmt.Errorf("parse planner ticket JSON: %w", err)
 	}
+	return normalizeTicketPlan(plan)
+}
+
+func normalizeTicketPlan(plan ticketPlan) (ticketPlan, error) {
 	plan.Complexity = normalizeComplexity(plan.Complexity)
 	if plan.Complexity == "" {
 		return ticketPlan{}, fmt.Errorf("planner ticket plan missing complexity")

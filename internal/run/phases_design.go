@@ -107,7 +107,15 @@ func (e *Engine) phasePlan(ctx context.Context, r *state.Run) error {
 	for _, artifact := range []*state.Artifact{prd, adr, ts, design} {
 		e.mirrorArtifactKnowledge(ctx, r, artifact)
 	}
-	_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "plan", "planning_bundle", "", "passed", map[string]any{"complexity": bundle.Complexity, "rationale": bundle.Rationale})
+	if bundle.Complexity == "xs" && bundle.Ticket == nil {
+		ticket := deterministicXSTicket(epic, []*state.Artifact{prd, adr, ts, design})
+		bundle.Ticket = &ticket
+	}
+	_, _ = e.DB.CreateRunEvidence(ctx, r.ID, "plan", "planning_bundle", "", "passed", map[string]any{
+		"complexity": bundle.Complexity,
+		"rationale":  bundle.Rationale,
+		"ticket":     bundle.Ticket,
+	})
 	e.emit(ctx, r.ID, "agent.progress", map[string]any{"message": "plan artifacts created", "artifacts": []string{prd.ID, adr.ID, ts.ID, design.ID}, "complexity": bundle.Complexity})
 	return nil
 }
@@ -161,9 +169,15 @@ func (e *Engine) phaseTicketize(ctx context.Context, r *state.Run) error {
 	r.ArtifactSetID = set.ID
 	_ = e.DB.UpdateRun(ctx, r)
 
-	specs, err := e.planTickets(ctx, r, epic, arts)
+	specs, fastPath, err := e.xsTicketPlan(ctx, r, epic, arts)
 	if err != nil {
 		return err
+	}
+	if !fastPath {
+		specs, err = e.planTickets(ctx, r, epic, arts)
+		if err != nil {
+			return err
+		}
 	}
 	created, err := e.createPlannedTickets(ctx, epic.ID, r.ID, specs)
 	if err != nil {
@@ -173,7 +187,7 @@ func (e *Engine) phaseTicketize(ctx context.Context, r *state.Run) error {
 	if err != nil {
 		return err
 	}
-	_, _ = e.DB.UpdateEpic(ctx, epic.ID, "", "", "planned")
+	_, _ = e.DB.UpdateEpic(ctx, epic.ID, "", "", state.EpicStatusPlanned)
 	var ticketIDs []string
 	for _, t := range created {
 		ticketIDs = append(ticketIDs, t.ID)
@@ -183,6 +197,7 @@ func (e *Engine) phaseTicketize(ctx context.Context, r *state.Run) error {
 		"artifact_set": set.ID,
 		"tickets":      ticketIDs,
 		"waves":        len(waves),
+		"fast_path":    fastPath,
 	})
 	return nil
 }

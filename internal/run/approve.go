@@ -197,6 +197,9 @@ func (e *Engine) finishApproval(ctx context.Context, runRecord *state.Run, sandb
 	}
 	runRecord.PRMode = "merged"
 	_ = e.DB.UpdateRun(ctx, runRecord)
+	if _, err := e.DB.UpdateEpic(ctx, runRecord.EpicID, "", "", state.EpicStatusCompleted); err != nil {
+		return nil, fmt.Errorf("mark epic completed: %w", err)
+	}
 	_, _ = e.DB.CreateRunEvidence(ctx, runRecord.ID, "approve", "pr_merge", "", "passed", map[string]any{
 		"sandbox_id":        sandboxRecord.ID,
 		"pr_url":            runRecord.PRURL,

@@ -46,6 +46,9 @@ func (s *RunLifecycle) Cancel(ctx context.Context, runID, source string) (*state
 	if runRecord, err = s.DB.GetRun(ctx, runID); err != nil {
 		return nil, fmt.Errorf("reload cancelled run: %w", err)
 	}
+	if _, err = s.DB.UpdateEpic(ctx, runRecord.EpicID, "", "", state.EpicStatusCancelled); err != nil {
+		return nil, fmt.Errorf("persist cancelled epic: %w", err)
+	}
 	sandboxes, err := s.DB.ListSandboxesForRun(ctx, runID)
 	if err != nil {
 		return nil, fmt.Errorf("list run sandboxes for cancellation: %w", err)
