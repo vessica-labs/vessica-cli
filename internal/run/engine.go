@@ -34,6 +34,10 @@ type Engine struct {
 	eventErr   error
 }
 
+type runnerContextKey string
+
+const runnerTicketIDKey runnerContextKey = "ticket_id"
+
 type Options struct {
 	EpicID          string
 	TicketID        string
@@ -154,6 +158,9 @@ func (e *Engine) emitRunner(ctx context.Context, r *state.Run, phase, role strin
 	payload["message"] = redaction.Redact(runnerEvent.Message)
 	payload["role"] = role
 	payload["phase"] = phase
+	if ticketID, _ := ctx.Value(runnerTicketIDKey).(string); ticketID != "" {
+		payload["ticket_id"] = ticketID
+	}
 	if raw := strings.TrimSpace(redaction.Redact(runnerEvent.Raw)); raw != "" {
 		raw = normalizeRawLine(raw)
 		if ref, err := e.appendRawLog(r.ID, raw); err == nil {

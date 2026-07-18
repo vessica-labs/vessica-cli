@@ -1,12 +1,15 @@
 package run
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/vessica-labs/vessica-cli/internal/runner"
+	"github.com/vessica-labs/vessica-cli/internal/state"
 )
 
 func TestParseTicketPlan(t *testing.T) {
@@ -109,6 +112,41 @@ func TestRunnerResultErrorPreservesUnderlyingFailure(t *testing.T) {
 	err := runnerResultError("plan", runner.Result{Status: "failed", Output: "progress\nmodel requires a newer Codex CLI"})
 	if err == nil || !strings.Contains(err.Error(), "model requires a newer Codex CLI") {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestRunnerEventCarriesExecutingTicketID(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	db, err := state.Open("sqlite", filepath.Join(root, "state.db"), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.EnsureWorkspace(ctx, root, "solo"); err != nil {
+		t.Fatal(err)
+	}
+	epic, err := db.CreateEpic(ctx, "Ticket events", "body")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runRecord, err := db.CreateRun(ctx, epic.ID, "", "codex", "model", "high", "local", 1, false, "draft", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := &Engine{DB: db, Root: root}
+	ticketCtx := context.WithValue(ctx, runnerTicketIDKey, "tkt_123")
+	engine.emitRunner(ticketCtx, runRecord, "code", "coder", runner.Event{Type: "agent.output", Message: "summary"})
+	events, err := db.ListEvents(ctx, runRecord.ID, 0)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("events=%#v err=%v", events, err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(events[0].PayloadJSON), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["ticket_id"] != "tkt_123" || payload["phase"] != "code" || payload["role"] != "coder" {
+		t.Fatalf("payload=%#v", payload)
 	}
 }
 
