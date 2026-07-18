@@ -80,6 +80,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/credentials/{provider}", s.requireAPIAuth(s.handleRotateCredential))
 	mux.HandleFunc("GET /api/v1/repositories", s.requireAPIAuth(s.handleRepositories))
 	mux.HandleFunc("POST /api/v1/repositories", s.requireAPIAuth(s.handleAttachRepository))
+	mux.HandleFunc("PUT /api/v1/repositories/{repository_id}/checkpoint", s.requireAPIAuth(s.handleRepositoryCheckpoint))
 	mux.HandleFunc("POST /api/v1/onboarding/operations", s.requireAPIAuth(s.handleUpsertOnboarding))
 	mux.HandleFunc("GET /api/v1/onboarding/operations/{operation_id}", s.requireAPIAuth(s.handleOnboarding))
 	mux.HandleFunc("POST /api/v1/onboarding/operations/{operation_id}/resume", s.requireAPIAuth(s.handleOnboarding))

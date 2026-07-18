@@ -36,6 +36,18 @@ func Finalize(ctx context.Context, db *state.DB, r *state.Run) (*state.Receipt, 
 		}
 	}
 	var buildEvidence, validationEvidence, mergeEvidence, ticketEvidence []map[string]any
+	var infrastructure []map[string]any
+	for _, event := range events {
+		if event.Type != "run.infrastructure.stage" {
+			continue
+		}
+		var item map[string]any
+		if json.Unmarshal([]byte(event.PayloadJSON), &item) == nil {
+			item["event_seq"] = event.Seq
+			item["recorded_at"] = event.CreatedAt
+			infrastructure = append(infrastructure, item)
+		}
+	}
 	for _, ev := range evidence {
 		item := map[string]any{
 			"id":        ev.ID,
@@ -59,10 +71,18 @@ func Finalize(ctx context.Context, db *state.DB, r *state.Run) (*state.Receipt, 
 		}
 	}
 	elapsed := ""
+	wallElapsed := ""
 	if r.StartedAt != "" && r.FinishedAt != "" {
 		if a, err1 := time.Parse(time.RFC3339Nano, r.StartedAt); err1 == nil {
 			if b, err2 := time.Parse(time.RFC3339Nano, r.FinishedAt); err2 == nil {
 				elapsed = b.Sub(a).String()
+			}
+		}
+	}
+	if r.CreatedAt != "" && r.FinishedAt != "" {
+		if a, err1 := time.Parse(time.RFC3339Nano, r.CreatedAt); err1 == nil {
+			if b, err2 := time.Parse(time.RFC3339Nano, r.FinishedAt); err2 == nil {
+				wallElapsed = b.Sub(a).String()
 			}
 		}
 	}
@@ -90,6 +110,8 @@ func Finalize(ctx context.Context, db *state.DB, r *state.Run) (*state.Receipt, 
 		"build":              buildEvidence,
 		"validation":         validationEvidence,
 		"elapsed":            elapsed,
+		"wall_elapsed":       wallElapsed,
+		"infrastructure":     infrastructure,
 		"runner":             r.Runner,
 		"model":              r.Model,
 		"reasoning_effort":   r.ReasoningEffort,

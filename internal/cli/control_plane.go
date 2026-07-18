@@ -22,7 +22,6 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/controlplane"
 	"github.com/vessica-labs/vessica-cli/internal/dashboard"
 	"github.com/vessica-labs/vessica-cli/internal/pack"
-	"github.com/vessica-labs/vessica-cli/internal/repo"
 	runengine "github.com/vessica-labs/vessica-cli/internal/run"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 	"github.com/vessica-labs/vessica-cli/internal/tracker"
@@ -253,6 +252,15 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 }
 
 func openHostedWorker(ctx context.Context) (*runengine.Engine, *state.DB, error) {
+	workerStarted := time.Now()
+	timings := []map[string]any{}
+	stage := func(name string, started time.Time, detail map[string]any) {
+		item := map[string]any{"stage": name, "duration_ms": time.Since(started).Milliseconds(), "status": "completed"}
+		for key, value := range detail {
+			item[key] = value
+		}
+		timings = append(timings, item)
+	}
 	cfg := config.TeamDefaults()
 	config.ApplyEnv(&cfg)
 	cfg.State.Backend = "postgres-url"
@@ -260,22 +268,32 @@ func openHostedWorker(ctx context.Context) (*runengine.Engine, *state.DB, error)
 	if cfg.State.DBURL == "" {
 		cfg.State.DBURL = os.Getenv("VES_CONTROL_DATABASE_URL")
 	}
+	authStarted := time.Now()
 	if err := configureHostedAuth(); err != nil {
 		return nil, nil, err
 	}
 	if err := installCodexAuth(); err != nil {
 		return nil, nil, err
 	}
+	stage("worker_auth_setup", authStarted, nil)
 	root := filepath.Join("/workspace", "repo")
-	if err := ensureWorkerRepo(ctx, root, cfg.Repo.Remote); err != nil {
+	repoStarted := time.Now()
+	repoResult, err := ensureWorkerRepo(ctx, root, cfg.Repo.Remote)
+	if err != nil {
 		return nil, nil, err
 	}
+	stage("repository_sync", repoStarted, repoResult)
+	configStarted := time.Now()
 	if err := config.Save(root, cfg); err != nil {
 		return nil, nil, err
 	}
-	if _, err := pack.Install(root, pack.DefaultRef); err != nil {
+	stage("worker_config", configStarted, nil)
+	packStarted := time.Now()
+	if _, err := pack.EnsureHosted(root); err != nil {
 		return nil, nil, err
 	}
+	stage("engineering_pack", packStarted, map[string]any{"cache_hit": true})
+	databaseStarted := time.Now()
 	db, err := state.OpenWithOptions(cfg.State.Backend, cfg.State.DBURL, root, state.OpenOptions{})
 	if err != nil {
 		return nil, nil, err
@@ -288,6 +306,9 @@ func openHostedWorker(ctx context.Context) (*runengine.Engine, *state.DB, error)
 		_ = db.Close()
 		return nil, nil, err
 	}
+	stage("worker_database", databaseStarted, nil)
+	stage("worker_binary_ready", workerStarted, nil)
+	recordBootstrapTimings(ctx, db, os.Getenv("VES_RUN_ID"), timings)
 	for _, key := range []string{
 		"VES_CONTROL_DATABASE_URL", "VES_KNOWLEDGE_DATABASE_URL", "GITHUB_TOKEN", "LINEAR_API_KEY",
 		"RAILWAY_TOKEN", "RAILWAY_API_TOKEN", "VES_WORKER_DOWNLOAD_TOKEN",
@@ -388,27 +409,6 @@ func configureHostedAuth() error {
 
 func hostedWorkspaceKey(cfg config.Config) string {
 	return "hosted://" + cfg.Hosted.ProjectID
-}
-
-func ensureWorkerRepo(ctx context.Context, root, remote string) error {
-	if remote == "" {
-		return fmt.Errorf("VES_REPO_REMOTE is required")
-	}
-	if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
-		return nil
-	}
-	_ = os.RemoveAll(root)
-	if err := os.MkdirAll(filepath.Dir(root), 0o755); err != nil {
-		return err
-	}
-	out, err := repo.GitCommandContext(ctx, "clone", repo.AuthenticatedRemote(remote), root).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("clone worker repository: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	if out, err := repo.GitCommandContext(ctx, "-C", root, "remote", "set-url", "origin", remote).CombinedOutput(); err != nil {
-		return fmt.Errorf("reset worker origin: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
 }
 
 func envDefault(key, fallback string) string {

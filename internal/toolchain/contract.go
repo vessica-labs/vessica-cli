@@ -284,6 +284,29 @@ func AgentShellVerifyCommand() string {
 	return "runuser --user vessica-agent --preserve-environment -- env HOME=/home/vessica-agent bash -c " + shellQuote(ShellVerifyCommand())
 }
 
+// RuntimeShellVerifyCommand is the inexpensive per-run integrity check. The
+// immutable checkpoint build performs the full package-script and Chromium
+// launch smoke test once; warm forks only confirm versions and browser assets.
+func RuntimeShellVerifyCommand() string {
+	commands := []string{
+		"test \"$(pnpm --version)\" = " + shellQuote(PNPMVersion),
+		"codex --version | grep -F " + shellQuote(CodexVersion) + " >/dev/null",
+		"node --version | grep -F " + shellQuote(NodeVersion) + " >/dev/null",
+		"go version | grep -F " + shellQuote(GoVersion) + " >/dev/null",
+		"yq --version | grep -F " + shellQuote(YQVersion) + " >/dev/null",
+		"node -e \"process.exit(require('playwright/package.json').version === '" + PlaywrightVersion + "' ? 0 : 1)\"",
+		"test -d \"${PLAYWRIGHT_BROWSERS_PATH:-/opt/ms-playwright}\"",
+	}
+	for _, executable := range []string{"rg", "fd", "jq", "bat", "git", "git-lfs", "gh", "python3", "curl", "runuser"} {
+		commands = append(commands, "command -v "+shellQuote(executable)+" >/dev/null")
+	}
+	return strings.Join(commands, " && ") + " || { echo 'Railway worker checkpoint failed its runtime integrity check' >&2; exit 1; }"
+}
+
+func AgentRuntimeVerifyCommand() string {
+	return "runuser --user vessica-agent --preserve-environment -- env HOME=/home/vessica-agent NODE_PATH=/usr/local/lib/node_modules PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright bash -c " + shellQuote(RuntimeShellVerifyCommand())
+}
+
 // AgentProjectSmokeCommand verifies package scripts, browser startup, preview
 // startup, and (at runtime) the installed Codex authentication as the runner.
 func AgentProjectSmokeCommand(requireAuth bool) string {

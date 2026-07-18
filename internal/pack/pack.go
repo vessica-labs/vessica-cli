@@ -61,6 +61,25 @@ func Install(root, source string) (*Lockfile, error) {
 	return nil, err
 }
 
+// EnsureHosted reuses a complete committed pack and falls back directly to the
+// embedded release snapshot. Hosted workers must not clone the same immutable
+// engineering pack on every run.
+func EnsureHosted(root string) (*Lockfile, error) {
+	if lock, err := ReadLock(root); err == nil {
+		complete := true
+		for _, entry := range []string{"harness.yaml", "pack.yaml", "agents"} {
+			if _, statErr := os.Stat(filepath.Join(root, config.DirName, entry)); statErr != nil {
+				complete = false
+				break
+			}
+		}
+		if complete {
+			return lock, nil
+		}
+	}
+	return installEmbedded(root)
+}
+
 func installGit(root, origin, version, ref string) (*Lockfile, error) {
 	tmp, err := os.MkdirTemp("", "vessica-pack-*")
 	if err != nil {

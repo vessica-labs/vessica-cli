@@ -1,17 +1,23 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/vessica-labs/vessica-cli/internal/auth"
 	"github.com/vessica-labs/vessica-cli/internal/config"
+	"github.com/vessica-labs/vessica-cli/internal/onboarding"
+	"github.com/vessica-labs/vessica-cli/internal/reposnapshot"
+	"github.com/vessica-labs/vessica-cli/internal/state"
+	"github.com/vessica-labs/vessica-cli/internal/toolchain"
 )
 
 type railwayInstallationCandidate struct {
@@ -262,8 +268,10 @@ func readRailwayVariables(ctx context.Context, cfg config.Config, serviceID stri
 var commitPattern = regexp.MustCompile(`(?m)^[0-9a-f]{40}$`)
 
 type railwayOrientation struct {
-	Commit string
-	Files  []string
+	Commit     string
+	Files      []string
+	Checkpoint reposnapshot.Checkpoint
+	Timings    map[string]int64
 }
 
 func runRailwayOrientation(ctx context.Context, cfg config.Config, remote string) (railwayOrientation, error) {
@@ -284,6 +292,7 @@ func runRailwayOrientation(ctx context.Context, cfg config.Config, remote string
 		_, _ = runRailway(cleanup, "", nil, append(base, "destroy", "--id", sandboxID)...)
 	}()
 	script := `set -euo pipefail
+orientation_started=$(date +%s%3N)
 askpass=$(mktemp)
 trap 'rm -f "$askpass"' EXIT
 cat >"$askpass" <<'EOF'
@@ -291,10 +300,91 @@ cat >"$askpass" <<'EOF'
 case "$1" in *Username*) printf '%s\n' x-access-token ;; *) printf '%s\n' "$GITHUB_TOKEN" ;; esac
 EOF
 chmod 0700 "$askpass"
-rm -rf /tmp/vessica-orientation
-GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git clone --quiet --depth=1 "$VES_REPO_REMOTE" /tmp/vessica-orientation
-git -C /tmp/vessica-orientation rev-parse HEAD
-find /tmp/vessica-orientation -maxdepth 3 -type f -not -path '*/.git/*' | sed 's#^/tmp/vessica-orientation/##' | sort | head -500 | sed 's#^#VES_FILE #'
+rm -rf /workspace/repo /workspace/.vessica-repository-checkpoint.json
+clone_started=$(date +%s%3N)
+GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0 git clone --quiet --depth=1 "$VES_REPO_REMOTE" /workspace/repo
+git -C /workspace/repo remote set-url origin "$VES_REPO_REMOTE"
+commit=$(git -C /workspace/repo rev-parse HEAD)
+clone_finished=$(date +%s%3N)
+rm -f "$askpass"
+unset GITHUB_TOKEN VES_REPO_REMOTE
+
+dependency_fingerprint=$(python3 - <<'PY'
+import hashlib, os
+root = "/workspace/repo"
+names = "package.json pnpm-lock.yaml package-lock.json yarn.lock go.mod go.sum pyproject.toml uv.lock poetry.lock requirements.txt Cargo.toml Cargo.lock Gemfile Gemfile.lock pom.xml build.gradle build.gradle.kts gradle.properties composer.json composer.lock".split()
+h = hashlib.sha256()
+found = False
+for name in names:
+    path = os.path.join(root, name)
+    if not os.path.isfile(path):
+        continue
+    found = True
+    h.update(name.encode() + b"\0")
+    with open(path, "rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            h.update(chunk)
+if not found:
+    h.update(b"no-dependency-manifest")
+print(h.hexdigest())
+PY
+)
+stack=generic
+dependency_state=no_manifest
+install -d -o vessica-agent -g vessica-agent -m 0755 /workspace/repo
+chown -R vessica-agent:vessica-agent /workspace/repo
+run_dependency() {
+  if ! runuser --user vessica-agent --preserve-environment -- env HOME=/home/vessica-agent bash -lc "$1"; then
+    dependency_state=deferred
+  fi
+}
+dependency_started=$(date +%s%3N)
+if test -f /workspace/repo/package.json; then
+  stack=node
+  dependency_state=ready
+  if test -f /workspace/repo/pnpm-lock.yaml; then
+    run_dependency 'cd /workspace/repo && pnpm install --frozen-lockfile'
+  elif test -f /workspace/repo/package-lock.json; then
+    run_dependency 'cd /workspace/repo && npm ci'
+  elif test -f /workspace/repo/yarn.lock; then
+    run_dependency 'cd /workspace/repo && corepack yarn install --immutable'
+  else
+    run_dependency 'cd /workspace/repo && pnpm install --no-lockfile'
+  fi
+elif test -f /workspace/repo/go.mod; then
+  stack=go
+  dependency_state=ready
+  run_dependency 'cd /workspace/repo && go mod download'
+elif test -f /workspace/repo/pyproject.toml || test -f /workspace/repo/requirements.txt; then
+  stack=python
+  dependency_state=ready
+  run_dependency 'cd /workspace/repo && python3 -m venv .venv && if test -f requirements.txt; then .venv/bin/pip install -r requirements.txt; else .venv/bin/pip install -e .; fi'
+elif test -f /workspace/repo/Cargo.toml; then
+  stack=rust
+  dependency_state=ready
+  command -v cargo >/dev/null || { apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cargo rustc && rm -rf /var/lib/apt/lists/*; }
+  run_dependency 'cd /workspace/repo && cargo fetch --locked'
+elif test -f /workspace/repo/Gemfile; then
+  stack=ruby
+  dependency_state=ready
+  command -v bundle >/dev/null || { apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ruby-full bundler && rm -rf /var/lib/apt/lists/*; }
+  run_dependency 'cd /workspace/repo && bundle config set path vendor/bundle && bundle install'
+elif test -f /workspace/repo/pom.xml || test -f /workspace/repo/build.gradle || test -f /workspace/repo/build.gradle.kts; then
+  stack=java
+  dependency_state=ready
+  command -v java >/dev/null || { apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends default-jdk maven gradle && rm -rf /var/lib/apt/lists/*; }
+  run_dependency 'cd /workspace/repo && if test -x ./gradlew; then ./gradlew dependencies --no-daemon; elif test -f pom.xml; then mvn -q dependency:go-offline; else gradle dependencies --no-daemon; fi'
+fi
+dependency_finished=$(date +%s%3N)
+
+jq -n --arg commit "$commit" --arg dependency_fingerprint "$dependency_fingerprint" --arg stack "$stack" --arg dependency_state "$dependency_state" '{schema_version:1,base_commit:$commit,dependency_fingerprint:$dependency_fingerprint,stack:$stack,dependency_state:$dependency_state}' >/workspace/.vessica-repository-checkpoint.json
+chmod 0644 /workspace/.vessica-repository-checkpoint.json
+printf '%s\n' "$commit"
+printf 'VES_DEPENDENCY_FINGERPRINT %s\n' "$dependency_fingerprint"
+printf 'VES_STACK %s\n' "$stack"
+printf 'VES_DEPENDENCY_STATE %s\n' "$dependency_state"
+printf 'VES_TIMING clone_ms=%s dependency_ms=%s total_ms=%s\n' "$((clone_finished-clone_started))" "$((dependency_finished-dependency_started))" "$((dependency_finished-orientation_started))"
+find /workspace/repo -maxdepth 3 -type f -not -path '*/.git/*' -not -path '*/node_modules/*' -not -path '*/vendor/*' -not -path '*/.venv/*' | sed 's#^/workspace/repo/##' | sort | head -500 | sed 's#^#VES_FILE #'
 `
 	out, err := runRailway(ctx, "", nil, append(base, "exec", "--id", sandboxID, "--timeout", "300", "--", "bash", "-lc", script)...)
 	if err != nil {
@@ -304,11 +394,50 @@ find /tmp/vessica-orientation -maxdepth 3 -type f -not -path '*/.git/*' | sed 's
 	if commit == "" {
 		return railwayOrientation{}, fmt.Errorf("orientation sandbox did not report a repository commit")
 	}
-	orientation := railwayOrientation{Commit: commit}
+	orientation := railwayOrientation{Commit: commit, Timings: map[string]int64{}}
 	for _, line := range strings.Split(string(out), "\n") {
 		if file := strings.TrimSpace(strings.TrimPrefix(line, "VES_FILE ")); strings.HasPrefix(line, "VES_FILE ") && file != "" {
 			orientation.Files = append(orientation.Files, file)
 		}
+		fields := strings.Fields(line)
+		switch {
+		case strings.HasPrefix(line, "VES_DEPENDENCY_FINGERPRINT ") && len(fields) == 2:
+			orientation.Checkpoint.DependencyFingerprint = fields[1]
+		case strings.HasPrefix(line, "VES_STACK ") && len(fields) == 2:
+			orientation.Checkpoint.Stack = fields[1]
+		case strings.HasPrefix(line, "VES_DEPENDENCY_STATE ") && len(fields) == 2:
+			orientation.Checkpoint.DependencyState = fields[1]
+		case strings.HasPrefix(line, "VES_TIMING "):
+			for _, value := range fields[1:] {
+				parts := strings.SplitN(value, "=", 2)
+				if len(parts) == 2 {
+					orientation.Timings[parts[0]], _ = strconv.ParseInt(parts[1], 10, 64)
+				}
+			}
+		}
+	}
+	if orientation.Checkpoint.DependencyFingerprint == "" || orientation.Checkpoint.Stack == "" {
+		return railwayOrientation{}, fmt.Errorf("orientation sandbox did not report its dependency contract")
+	}
+	orientation.Checkpoint.SchemaVersion = reposnapshot.SchemaVersion
+	orientation.Checkpoint.Name = reposnapshot.Name(state.CanonicalRepositoryRemote(remote), commit, orientation.Checkpoint.DependencyFingerprint, toolchain.Fingerprint())
+	orientation.Checkpoint.Status = "ready"
+	orientation.Checkpoint.BaseCommit = commit
+	orientation.Checkpoint.ToolchainFingerprint = toolchain.Fingerprint()
+	orientation.Checkpoint.PreparedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	list, listErr := runRailway(ctx, "", nil, append(base, "checkpoint", "list", "--json")...)
+	if listErr != nil || !bytes.Contains(list, []byte(orientation.Checkpoint.Name)) {
+		marker := "tmp=$(mktemp); jq --arg name " + orientation.Checkpoint.Name + " '.checkpoint_name=$name' /workspace/.vessica-repository-checkpoint.json >\"$tmp\" && mv \"$tmp\" /workspace/.vessica-repository-checkpoint.json && chmod 0644 /workspace/.vessica-repository-checkpoint.json"
+		if _, err := runRailway(ctx, "", nil, append(base, "exec", "--id", sandboxID, "--timeout", "60", "--", "bash", "-lc", marker)...); err != nil {
+			return railwayOrientation{}, err
+		}
+		captureStarted := time.Now()
+		if _, err := runRailway(ctx, "", nil, append(base, "checkpoint", "create", orientation.Checkpoint.Name, "--id", sandboxID, "--json")...); err != nil {
+			return railwayOrientation{}, err
+		}
+		orientation.Timings["checkpoint_capture_ms"] = time.Since(captureStarted).Milliseconds()
+	} else {
+		orientation.Timings["checkpoint_cache_hit"] = 1
 	}
 	return orientation, nil
 }
@@ -323,4 +452,16 @@ func orientationCloneRemote(remote string) string {
 		return "https://github.com/" + strings.TrimPrefix(parsed.Path, "/")
 	}
 	return trimmed
+}
+
+func resumeRequiresRepositoryMap(resumeID string, operation *onboarding.Operation) bool {
+	if strings.TrimSpace(resumeID) == "" || operation == nil || operation.CurrentStage != "repository_mapping" {
+		return false
+	}
+	for _, stage := range operation.Stages {
+		if stage.Name == "repository_mapping" {
+			return stage.Status == "failed" || stage.Status == "running"
+		}
+	}
+	return false
 }

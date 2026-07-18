@@ -5,11 +5,36 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/vessica-labs/vessica-cli/internal/reposnapshot"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 )
 
 type attachRepositoryRequest struct {
 	Remote string `json:"remote"`
+}
+
+func (s *Server) handleRepositoryCheckpoint(w http.ResponseWriter, r *http.Request) {
+	repository, err := s.DB.GetRepository(r.Context(), r.PathValue("repository_id"))
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+		return
+	}
+	var checkpoint reposnapshot.Checkpoint
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&checkpoint); err != nil || checkpoint.SchemaVersion != reposnapshot.SchemaVersion || checkpoint.Name == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "valid repository checkpoint required"})
+		return
+	}
+	metadata, err := reposnapshot.Merge(repository.MetadataJSON, checkpoint)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	updated, err := s.DB.UpdateRepositoryMetadata(r.Context(), repository.ID, metadata)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 func (s *Server) handleRepositories(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,113 @@
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/vessica-labs/vessica-cli/internal/isolation"
+	"github.com/vessica-labs/vessica-cli/internal/repo"
+	"github.com/vessica-labs/vessica-cli/internal/reposnapshot"
+	"github.com/vessica-labs/vessica-cli/internal/state"
+)
+
+func recordBootstrapTimings(ctx context.Context, db *state.DB, runID string, local []map[string]any) {
+	if db == nil || strings.TrimSpace(runID) == "" {
+		return
+	}
+	parse := func(key string) int64 {
+		value, _ := strconv.ParseInt(strings.TrimSpace(os.Getenv(key)), 10, 64)
+		return value
+	}
+	requested := parse("VES_SANDBOX_REQUESTED_AT_MS")
+	bootstrap := parse("VES_BOOTSTRAP_STARTED_AT_MS")
+	verifyStarted := parse("VES_TOOLCHAIN_VERIFY_STARTED_AT_MS")
+	verified := parse("VES_TOOLCHAIN_VERIFIED_AT_MS")
+	authVerified := parse("VES_AUTH_VERIFIED_AT_MS")
+	downloadStarted := parse("VES_WORKER_DOWNLOAD_STARTED_AT_MS")
+	downloaded := parse("VES_WORKER_DOWNLOADED_AT_MS")
+	remote := []struct {
+		name       string
+		start, end int64
+	}{
+		{"checkpoint_boot", requested, bootstrap},
+		{"runtime_integrity", verifyStarted, verified},
+		{"codex_auth_verify", verified, authVerified},
+		{"worker_download", downloadStarted, downloaded},
+	}
+	for _, item := range remote {
+		if item.start > 0 && item.end >= item.start {
+			_, _ = db.AppendEvent(ctx, runID, "", "run.infrastructure.stage", map[string]any{"stage": item.name, "duration_ms": item.end - item.start, "status": "completed"})
+		}
+	}
+	for _, item := range local {
+		_, _ = db.AppendEvent(ctx, runID, "", "run.infrastructure.stage", item)
+	}
+	if requested > 0 {
+		_, _ = db.AppendEvent(ctx, runID, "", "run.infrastructure.stage", map[string]any{"stage": "sandbox_to_worker_ready", "duration_ms": time.Now().UnixMilli() - requested, "status": "completed"})
+	}
+}
+
+func ensureWorkerRepo(ctx context.Context, root, remote string) (map[string]any, error) {
+	if remote == "" {
+		return nil, fmt.Errorf("VES_REPO_REMOTE is required")
+	}
+	markerPath := filepath.Join(filepath.Dir(root), reposnapshot.MarkerFile)
+	if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
+		if markerRaw, markerErr := os.ReadFile(markerPath); markerErr == nil {
+			var marker reposnapshot.Checkpoint
+			_ = json.Unmarshal(markerRaw, &marker)
+			fetchStarted := time.Now()
+			out, fetchErr := repo.GitCommandContext(ctx, "-C", root, "fetch", "--quiet", "--prune", repo.AuthenticatedRemote(remote), "+refs/heads/*:refs/remotes/origin/*").CombinedOutput()
+			if fetchErr != nil {
+				return nil, fmt.Errorf("fetch repository checkpoint delta: %w: %s", fetchErr, strings.TrimSpace(string(out)))
+			}
+			target := "origin/HEAD"
+			if _, err := repo.GitCommandContext(ctx, "-C", root, "rev-parse", "--verify", target).CombinedOutput(); err != nil {
+				target = "origin/main"
+			}
+			out, resetErr := repo.GitCommandContext(ctx, "-C", root, "reset", "--hard", target).CombinedOutput()
+			if resetErr != nil {
+				return nil, fmt.Errorf("reset repository checkpoint: %w: %s", resetErr, strings.TrimSpace(string(out)))
+			}
+			dependencyFingerprint, fingerprintErr := reposnapshot.DependencyFingerprint(root)
+			if fingerprintErr != nil {
+				return nil, fingerprintErr
+			}
+			dependenciesUpdated := marker.DependencyState != "ready" || dependencyFingerprint != marker.DependencyFingerprint
+			stack, install := reposnapshot.DependencyInstallCommand(root)
+			dependencyMS := int64(0)
+			if dependenciesUpdated && install != "" {
+				if err := isolation.PrepareWorkdir(ctx, root); err != nil {
+					return nil, err
+				}
+				dependencyStarted := time.Now()
+				command := isolation.CommandContext(ctx, root, "bash", "-lc", install)
+				if output, err := command.CombinedOutput(); err != nil {
+					return nil, fmt.Errorf("refresh repository dependencies: %w: %s", err, strings.TrimSpace(string(output)))
+				}
+				dependencyMS = time.Since(dependencyStarted).Milliseconds()
+			}
+			_ = os.Remove(markerPath)
+			return map[string]any{"cache_hit": true, "mode": "checkpoint_delta", "stack": stack, "base_commit": marker.BaseCommit, "dependency_cache_hit": !dependenciesUpdated, "dependency_refresh_ms": dependencyMS, "git_sync_ms": time.Since(fetchStarted).Milliseconds()}, nil
+		}
+		return map[string]any{"cache_hit": true, "mode": "retained_sandbox"}, nil
+	}
+	_ = os.RemoveAll(root)
+	if err := os.MkdirAll(filepath.Dir(root), 0o755); err != nil {
+		return nil, err
+	}
+	out, err := repo.GitCommandContext(ctx, "clone", repo.AuthenticatedRemote(remote), root).CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("clone worker repository: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	if out, err := repo.GitCommandContext(ctx, "-C", root, "remote", "set-url", "origin", remote).CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("reset worker origin: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return map[string]any{"cache_hit": false, "mode": "full_clone"}, nil
+}

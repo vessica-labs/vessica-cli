@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"path"
@@ -93,4 +94,17 @@ func (db *DB) ListRepositories(ctx context.Context) ([]Repository, error) {
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+func (db *DB) UpdateRepositoryMetadata(ctx context.Context, repositoryID, metadataJSON string) (*Repository, error) {
+	if repositoryID == "" || !json.Valid([]byte(metadataJSON)) {
+		return nil, fmt.Errorf("repository id and valid metadata JSON are required")
+	}
+	if _, err := db.Exec(ctx, `UPDATE repositories SET metadata_json=?, updated_at=? WHERE id=?`, metadataJSON, Now(), repositoryID); err != nil {
+		return nil, err
+	}
+	if db.Repository != nil && db.Repository.ID == repositoryID {
+		db.Repository = nil
+	}
+	return db.GetRepository(ctx, repositoryID)
 }

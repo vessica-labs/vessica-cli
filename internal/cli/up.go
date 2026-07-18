@@ -18,7 +18,9 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/id"
 	"github.com/vessica-labs/vessica-cli/internal/onboarding"
 	"github.com/vessica-labs/vessica-cli/internal/pack"
+	"github.com/vessica-labs/vessica-cli/internal/reposnapshot"
 	"github.com/vessica-labs/vessica-cli/internal/state"
+	"github.com/vessica-labs/vessica-cli/internal/toolchain"
 	ks "github.com/vessica-labs/vessica-knowledge-server/knowledge"
 )
 
@@ -277,8 +279,11 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 		return fail("repository_attach", "repository_config_failed", err)
 	}
 	hostedOperationEndpoint, hostedOperationToken, hostedRepositoryID = app.Config.Hosted.ControlPlaneURL, secrets.APIToken, repository.ID
+	if checkpoint, ok := reposnapshot.Parse(repository.MetadataJSON); !ok || !checkpoint.Ready(toolchain.Fingerprint()) {
+		refreshRepositoryMap = true
+	}
 	_ = emit("repository_attach", "succeeded", "repository attached to hosted workspace")
-	_ = emit("runner_checkpoint", "succeeded", "managed runner checkpoint verified")
+	_ = emit("base_checkpoint", "succeeded", "managed toolchain checkpoint verified")
 	_ = emit("repository_scan", "succeeded", "deterministic repository profile recorded")
 	if profile.Harness == "absent" {
 		_ = emit("harness_synthesis", "running", "installing and specializing the engineering harness from repository findings")
@@ -304,6 +309,7 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 	mappedCommit, artifactID := profile.Commit, "unchanged"
 	if alreadyAttached && !refreshRepositoryMap {
 		_ = emit("repository_mapping", "skipped", "existing repository map retained; use --refresh to remap")
+		_ = emit("runner_checkpoint", "succeeded", "compatible repository-bearing Railway checkpoint reused")
 	} else {
 		_ = emit("repository_mapping", "running", "mapping the remote commit in a read-only Railway sandbox")
 		orientation, orientationErr := runRailwayOrientation(cmd.Context(), app.Config, remote)
@@ -322,7 +328,14 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 		if mapErr != nil {
 			return fail("repository_mapping", "repository_mapping_failed", mapErr)
 		}
-		_ = emit("repository_mapping", "succeeded", "repository map published")
+		checkpointEndpoint := strings.TrimRight(app.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/repositories/" + repository.ID + "/checkpoint"
+		var updatedRepository state.Repository
+		if checkpointErr := hostedRequest(cmd.Context(), "PUT", checkpointEndpoint, secrets.APIToken, orientation.Checkpoint, &updatedRepository); checkpointErr != nil {
+			return fail("runner_checkpoint", "repository_checkpoint_publish_failed", checkpointErr)
+		}
+		repository = updatedRepository
+		_ = emit("repository_mapping", "succeeded", "repository map and dependency snapshot published")
+		_ = emit("runner_checkpoint", "succeeded", "repository-bearing Railway checkpoint is ready")
 	}
 	_ = emit("hosted_verification", "succeeded", "control plane, lexical knowledge, and sandbox checkpoint verified")
 	op.Result = map[string]any{"workspace_id": repository.WorkspaceID, "repository_id": repository.ID, "dashboard_url": app.Config.Hosted.ControlPlaneURL, "retrieval_mode": "lexical", "embedding_state": "not_configured", "repository_map_artifact": artifactID, "mapped_commit": mappedCommit, "harness": profile.Harness, "railway": result}
@@ -338,18 +351,6 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(final)
 	}
 	return app.Printer.Success(final)
-}
-
-func resumeRequiresRepositoryMap(resumeID string, operation *onboarding.Operation) bool {
-	if strings.TrimSpace(resumeID) == "" || operation == nil || operation.CurrentStage != "repository_mapping" {
-		return false
-	}
-	for _, stage := range operation.Stages {
-		if stage.Name == "repository_mapping" {
-			return stage.Status == "failed" || stage.Status == "running"
-		}
-	}
-	return false
 }
 
 func installationCandidateSummary(candidates []railwayInstallationCandidate) string {

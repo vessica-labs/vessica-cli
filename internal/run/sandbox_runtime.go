@@ -21,10 +21,25 @@ import (
 
 func (e *Engine) openSandbox(ctx context.Context, rec *state.Sandbox) (sandbox.Sandbox, error) {
 	token, _ := auth.Token("github")
-	hostWorkdir, err := e.prepareRunWorkdir(ctx, rec)
-	if err != nil {
-		return nil, err
+	workdirStarted := time.Now()
+	hostWorkdir := e.Root
+	workdirMode := "repository_checkpoint"
+	if rec.Backend != "railway" {
+		var err error
+		hostWorkdir, err = e.prepareRunWorkdir(ctx, rec)
+		if err != nil {
+			return nil, err
+		}
+		workdirMode = "isolated_clone"
+	} else if rec.Branch != "" {
+		current, _ := repo.GitCommandContext(ctx, "-C", hostWorkdir, "branch", "--show-current").Output()
+		if strings.TrimSpace(string(current)) != rec.Branch {
+			if output, err := repo.GitCommandContext(ctx, "-C", hostWorkdir, "checkout", "-B", rec.Branch).CombinedOutput(); err != nil {
+				return nil, fmt.Errorf("checkout hosted run branch: %w: %s", err, strings.TrimSpace(string(output)))
+			}
+		}
 	}
+	e.emit(ctx, rec.RunID, "run.infrastructure.stage", map[string]any{"stage": "integration_workdir", "duration_ms": time.Since(workdirStarted).Milliseconds(), "status": "completed", "mode": workdirMode, "cache_hit": rec.Backend == "railway"})
 	opts := sandbox.CreateOpts{
 		SandboxID:   rec.ID,
 		WorkspaceID: rec.WorkspaceID,
@@ -63,7 +78,11 @@ func (e *Engine) openSandbox(ctx context.Context, rec *state.Sandbox) (sandbox.S
 		rec.ContainerID = sb.ContainerID()
 	}
 	rec.Status = "running"
-	meta, _ := json.Marshal(map[string]any{"host_workdir": hostWorkdir, "branch": rec.Branch})
+	metaDocument := map[string]any{}
+	_ = json.Unmarshal([]byte(rec.MetaJSON), &metaDocument)
+	metaDocument["host_workdir"] = hostWorkdir
+	metaDocument["branch"] = rec.Branch
+	meta, _ := json.Marshal(metaDocument)
 	rec.MetaJSON = string(meta)
 	_ = e.DB.UpdateSandbox(ctx, rec)
 	return sb, nil

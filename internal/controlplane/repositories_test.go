@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/vessica-labs/vessica-cli/internal/reposnapshot"
 	"github.com/vessica-labs/vessica-cli/internal/state"
+	"github.com/vessica-labs/vessica-cli/internal/toolchain"
 )
 
 func TestRepositoryAPIIsAuthenticatedAndIdempotent(t *testing.T) {
@@ -45,6 +47,23 @@ func TestRepositoryAPIIsAuthenticatedAndIdempotent(t *testing.T) {
 	}
 	if one.ID == "" || one.ID != two.ID || one.CanonicalRemote != "github.com/acme/service" {
 		t.Fatalf("repositories=%#v %#v", one, two)
+	}
+	checkpoint := reposnapshot.Checkpoint{SchemaVersion: reposnapshot.SchemaVersion, Name: "vessica-repo-test", Status: "ready", ToolchainFingerprint: toolchain.Fingerprint()}
+	checkpointBody, _ := json.Marshal(checkpoint)
+	checkpointReq := httptest.NewRequest(http.MethodPut, "/api/v1/repositories/"+one.ID+"/checkpoint", bytes.NewReader(checkpointBody))
+	checkpointReq.Header.Set("Authorization", "Bearer secret")
+	checkpointRec := httptest.NewRecorder()
+	server.ServeHTTP(checkpointRec, checkpointReq)
+	if checkpointRec.Code != http.StatusOK {
+		t.Fatalf("checkpoint status=%d body=%s", checkpointRec.Code, checkpointRec.Body)
+	}
+	var checkpointRepository state.Repository
+	if err := json.Unmarshal(checkpointRec.Body.Bytes(), &checkpointRepository); err != nil {
+		t.Fatal(err)
+	}
+	stored, ok := reposnapshot.Parse(checkpointRepository.MetadataJSON)
+	if !ok || stored.Name != checkpoint.Name {
+		t.Fatalf("stored checkpoint=%#v metadata=%s", stored, checkpointRepository.MetadataJSON)
 	}
 	onboardingBody := []byte(`{"id":"onb_test","repository_id":"` + one.ID + `","status":"running","current_stage":"repository_mapping","document":{"id":"onb_test","status":"running"}}`)
 	onboardingReq := httptest.NewRequest(http.MethodPost, "/api/v1/onboarding/operations", bytes.NewReader(onboardingBody))

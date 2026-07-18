@@ -18,6 +18,7 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/config"
 	"github.com/vessica-labs/vessica-cli/internal/receipt"
 	"github.com/vessica-labs/vessica-cli/internal/repo"
+	"github.com/vessica-labs/vessica-cli/internal/reposnapshot"
 	"github.com/vessica-labs/vessica-cli/internal/retention"
 	runengine "github.com/vessica-labs/vessica-cli/internal/run"
 	"github.com/vessica-labs/vessica-cli/internal/sandbox"
@@ -64,11 +65,15 @@ func (l *RailwayLauncher) launch(ctx context.Context, runRecord *state.Run, from
 		l.Logger = log.New(os.Stdout, "railway-launcher ", log.LstdFlags|log.LUTC)
 	}
 	repositoryRemote := l.Config.Repo.Remote
+	var repositoryRecord *state.Repository
 	if runRecord.RepositoryID != "" {
 		if repository, repositoryErr := l.DB.GetRepository(ctx, runRecord.RepositoryID); repositoryErr != nil {
 			return fmt.Errorf("resolve run repository: %w", repositoryErr)
-		} else if repository.Remote != "" {
-			repositoryRemote = repository.Remote
+		} else {
+			repositoryRecord = repository
+			if repository.Remote != "" {
+				repositoryRemote = repository.Remote
+			}
 		}
 	}
 	if strings.TrimSpace(repositoryRemote) == "" {
@@ -76,6 +81,17 @@ func (l *RailwayLauncher) launch(ctx context.Context, runRecord *state.Run, from
 	}
 
 	branch := fmt.Sprintf("vessica/%s/%s", runRecord.EpicID, runRecord.ID)
+	checkpoint, checkpointKind, checkpointReason := l.resolveCheckpoint(repositoryRecord)
+	requestedAt := time.Now()
+	_, _ = l.DB.AppendEvent(ctx, runRecord.ID, "", "run.infrastructure.stage", map[string]any{
+		"stage": "repository_checkpoint_resolve", "duration_ms": 0, "checkpoint": checkpoint,
+		"checkpoint_kind": checkpointKind, "cache_hit": checkpointKind == "repository", "reason": checkpointReason,
+	})
+	if createdAt, parseErr := time.Parse(time.RFC3339Nano, runRecord.CreatedAt); parseErr == nil {
+		_, _ = l.DB.AppendEvent(ctx, runRecord.ID, "", "run.infrastructure.stage", map[string]any{
+			"stage": "control_plane_queue", "duration_ms": requestedAt.Sub(createdAt).Milliseconds(),
+		})
+	}
 	sbRecord, err := l.DB.GetSandboxForRun(ctx, runRecord.ID)
 	if err != nil || sbRecord.Backend != "railway" || sbRecord.ContainerID == "" {
 		sbRecord, err = l.DB.CreateSandbox(ctx, runRecord.ID, "railway", branch)
@@ -89,15 +105,18 @@ func (l *RailwayLauncher) launch(ctx context.Context, runRecord *state.Run, from
 		if err := l.configureAuth(ctx, rs); err != nil {
 			return err
 		}
+		createStarted := time.Now()
 		if err := rs.Create(ctx, sandbox.CreateOpts{
 			SandboxID: sbRecord.ID, WorkspaceID: sbRecord.WorkspaceID, RunID: runRecord.ID,
-			Branch: branch, Env: l.workerEnvironment(runRecord.ID, repositoryRemote), ExpiresAt: retention.EffectiveExpiry(sbRecord),
+			Branch: branch, Env: l.workerEnvironment(runRecord.ID, repositoryRemote, checkpoint, requestedAt), ExpiresAt: retention.EffectiveExpiry(sbRecord),
 		}); err != nil {
+			_, _ = l.DB.AppendEvent(ctx, runRecord.ID, sbRecord.ID, "run.infrastructure.stage", map[string]any{"stage": "sandbox_create", "duration_ms": time.Since(createStarted).Milliseconds(), "status": "failed", "checkpoint_kind": checkpointKind})
 			return err
 		}
+		_, _ = l.DB.AppendEvent(ctx, runRecord.ID, sbRecord.ID, "run.infrastructure.stage", map[string]any{"stage": "sandbox_create", "duration_ms": time.Since(createStarted).Milliseconds(), "status": "completed", "checkpoint_kind": checkpointKind, "checkpoint": checkpoint})
 		sbRecord.ContainerID = rs.ContainerID()
 		sbRecord.Status = "running"
-		meta, _ := json.Marshal(map[string]any{"railway_sandbox_id": rs.ContainerID(), "branch": branch})
+		meta, _ := json.Marshal(map[string]any{"railway_sandbox_id": rs.ContainerID(), "branch": branch, "checkpoint": checkpoint, "checkpoint_kind": checkpointKind})
 		sbRecord.MetaJSON = string(meta)
 		if err := l.DB.UpdateSandbox(ctx, sbRecord); err != nil {
 			return err
@@ -128,7 +147,9 @@ func (l *RailwayLauncher) launch(ctx context.Context, runRecord *state.Run, from
 		cancelRun()
 		l.forgetRunCancel(runRecord.ID)
 	}()
+	workerStarted := time.Now()
 	code, execErr := rs.Exec(runCtx, []string{"bash", "-lc", bootstrap}, writer, writer)
+	_, _ = l.DB.AppendEvent(context.WithoutCancel(ctx), runRecord.ID, sbRecord.ID, "run.infrastructure.stage", map[string]any{"stage": "worker_process_total", "duration_ms": time.Since(workerStarted).Milliseconds(), "exit_code": code})
 	latest, getErr := l.DB.GetRun(ctx, runRecord.ID)
 	if getErr != nil {
 		return getErr
@@ -138,6 +159,9 @@ func (l *RailwayLauncher) launch(ctx context.Context, runRecord *state.Run, from
 	}
 	if latest.Status != "completed" {
 		return fmt.Errorf("railway worker finished with run status %s: %s", latest.Status, latest.Error)
+	}
+	if latest.ReceiptID != "" {
+		_, _ = receipt.Finalize(ctx, l.DB, latest)
 	}
 	sbRecord, _ = l.DB.GetSandboxForRun(ctx, runRecord.ID)
 	if latest.Preview && sbRecord != nil && sbRecord.PreviewPort > 0 {
@@ -169,11 +193,12 @@ func (l *RailwayLauncher) launch(ctx context.Context, runRecord *state.Run, from
 	return nil
 }
 
-func (l *RailwayLauncher) workerEnvironment(runID, repositoryRemote string) map[string]string {
+func (l *RailwayLauncher) workerEnvironment(runID, repositoryRemote, checkpoint string, requestedAt time.Time) map[string]string {
 	service := "control-plane"
 	return map[string]string{
-		"VES_RAILWAY_CHECKPOINT":      l.Config.Hosted.WorkerCheckpoint,
+		"VES_RAILWAY_CHECKPOINT":      checkpoint,
 		"VES_RUN_ID":                  runID,
+		"VES_SANDBOX_REQUESTED_AT_MS": fmt.Sprint(requestedAt.UnixMilli()),
 		"VES_CONTROL_DATABASE_URL":    service + ".VES_CONTROL_DATABASE_URL",
 		"VES_STATE_BACKEND":           "postgres-url",
 		"VES_CONTROL_PLANE_URL":       l.PublicURL,
@@ -192,6 +217,21 @@ func (l *RailwayLauncher) workerEnvironment(runID, repositoryRemote string) map[
 		"OPENAI_API_KEY":              service + ".OPENAI_API_KEY",
 		"VES_CODEX_AUTH_B64":          service + ".VES_CODEX_AUTH_B64",
 	}
+}
+
+func (l *RailwayLauncher) resolveCheckpoint(repository *state.Repository) (name, kind, reason string) {
+	base := strings.TrimSpace(l.Config.Hosted.WorkerCheckpoint)
+	if repository == nil {
+		return base, "toolchain", "repository record unavailable"
+	}
+	checkpoint, ok := reposnapshot.Parse(repository.MetadataJSON)
+	if !ok {
+		return base, "toolchain", "repository checkpoint not prepared"
+	}
+	if !checkpoint.Ready(toolchain.Fingerprint()) {
+		return base, "toolchain", "repository checkpoint stale or incompatible"
+	}
+	return checkpoint.Name, "repository", "ready"
 }
 
 func (l *RailwayLauncher) configureAuth(ctx context.Context, rs *sandbox.RailwaySandbox) error {
@@ -232,6 +272,7 @@ func railwayPromptBootstrap(workerURL, runID, prompt string) string {
 func railwayWorkerBootstrapCommand(workerURL, workerCommand string) string {
 	return strings.Join([]string{
 		"set -euo pipefail",
+		"export VES_BOOTSTRAP_STARTED_AT_MS=$(date +%s%3N)",
 		"export VES_CODEX_EXTERNAL_SANDBOX=1",
 		"export VES_RUNNER_USER=vessica-agent",
 		"export VES_RUNNER_HOME=/home/vessica-agent",
@@ -243,12 +284,17 @@ func railwayWorkerBootstrapCommand(workerURL, workerCommand string) string {
 		"export NPM_CONFIG_PREFIX=/usr/local",
 		"export NODE_PATH=/usr/local/lib/node_modules",
 		"export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright",
-		toolchain.AgentShellVerifyCommand(),
-		"if test -n \"${VES_CODEX_AUTH_B64:-}\"; then " + toolchain.AgentProjectSmokeCommand(true) + "; else test -n \"${OPENAI_API_KEY:-}\" || { echo 'Codex authentication is unavailable' >&2; exit 1; }; fi",
+		"export VES_TOOLCHAIN_VERIFY_STARTED_AT_MS=$(date +%s%3N)",
+		toolchain.AgentRuntimeVerifyCommand(),
+		"export VES_TOOLCHAIN_VERIFIED_AT_MS=$(date +%s%3N)",
+		"if test -n \"${VES_CODEX_AUTH_B64:-}\"; then runuser --user vessica-agent --preserve-environment -- env HOME=/home/vessica-agent codex login status >/dev/null; else test -n \"${OPENAI_API_KEY:-}\" || { echo 'Codex authentication is unavailable' >&2; exit 1; }; fi",
+		"export VES_AUTH_VERIFIED_AT_MS=$(date +%s%3N)",
 		"worker_bin=$(mktemp /tmp/ves-worker.XXXXXX)",
 		"trap 'rm -f \"$worker_bin\"' EXIT",
+		"export VES_WORKER_DOWNLOAD_STARTED_AT_MS=$(date +%s%3N)",
 		"curl -fsSL -H \"Authorization: Bearer $VES_WORKER_DOWNLOAD_TOKEN\" " + shellQuoteCP(workerURL) + " -o \"$worker_bin\"",
 		"chmod +x \"$worker_bin\"",
+		"export VES_WORKER_DOWNLOADED_AT_MS=$(date +%s%3N)",
 		"\"$worker_bin\" " + workerCommand,
 	}, "\n")
 }

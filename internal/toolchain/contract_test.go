@@ -74,6 +74,20 @@ func TestCheckpointInstallCommandHasValidBashSyntax(t *testing.T) {
 	}
 }
 
+func TestRuntimeVerifyAvoidsRepeatedBrowserAndProjectSmoke(t *testing.T) {
+	command := AgentRuntimeVerifyCommand()
+	for _, required := range []string{CodexVersion, PNPMVersion, PlaywrightVersion, "PLAYWRIGHT_BROWSERS_PATH", "playwright/package.json"} {
+		if !strings.Contains(command, required) {
+			t.Fatalf("runtime verifier missing %q: %s", required, command)
+		}
+	}
+	for _, forbidden := range []string{"chromium.launch", "pnpm run build", "pnpm test", "127.0.0.1:4173"} {
+		if strings.Contains(command, forbidden) {
+			t.Fatalf("runtime verifier repeats checkpoint smoke %q: %s", forbidden, command)
+		}
+	}
+}
+
 func TestFingerprintChangesWithContractInputs(t *testing.T) {
 	first := Fingerprint()
 	if len(first) != 12 {
