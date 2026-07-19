@@ -101,7 +101,7 @@ jobs:
             "schema": "vessica.release/v1",
             "cli": "$version",
             "control_plane_image": "ghcr.io/${GITHUB_REPOSITORY}:$version",
-            "knowledge_server_image": "ghcr.io/vessica-labs/vessica-knowledge-server:v0.4.0"
+            "knowledge_server_image": "ghcr.io/vessica-labs/vessica-knowledge-server:v0.5.4"
           }
           EOF
       - name: Create draft GitHub release
