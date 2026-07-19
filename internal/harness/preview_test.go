@@ -14,10 +14,19 @@ func TestResolvePreviewCommandForVite(t *testing.T) {
 	}
 }
 
-func TestResolvePreviewCommandForViteIsIdempotent(t *testing.T) {
+func TestResolvePreviewCommandForViteNormalizesYarnArguments(t *testing.T) {
 	root := writePackage(t, `{"packageManager":"yarn@4.9.2","scripts":{"dev":"vite dev"},"devDependencies":{"vite":"latest"}}`)
 	configured := "PORT=3000 corepack yarn run dev -- --host 0.0.0.0 --port 3000"
-	if got := ResolvePreviewCommand(root, configured, 3000); got != configured {
+	want := "PORT=3000 corepack yarn run dev --host 0.0.0.0 --port 3000"
+	if got := ResolvePreviewCommand(root, configured, 3000); got != want {
+		t.Fatalf("command=%q", got)
+	}
+}
+
+func TestDetectGeneratesViteArgumentsForPnpm(t *testing.T) {
+	root := writePackage(t, `{"packageManager":"pnpm@11.9.0","scripts":{"dev":"vite"},"devDependencies":{"vite":"latest"}}`)
+	want := "PORT=3000 pnpm run dev --host 0.0.0.0 --port 3000"
+	if got := Detect(root).PreviewCommand; got != want {
 		t.Fatalf("command=%q", got)
 	}
 }

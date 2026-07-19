@@ -396,13 +396,14 @@ func nodePreviewCommand(root string, scripts map[string]string, configured strin
 		if command == "" {
 			command = nodeRunCommand(root, name)
 		}
+		command = normalizeNodePreviewArguments(root, name, command)
 		if port > 0 && !strings.HasPrefix(command, "PORT=") {
 			command = portEnv + command
 		}
 		needsHost := !strings.Contains(script, "--host") && !strings.Contains(command, "--host")
 		needsPort := port > 0 && !strings.Contains(script, "--port") && !strings.Contains(command, "--port")
 		if needsHost || needsPort {
-			command += " --"
+			command += nodePreviewArgumentSeparator(root)
 		}
 		if needsHost {
 			command += " --host 0.0.0.0"
@@ -416,6 +417,20 @@ func nodePreviewCommand(root string, scripts map[string]string, configured strin
 		return portEnv + "node --watch-path=. " + strings.TrimSpace(strings.TrimPrefix(script, "node "))
 	}
 	return portEnv + nodeRunCommand(root, name)
+}
+
+func normalizeNodePreviewArguments(root, name, command string) string {
+	if NodePackageManager(root) == "npm" {
+		return command
+	}
+	return strings.Replace(command, nodeRunCommand(root, name)+" -- ", nodeRunCommand(root, name)+" ", 1)
+}
+
+func nodePreviewArgumentSeparator(root string) string {
+	if NodePackageManager(root) == "npm" {
+		return " --"
+	}
+	return ""
 }
 
 func configuredNodeScript(command string) string {
