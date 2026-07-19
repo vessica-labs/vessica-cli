@@ -19,4 +19,7 @@ func TestRepositoryCheckpointScrubUsesTrustedGit(t *testing.T) {
 	if !strings.Contains(script, "rm -f /workspace/repo/.vessica/config.yaml") {
 		t.Fatalf("run-local repository attachment was not scrubbed:\n%s", script)
 	}
+	if !strings.Contains(script, "/workspace/repo/.vessica/runs") {
+		t.Fatalf("repository-local run artifacts were not scrubbed:\n%s", script)
+	}
 }

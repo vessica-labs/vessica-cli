@@ -90,7 +90,7 @@ func repositoryCheckpointScrubScript(encodedCheckpoint string) string {
 		"set -euo pipefail",
 		"trusted_git=/usr/bin/git",
 		"test -x \"$trusted_git\" || trusted_git=/usr/lib/safe-tools/git",
-		"rm -rf /workspace/runs /home/vessica-agent/.codex/auth.json /workspace/" + reposnapshot.CandidateFile,
+		"rm -rf /workspace/runs /workspace/repo/.vessica/runs /home/vessica-agent/.codex/auth.json /workspace/" + reposnapshot.CandidateFile,
 		"rm -f /workspace/repo/.vessica/config.yaml",
 		"\"$trusted_git\" -c safe.directory=/workspace/repo -C /workspace/repo worktree prune",
 		"test -z \"$(\"$trusted_git\" -c safe.directory=/workspace/repo -C /workspace/repo status --porcelain)\"",
