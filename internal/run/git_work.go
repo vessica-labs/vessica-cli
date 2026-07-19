@@ -29,6 +29,9 @@ func (e *Engine) prepareTicketWorktree(ctx context.Context, integrationWorkdir s
 		return "", "", fmt.Errorf("git worktree add for ticket %s: %w: %s", ticket.ID, err, strings.TrimSpace(string(out)))
 	}
 	started := time.Now()
+	if err := projectCheckpointDependencies(ctx, integrationWorkdir, workdir); err != nil {
+		return "", "", fmt.Errorf("project dependencies for ticket %s: %w", ticket.ID, err)
+	}
 	if err := isolation.PrepareWorkdir(ctx, workdir); err != nil {
 		return "", "", err
 	}
@@ -36,11 +39,12 @@ func (e *Engine) prepareTicketWorktree(ctx context.Context, integrationWorkdir s
 		return "", "", err
 	}
 	e.emit(ctx, r.ID, "run.infrastructure.stage", map[string]any{
-		"stage":       "git_worktree_trust",
-		"ticket_id":   ticket.ID,
-		"duration_ms": time.Since(started).Milliseconds(),
-		"scope":       "exact",
-		"status":      "completed",
+		"stage":        "ticket_worktree_ready",
+		"ticket_id":    ticket.ID,
+		"duration_ms":  time.Since(started).Milliseconds(),
+		"scope":        "exact",
+		"dependencies": "checkpoint_reflink",
+		"status":       "completed",
 	})
 	return workdir, branch, nil
 }

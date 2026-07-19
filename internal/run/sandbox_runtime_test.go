@@ -91,6 +91,50 @@ func TestPrepareRailwayRunWorkdirMigratesBranchCheckedOutAtCheckpointRoot(t *tes
 	}
 }
 
+func TestPrepareTicketWorktreeProjectsRunDependencies(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitRuntimeTest(t, root, "init")
+	gitRuntimeTest(t, root, "config", "user.email", "test@example.com")
+	gitRuntimeTest(t, root, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("checkpoint\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".venv", "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".venv", "bin", "python"), []byte("runtime"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitRuntimeTest(t, root, "add", "README.md")
+	gitRuntimeTest(t, root, "commit", "-m", "initial")
+
+	stateRoot := t.TempDir()
+	db, err := state.Open("sqlite", filepath.Join(stateRoot, "state.db"), stateRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	engine := &Engine{Root: root, DB: db}
+	integration, err := engine.prepareRailwayRunWorkdir(context.Background(), &state.Sandbox{RunID: "run_ticket", Branch: "vessica/epic/run_ticket"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticketWorkdir, _, err := engine.prepareTicketWorktree(context.Background(), integration, &state.Run{ID: "run_ticket", EpicID: "epic"}, &state.Ticket{ID: "ticket"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(ticketWorkdir, ".venv", "bin", "python"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "runtime" {
+		t.Fatalf("projected dependency content=%q", content)
+	}
+}
+
 func gitRuntimeTest(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	_ = gitRuntimeOutput(t, dir, args...)
