@@ -13,10 +13,11 @@ import (
 )
 
 type Request struct {
-	For      string
-	EpicID   string
-	TicketID string
-	Minimal  bool
+	For         string
+	EpicID      string
+	TicketID    string
+	WorkspaceID string
+	Minimal     bool
 }
 
 type Response struct {
@@ -33,15 +34,22 @@ type Response struct {
 }
 
 func Build(ctx context.Context, db *state.DB, root string, req Request) (*Response, error) {
-	ws, err := db.GetWorkspace(ctx)
-	if err != nil {
-		return nil, err
+	workspaceID := req.WorkspaceID
+	if db != nil {
+		ws, err := db.GetWorkspace(ctx)
+		if err != nil {
+			return nil, err
+		}
+		workspaceID = ws.ID
+	}
+	if workspaceID == "" {
+		return nil, fmt.Errorf("prime workspace identity is not configured")
 	}
 	st, _ := harness.StatusOf(root)
 	engineManaged := os.Getenv("VES_ENGINE_MANAGED_RUN") == "1"
 	resp := &Response{
 		Product:   "vessica",
-		Workspace: ws.ID,
+		Workspace: workspaceID,
 		Harness: map[string]any{
 			"drift":   st.DriftStatus,
 			"missing": st.MissingFiles,
@@ -49,7 +57,10 @@ func Build(ctx context.Context, db *state.DB, root string, req Request) (*Respon
 		Commands: primeCommands(engineManaged),
 		Rules:    primeRules(engineManaged),
 	}
-	if req.EpicID != "" {
+	if db == nil && (req.EpicID != "" || req.TicketID != "") {
+		return nil, fmt.Errorf("hosted prime does not yet support --epic or --ticket")
+	}
+	if db != nil && req.EpicID != "" {
 		epic, err := db.GetEpic(ctx, req.EpicID)
 		if err != nil {
 			return nil, err
@@ -57,14 +68,14 @@ func Build(ctx context.Context, db *state.DB, root string, req Request) (*Respon
 		resp.Epic = epic
 		ready, _ := db.ReadyTickets(ctx, req.EpicID)
 		resp.ReadyTickets = ready
-	} else {
+	} else if db != nil {
 		ready, _ := db.ReadyTickets(ctx, "")
 		if len(ready) > 10 {
 			ready = ready[:10]
 		}
 		resp.ReadyTickets = ready
 	}
-	if req.TicketID != "" {
+	if db != nil && req.TicketID != "" {
 		t, err := db.GetTicket(ctx, req.TicketID)
 		if err != nil {
 			return nil, err

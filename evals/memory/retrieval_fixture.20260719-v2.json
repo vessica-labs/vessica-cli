@@ -1,0 +1,47 @@
+{
+  "schema": "vessica.retrieval-eval-fixture/v1",
+  "run_id": "20260719-v2",
+  "queries": [
+    {
+      "id": "alder_exact",
+      "query": "Project Alder audience preview access and v1 boundary",
+      "relevant_ids": ["mem_rht74gpezvdc6cgn", "mem_e3z4v4yjqcqpnubl", "mem_pgjg762iyo7mn3cj"],
+      "distractor_ids": ["mem_7blpvuqqramlihuw", "mem_xfj4uhmlm5epy4xf", "mem_glvekkadvqkjnqt3", "mem_4dzepk67s4cm6l7b"]
+    },
+    {
+      "id": "alder_paraphrase",
+      "query": "For the clinic-coordinator product, who may open a temporary shared review URL and when does it stop working?",
+      "entity_ids": ["ent_qqq24msiosyojd6y"],
+      "relevant_ids": ["mem_rht74gpezvdc6cgn", "mem_e3z4v4yjqcqpnubl"],
+      "distractor_ids": ["mem_7blpvuqqramlihuw", "mem_glvekkadvqkjnqt3"]
+    },
+    {
+      "id": "juniper_near_duplicate",
+      "query": "Project Juniper audience preview access lifetime and v1 exclusion",
+      "entity_ids": ["ent_ng7xh37vvx63a4zt"],
+      "relevant_ids": ["mem_xfj4uhmlm5epy4xf", "mem_glvekkadvqkjnqt3", "mem_4dzepk67s4cm6l7b"],
+      "distractor_ids": ["mem_rht74gpezvdc6cgn", "mem_e3z4v4yjqcqpnubl", "mem_pgjg762iyo7mn3cj", "mem_7blpvuqqramlihuw"]
+    },
+    {
+      "id": "west_persona",
+      "query": "external meeting scheduling policy",
+      "entity_ids": ["ent_hig6s7eyzcxwrmra"],
+      "relevant_ids": ["mem_fuowoc6ob3u2diwf"],
+      "wrong_person_ids": ["mem_pwo3d3gdtpjjripa", "mem_cxhljjqqq3v6dey6"]
+    },
+    {
+      "id": "northstar_persona_and_account",
+      "query": "Northstar scheduling policy account evaluation themes and champion",
+      "entity_ids": ["ent_wkxpmb6qx5cear5b"],
+      "relevant_ids": ["mem_pwo3d3gdtpjjripa", "mem_cxhljjqqq3v6dey6"],
+      "wrong_person_ids": ["mem_fuowoc6ob3u2diwf", "mem_3qsoo4hudpyboztl"]
+    },
+    {
+      "id": "ambiguous_persona",
+      "query": "synthetic persona external meeting scheduling policy",
+      "relevant_ids": [],
+      "wrong_person_ids": ["mem_fuowoc6ob3u2diwf", "mem_pwo3d3gdtpjjripa"],
+      "expect_ambiguity": "ambiguous_subject"
+    }
+  ]
+}

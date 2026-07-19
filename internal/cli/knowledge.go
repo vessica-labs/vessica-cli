@@ -11,6 +11,7 @@ import (
 func newKnowledgeCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "knowledge", Short: "Inspect and manage the durable Vessica knowledge layer"}
 	var query, outFile, inFile string
+	var entityIDs []string
 	var budget int
 	cmd.AddCommand(&cobra.Command{Use: "status", RunE: func(cmd *cobra.Command, args []string) error {
 		if err := app.loadWorkspace(cmd.Context()); err != nil {
@@ -22,11 +23,11 @@ func newKnowledgeCmd(app *App) *cobra.Command {
 			return err
 		}
 		defer g.Close()
-		probe, err := g.Context(cmd.Context(), ks.ContextRequest{Query: "status", TokenBudget: 1})
+		probe, err := g.Status(cmd.Context())
 		if err != nil {
 			return err
 		}
-		return app.Printer.Success(map[string]any{"mode": g.Mode(), "workspace_id": g.Workspace(), "endpoint": app.Config.Knowledge.Endpoint, "local_path": app.Config.Knowledge.LocalPath, "retrieval_mode": probe.RetrievalMode, "index_fresh": probe.IndexFresh, "embedding_model": probe.EmbeddingModel})
+		return app.Printer.Success(map[string]any{"mode": g.Mode(), "workspace_id": g.Workspace(), "endpoint": app.Config.Knowledge.Endpoint, "local_path": app.Config.Knowledge.LocalPath, "retrieval_mode": probe.RetrievalMode, "index_fresh": probe.IndexFresh, "embedding_model": probe.EmbeddingModel, "embedding_state": probe.EmbeddingState, "embedding_backlog": probe.EmbeddingBacklog, "rerank_enabled": probe.RerankEnabled, "rerank_model": probe.RerankModel})
 	}})
 	contextCmd := &cobra.Command{Use: "context", RunE: func(cmd *cobra.Command, args []string) error {
 		if err := app.loadWorkspace(cmd.Context()); err != nil {
@@ -38,13 +39,14 @@ func newKnowledgeCmd(app *App) *cobra.Command {
 			return err
 		}
 		defer g.Close()
-		result, err := g.Context(cmd.Context(), ks.ContextRequest{Query: query, ScopeIDs: []string{scope.ID}, ArtifactSelectors: []ks.ArtifactSelector{{Status: "active"}}, TokenBudget: budget})
+		result, err := g.Context(cmd.Context(), ks.ContextRequest{Query: query, ScopeIDs: []string{scope.ID}, EntityIDs: entityIDs, ArtifactSelectors: []ks.ArtifactSelector{{Status: "active"}}, TokenBudget: budget})
 		if err != nil {
 			return err
 		}
 		return app.Printer.Success(result)
 	}}
 	contextCmd.Flags().StringVar(&query, "query", "", "task or retrieval query")
+	contextCmd.Flags().StringSliceVar(&entityIDs, "entity", nil, "entity ID constraint (repeatable)")
 	contextCmd.Flags().IntVar(&budget, "token-budget", 12000, "maximum assembled context tokens")
 	cmd.AddCommand(contextCmd)
 	exportCmd := &cobra.Command{Use: "export", Hidden: true, RunE: func(cmd *cobra.Command, args []string) error {
@@ -107,6 +109,8 @@ func newKnowledgeCmd(app *App) *cobra.Command {
 	importCmd.Flags().StringVar(&inFile, "file", "", "snapshot JSON file")
 	cmd.AddCommand(importCmd)
 	cmd.AddCommand(newKnowledgeEmbeddingsCmd(app))
+	cmd.AddCommand(newKnowledgeRerankingCmd(app))
+	cmd.AddCommand(newKnowledgeServerCmd(app))
 	return cmd
 }
 

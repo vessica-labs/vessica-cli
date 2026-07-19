@@ -1,0 +1,18 @@
+{
+  "schema": "vessica.memory-eval-results/v1",
+  "run_id": "example",
+  "observations": [
+    {
+      "id": "PF-TN-01",
+      "codex_local_memory_disabled": true,
+      "plugin_invoked": false,
+      "commands": [],
+      "proposed_write": false,
+      "confirmed_before_write": false,
+      "wrote_memory": false,
+      "retrieved_memory_ids": [],
+      "answer": "Go deliberately does not specify map iteration order.",
+      "notes": "Example only."
+    }
+  ]
+}

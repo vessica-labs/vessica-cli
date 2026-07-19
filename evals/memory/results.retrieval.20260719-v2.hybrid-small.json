@@ -1,0 +1,185 @@
+{
+  "schema": "vessica.retrieval-eval-results/v1",
+  "run_id": "20260719-v2",
+  "configurations": [
+    {
+      "name": "hybrid_v2_text_embedding_3_small",
+      "queries": [
+        {
+          "id": "alder_exact",
+          "relevant_ids": [
+            "mem_rht74gpezvdc6cgn",
+            "mem_e3z4v4yjqcqpnubl",
+            "mem_pgjg762iyo7mn3cj"
+          ],
+          "distractor_ids": [
+            "mem_7blpvuqqramlihuw",
+            "mem_xfj4uhmlm5epy4xf",
+            "mem_glvekkadvqkjnqt3",
+            "mem_4dzepk67s4cm6l7b"
+          ],
+          "ranked_ids": [
+            "mem_e3z4v4yjqcqpnubl",
+            "mem_pgjg762iyo7mn3cj",
+            "mem_rht74gpezvdc6cgn"
+          ],
+          "latency_ms": 906.0,
+          "retrieval_mode": "semantic_hybrid",
+          "ranking_version": "v2",
+          "index_fresh": true,
+          "ambiguity": "",
+          "provider_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0
+        },
+        {
+          "id": "alder_paraphrase",
+          "entity_ids": [
+            "ent_qqq24msiosyojd6y"
+          ],
+          "relevant_ids": [
+            "mem_rht74gpezvdc6cgn",
+            "mem_e3z4v4yjqcqpnubl"
+          ],
+          "distractor_ids": [
+            "mem_7blpvuqqramlihuw",
+            "mem_glvekkadvqkjnqt3"
+          ],
+          "ranked_ids": [
+            "mem_e3z4v4yjqcqpnubl",
+            "mem_rht74gpezvdc6cgn",
+            "mem_pgjg762iyo7mn3cj"
+          ],
+          "latency_ms": 749.1,
+          "retrieval_mode": "semantic_hybrid",
+          "ranking_version": "v2",
+          "index_fresh": true,
+          "ambiguity": "",
+          "provider_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0
+        },
+        {
+          "id": "juniper_near_duplicate",
+          "entity_ids": [
+            "ent_ng7xh37vvx63a4zt"
+          ],
+          "relevant_ids": [
+            "mem_xfj4uhmlm5epy4xf",
+            "mem_glvekkadvqkjnqt3",
+            "mem_4dzepk67s4cm6l7b"
+          ],
+          "distractor_ids": [
+            "mem_rht74gpezvdc6cgn",
+            "mem_e3z4v4yjqcqpnubl",
+            "mem_pgjg762iyo7mn3cj",
+            "mem_7blpvuqqramlihuw"
+          ],
+          "ranked_ids": [
+            "mem_glvekkadvqkjnqt3",
+            "mem_4dzepk67s4cm6l7b",
+            "mem_xfj4uhmlm5epy4xf"
+          ],
+          "latency_ms": 609.6,
+          "retrieval_mode": "semantic_hybrid",
+          "ranking_version": "v2",
+          "index_fresh": true,
+          "ambiguity": "",
+          "provider_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0
+        },
+        {
+          "id": "west_persona",
+          "entity_ids": [
+            "ent_hig6s7eyzcxwrmra"
+          ],
+          "relevant_ids": [
+            "mem_fuowoc6ob3u2diwf"
+          ],
+          "wrong_person_ids": [
+            "mem_pwo3d3gdtpjjripa",
+            "mem_cxhljjqqq3v6dey6"
+          ],
+          "ranked_ids": [
+            "mem_fuowoc6ob3u2diwf",
+            "mem_3qsoo4hudpyboztl"
+          ],
+          "latency_ms": 719.5,
+          "retrieval_mode": "semantic_hybrid",
+          "ranking_version": "v2",
+          "index_fresh": true,
+          "ambiguity": "",
+          "provider_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0
+        },
+        {
+          "id": "northstar_persona_and_account",
+          "entity_ids": [
+            "ent_wkxpmb6qx5cear5b"
+          ],
+          "relevant_ids": [
+            "mem_pwo3d3gdtpjjripa",
+            "mem_cxhljjqqq3v6dey6"
+          ],
+          "wrong_person_ids": [
+            "mem_fuowoc6ob3u2diwf",
+            "mem_3qsoo4hudpyboztl"
+          ],
+          "ranked_ids": [
+            "mem_cxhljjqqq3v6dey6",
+            "mem_pwo3d3gdtpjjripa"
+          ],
+          "latency_ms": 708.0,
+          "retrieval_mode": "semantic_hybrid",
+          "ranking_version": "v2",
+          "index_fresh": true,
+          "ambiguity": "",
+          "provider_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0
+        },
+        {
+          "id": "ambiguous_persona",
+          "relevant_ids": [],
+          "wrong_person_ids": [
+            "mem_fuowoc6ob3u2diwf",
+            "mem_pwo3d3gdtpjjripa"
+          ],
+          "expect_ambiguity": "ambiguous_subject",
+          "ranked_ids": [
+            "mem_pwo3d3gdtpjjripa",
+            "mem_fuowoc6ob3u2diwf",
+            "mem_cxhljjqqq3v6dey6",
+            "mem_3qsoo4hudpyboztl",
+            "mem_jk6ook6m4veqdnes",
+            "mem_2helowp7k54c5ssc",
+            "mem_b4tvgagollbv3r32",
+            "mem_fsrht5b3jlafikk6",
+            "mem_joskrsgafvcng7t3",
+            "mem_glvekkadvqkjnqt3",
+            "mem_ndbvxgpha56wbut7",
+            "mem_7blpvuqqramlihuw",
+            "mem_zlhamaohn6r6t5ja",
+            "mem_e3z4v4yjqcqpnubl",
+            "mem_ode4d3ttrlrlkhk7",
+            "mem_rht74gpezvdc6cgn",
+            "mem_vyqn6vbegigbjevq",
+            "mem_bng3dc56mbeblaze",
+            "mem_cs6aeb6jmujzrao5",
+            "mem_jdz7n3lkhuzwcw6e"
+          ],
+          "latency_ms": 752.2,
+          "retrieval_mode": "semantic_hybrid",
+          "ranking_version": "v2",
+          "index_fresh": true,
+          "ambiguity": "ambiguous_subject",
+          "provider_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0
+        }
+      ]
+    }
+  ]
+}

@@ -210,9 +210,9 @@ flowchart TB
 
 ### Durable knowledge
 
-`ves knowledge context` assembles active artifacts, instructions, entities, decisions, facts, and work episodes with provenance and score explanations. Responses expose the ranking version, component weights, deterministic artifact policy, per-memory scores, and artifact selection reasons. `ves entity`, `ves artifact`, and `ves memory` manage the underlying knowledge objects. `ves prime --for codex` includes the same context for coding agents.
+`ves memory retrieve` is the retrieval-v2 restoration path, with weighted lexical and optional semantic rank fusion, entity constraints, ambiguity detection, and component explanations. `ves knowledge context` assembles relevant active artifacts, instructions, entities, decisions, facts, and work episodes under separate type budgets. `ves memory search` remains available for compatible administrative lexical inspection. `ves prime --for codex` includes the same bounded context for coding agents.
 
-The hosted [Vessica Knowledge Server](https://github.com/vessica-labs/vessica-knowledge-server) starts in lexical mode on Postgres without an embeddings key. Enable semantic-hybrid retrieval later with `ves knowledge embeddings enable --api-key-env OPENAI_API_KEY --yes`; the key is stored directly as a Railway secret and existing memories backfill asynchronously.
+The hosted [Vessica Knowledge Server](https://github.com/vessica-labs/vessica-knowledge-server) starts in lexical mode on Postgres without an embeddings key. Enable semantic-hybrid retrieval later with `ves knowledge embeddings enable --api-key-env OPENAI_API_KEY --yes`; the key is stored directly as a Railway secret and existing memories backfill asynchronously. Conditional model reranking has a separate key and enable/disable control and should remain off until its benchmark promotion gate passes.
 
 See the [Vessica Operator Guide](docs/Vessica_Operator_Guide.md) for installation, command safety, knowledge, runs, Railway operations, and troubleshooting.
 
@@ -543,6 +543,7 @@ ves wave status <wave_id>
 
 ```bash
 ves memory add --title "Decision" --stdin --json
+ves memory retrieve "authentication" --rerank auto --json
 ves memory search "authentication"
 ves knowledge context --query "authentication" --token-budget 4000 --json
 ves prime --for codex --epic <epic_id> --json

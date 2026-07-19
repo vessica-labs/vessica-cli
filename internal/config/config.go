@@ -77,6 +77,9 @@ type KnowledgeConfig struct {
 	Image             string `yaml:"image,omitempty" json:"image,omitempty"`
 	EmbeddingProvider string `yaml:"embedding_provider,omitempty" json:"embedding_provider,omitempty"`
 	EmbeddingModel    string `yaml:"embedding_model,omitempty" json:"embedding_model,omitempty"`
+	RerankProvider    string `yaml:"rerank_provider,omitempty" json:"rerank_provider,omitempty"`
+	RerankModel       string `yaml:"rerank_model,omitempty" json:"rerank_model,omitempty"`
+	RerankEnabled     bool   `yaml:"rerank_enabled,omitempty" json:"rerank_enabled,omitempty"`
 }
 
 type PackConfig struct {

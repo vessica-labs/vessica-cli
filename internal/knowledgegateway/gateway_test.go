@@ -92,7 +92,26 @@ func TestLocalAndHostedReadContractsMatch(t *testing.T) {
 	localMemories, localErr := local.MemoryVersions(ctx, memory.ID, "", 1)
 	hostedMemories, hostedErr := hosted.MemoryVersions(ctx, memory.ID, "", 1)
 	assertSame("memory versions", localMemories, hostedMemories, localErr, hostedErr)
+	request := ks.MemoryRetrievalRequest{Query: "secure dashboard", ScopeIDs: []string{scope.ID}, Limit: 10, Rerank: "never"}
+	localRetrieval, localErr := local.RetrieveMemories(ctx, request)
+	hostedRetrieval, hostedErr := hosted.RetrieveMemories(ctx, request)
+	assertSame("memory retrieval", localRetrieval, hostedRetrieval, localErr, hostedErr)
 	localRelationships, localErr := local.Relationships(ctx, entity.ID, "", 20)
 	hostedRelationships, hostedErr := hosted.Relationships(ctx, entity.ID, "", 20)
 	assertSame("relationships", localRelationships, hostedRelationships, localErr, hostedErr)
+	localMemory, localErr := local.SetMemoryState(ctx, "memory-archive", memory.ID, "archived")
+	hostedMemory, hostedErr := hosted.SetMemoryState(ctx, "memory-archive", memory.ID, "archived")
+	if localErr != nil || hostedErr != nil {
+		t.Fatalf("archive memory errors: local=%v hosted=%v", localErr, hostedErr)
+	}
+	if localMemory.ID != hostedMemory.ID || localMemory.Version != hostedMemory.Version || localMemory.State != hostedMemory.State {
+		t.Fatalf("archive memory contract mismatch: local=%+v hosted=%+v", localMemory, hostedMemory)
+	}
+}
+
+func TestNormalizeMemorySearchQuery(t *testing.T) {
+	got := normalizeMemorySearchQuery("  clinic-coordinator__shared—review  ")
+	if got != "clinic coordinator shared review" {
+		t.Fatalf("normalized query=%q", got)
+	}
 }

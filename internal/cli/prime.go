@@ -20,10 +20,11 @@ func newPrimeCmd(app *App) *cobra.Command {
 			}
 			defer app.closeDB()
 			resp, err := prime.Build(cmd.Context(), app.DB, app.Root, prime.Request{
-				For:      forRunner,
-				EpicID:   epicID,
-				TicketID: ticketID,
-				Minimal:  minimal,
+				For:         forRunner,
+				EpicID:      epicID,
+				TicketID:    ticketID,
+				WorkspaceID: firstNonEmpty(app.Config.Knowledge.WorkspaceID, app.Config.Attachment.WorkspaceID, app.Config.Hosted.WorkspaceID),
+				Minimal:     minimal,
 			})
 			if err != nil {
 				return err

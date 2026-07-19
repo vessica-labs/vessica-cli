@@ -71,6 +71,7 @@ ves knowledge status --json
 ves knowledge context --query "authentication decisions" --token-budget 4000 --json
 ves entity resolve "OAuth" --json
 ves artifact list --status active --json
+ves memory retrieve "previous migration" --limit 20 --rerank auto --json
 ves memory search "previous migration" --json
 ```
 
@@ -81,13 +82,15 @@ Knowledge objects:
 - **Memories** are retrieval-oriented instructions, facts, decisions, and episodes.
 - **Relationships** are immutable assertions connecting knowledge and external references.
 
-Context responses expose the ranking version, weights, artifact selection policy, component scores, artifact reasons, provenance, and source references. Hosted workspaces report `lexical` until the owner explicitly enables embeddings; during and after backfill they report `semantic_hybrid` with backlog status.
+`memory retrieve` is the restoration path. It uses retrieval v2 and returns ranking explanations, ambiguity state, index freshness, and reranker metadata. Use repeatable `--entity <id>` flags when a project, person, or account has been resolved. `memory search` remains the compatibility and administrative lexical path.
+
+Context responses expose the ranking version, weights, artifact selection policy, component scores, artifact reasons, typed omissions, provenance, and source references. Explicit artifact IDs and versions remain authoritative; ordinary artifacts must be query- or entity-relevant and have a separate budget from durable memory. Hosted workspaces report `lexical` until the owner explicitly enables embeddings; during and after backfill they report `semantic_hybrid` with backlog status.
 
 Create durable knowledge only after confirmation:
 
 ```bash
-ves memory add --type decision --title "Storage decision" --body "..." --dry-run --json
-ves memory add --type decision --title "Storage decision" --body "..." --yes --idempotency-key decision-<unique> --json
+ves memory add --type decision --subject "Storage layer" --predicate uses --object SQLite --title "Storage decision" --body "..." --dry-run --json
+ves memory add --type decision --subject "Storage layer" --predicate uses --object SQLite --title "Storage decision" --body "..." --yes --idempotency-key decision-<unique> --json
 
 ves artifact create --type adr --title "ADR: Storage" --body-file ADR.md --dry-run --json
 ves artifact create --type adr --title "ADR: Storage" --body-file ADR.md --yes --idempotency-key adr-<unique> --json
@@ -142,6 +145,16 @@ ves knowledge embeddings status --json
 ```
 
 The CLI sends the secret directly to Railway, waits for deployment success and readiness, and starts an idempotent backfill. Changing provider or model re-embeds current versions; rotating only the key does not. `ves knowledge embeddings disable --yes` returns to lexical retrieval while retaining unused vectors.
+
+Conditional reranking is separately disabled by default. It sends readable text from at most 12 already-authorized candidates to the Responses API only on ambiguous queries. Preview its disclosure and exact impact before enabling:
+
+```bash
+ves knowledge reranking enable --provider openai --api-key-env OPENAI_API_KEY --model gpt-5.6-luna --dry-run --json
+ves knowledge reranking enable --provider openai --api-key-env OPENAI_API_KEY --model gpt-5.6-luna --yes
+ves knowledge reranking disable --yes
+```
+
+Promote it only after the retrieval benchmark gate passes. Any provider timeout, rate limit, refusal, schema violation, or unknown ID falls back to deterministic hybrid order.
 
 Keep the Railway control-plane service at one replica. This release intentionally rejects a second replica from the same deployment with a database-backed singleton lease. Worker sandboxes remain independently scalable; control-plane scale-out is deferred until preview coordination, scheduled loops, and all remaining process-local ownership are distributed.
 

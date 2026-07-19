@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vessica-labs/vessica-cli/internal/id"
@@ -34,7 +35,7 @@ func (a *App) knowledgeAndScope(ctx context.Context) (*knowledgegateway.Gateway,
 
 func newMemoryCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "memory", Short: "Manage durable knowledge memories"}
-	var title, body, typ, confidenceSource string
+	var title, body, typ, subject, predicate, object, validFrom, validUntil, confidenceSource string
 	var importance, confidence float64
 	var stdin bool
 	cmd.AddCommand(&cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
@@ -50,6 +51,9 @@ func newMemoryCmd(app *App) *cobra.Command {
 		list, err := g.SearchMemories(cmd.Context(), "", []string{scope.ID})
 		if err != nil {
 			return err
+		}
+		if list == nil {
+			list = []ks.Memory{}
 		}
 		return app.Printer.Success(list)
 	}})
@@ -87,12 +91,20 @@ func newMemoryCmd(app *App) *cobra.Command {
 		if title == "" {
 			title = firstLine(b)
 		}
+		from, err := parseOptionalMemoryTime(validFrom)
+		if err != nil {
+			return app.Printer.Fail("invalid_valid_from", err.Error(), "use RFC3339, for example 2026-07-19T17:00:00Z")
+		}
+		until, err := parseOptionalMemoryTime(validUntil)
+		if err != nil {
+			return app.Printer.Fail("invalid_valid_until", err.Error(), "use RFC3339, for example 2026-07-20T17:00:00Z")
+		}
 		g, scope, err := app.knowledgeAndScope(cmd.Context())
 		if err != nil {
 			return err
 		}
 		defer g.Close()
-		v := ks.Memory{ScopeID: scope.ID, Type: typ, Title: title, Content: b, Importance: importance, Confidence: confidence, ConfidenceSource: confidenceSource}
+		v := ks.Memory{ScopeID: scope.ID, Type: typ, Subject: subject, Predicate: predicate, Object: object, Title: title, Content: b, Importance: importance, Confidence: confidence, ConfidenceSource: confidenceSource, ValidFrom: from, ValidUntil: until}
 		if app.Flags.DryRun {
 			return app.dryRun("memory.add", v)
 		}
@@ -108,6 +120,11 @@ func newMemoryCmd(app *App) *cobra.Command {
 	add.Flags().StringVar(&title, "title", "", "title")
 	add.Flags().StringVar(&body, "body", "", "body")
 	add.Flags().StringVar(&typ, "type", "fact", "instruction|fact|decision|episode")
+	add.Flags().StringVar(&subject, "subject", "", "canonical memory subject")
+	add.Flags().StringVar(&predicate, "predicate", "", "semantic predicate")
+	add.Flags().StringVar(&object, "object", "", "semantic object")
+	add.Flags().StringVar(&validFrom, "valid-from", "", "optional RFC3339 start of validity")
+	add.Flags().StringVar(&validUntil, "valid-until", "", "optional RFC3339 end of validity")
 	add.Flags().Float64Var(&importance, "importance", .5, "importance 0..1")
 	add.Flags().Float64Var(&confidence, "confidence", .5, "confidence 0..1")
 	add.Flags().StringVar(&confidenceSource, "confidence-source", "agent_inferred", "human_confirmed|agent_inferred|imported|external_system|observed")
@@ -133,6 +150,29 @@ func newMemoryCmd(app *App) *cobra.Command {
 		if body != "" {
 			cur.Content = body
 		}
+		if subject != "" {
+			cur.Subject = subject
+		}
+		if predicate != "" {
+			cur.Predicate = predicate
+		}
+		if object != "" {
+			cur.Object = object
+		}
+		if validFrom != "" {
+			parsed, parseErr := parseOptionalMemoryTime(validFrom)
+			if parseErr != nil {
+				return app.Printer.Fail("invalid_valid_from", parseErr.Error(), "use RFC3339")
+			}
+			cur.ValidFrom = parsed
+		}
+		if validUntil != "" {
+			parsed, parseErr := parseOptionalMemoryTime(validUntil)
+			if parseErr != nil {
+				return app.Printer.Fail("invalid_valid_until", parseErr.Error(), "use RFC3339")
+			}
+			cur.ValidUntil = parsed
+		}
 		if app.Flags.DryRun {
 			return app.dryRun("memory.update", cur)
 		}
@@ -147,6 +187,11 @@ func newMemoryCmd(app *App) *cobra.Command {
 	}}
 	update.Flags().StringVar(&title, "title", "", "title")
 	update.Flags().StringVar(&body, "body", "", "body")
+	update.Flags().StringVar(&subject, "subject", "", "canonical memory subject")
+	update.Flags().StringVar(&predicate, "predicate", "", "semantic predicate")
+	update.Flags().StringVar(&object, "object", "", "semantic object")
+	update.Flags().StringVar(&validFrom, "valid-from", "", "optional RFC3339 start of validity")
+	update.Flags().StringVar(&validUntil, "valid-until", "", "optional RFC3339 end of validity")
 	cmd.AddCommand(update)
 	for _, state := range []string{"superseded", "archived"} {
 		st := state
@@ -188,9 +233,41 @@ func newMemoryCmd(app *App) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		if list == nil {
+			list = []ks.Memory{}
+		}
 		return app.Printer.Success(list)
 	}}
 	cmd.AddCommand(search)
+	var retrieveEntities []string
+	var retrieveLimit int
+	var retrieveRerank string
+	retrieve := &cobra.Command{Use: "retrieve <query>", Short: "Retrieve ranked memories with retrieval v2", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if err := app.loadWorkspace(cmd.Context()); err != nil {
+			return err
+		}
+		defer app.closeDB()
+		g, scope, err := app.knowledgeAndScope(cmd.Context())
+		if err != nil {
+			return err
+		}
+		defer g.Close()
+		result, err := g.RetrieveMemories(cmd.Context(), ks.MemoryRetrievalRequest{
+			Query:     args[0],
+			ScopeIDs:  []string{scope.ID},
+			EntityIDs: retrieveEntities,
+			Limit:     retrieveLimit,
+			Rerank:    retrieveRerank,
+		})
+		if err != nil {
+			return err
+		}
+		return app.Printer.Success(result)
+	}}
+	retrieve.Flags().StringSliceVar(&retrieveEntities, "entity", nil, "entity ID constraint (repeatable)")
+	retrieve.Flags().IntVar(&retrieveLimit, "limit", 20, "maximum memories (1..100)")
+	retrieve.Flags().StringVar(&retrieveRerank, "rerank", "auto", "auto|never|always")
+	cmd.AddCommand(retrieve)
 	_ = strconv.Itoa
 	return cmd
 }
@@ -204,4 +281,16 @@ func firstLine(s string) string {
 		return s[:80]
 	}
 	return s
+}
+
+func parseOptionalMemoryTime(raw string) (*time.Time, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return nil, err
+	}
+	parsed = parsed.UTC()
+	return &parsed, nil
 }

@@ -1,0 +1,46 @@
+{
+  "schema": "vessica.memory-eval-results/v1",
+  "run_id": "20260719-a",
+  "environment": {
+    "ves_version": "0.2.44+local-treatment",
+    "codex_cli_version": "0.144.1",
+    "knowledge_mode": "hosted",
+    "retrieval_mode": "lexical",
+    "workspace_id": "ws_tbg0i54y6n",
+    "scope_id": "scope_o24uarwyqduvhf2v",
+    "codex_local_memory_isolation": "codex exec --disable memories"
+  },
+  "scores": {
+    "objective_canaries": 100,
+    "weighted_seeded_baseline": 71,
+    "weighted_first_treatment": 77
+  },
+  "cleanup": {
+    "created": 9,
+    "archived": 9,
+    "active_before": 26,
+    "active_after_seed": 35,
+    "active_after_cleanup": 26,
+    "active_namespaced_after_cleanup": 0
+  },
+  "observations": [
+    {"id":"PF-TN-01","codex_local_memory_disabled":true,"plugin_invoked":false,"proposed_write":false,"confirmed_before_write":false,"wrote_memory":false,"answer":"Go deliberately leaves map iteration order unspecified.","notes":"Negative trigger passed."},
+    {"id":"PF-TP-01","codex_local_memory_disabled":true,"plugin_invoked":true,"proposed_write":false,"confirmed_before_write":false,"wrote_memory":false,"answer":"Audience: regional clinic coordinators. Invited reviewers only. Analytics and generative suggestions are excluded.","notes":"Current value was 12 hours; two active IDs cited."},
+    {"id":"PF-WR-01","plugin_invoked":true,"proposed_write":true,"confirmed_before_write":true,"wrote_memory":true,"answer":"","notes":"Controller-authored decision after dry-run."},
+    {"id":"PF-WR-02","plugin_invoked":true,"proposed_write":true,"confirmed_before_write":true,"wrote_memory":true,"answer":"","notes":"Controller-authored combined access and boundary decision after dry-run."},
+    {"id":"PF-WS-01","plugin_invoked":true,"proposed_write":true,"confirmed_before_write":true,"wrote_memory":true,"answer":"","notes":"Plugin created three atomic decision memories; two titles lacked Project Juniper and importance defaulted to 0.5."},
+    {"id":"PF-NW-01","plugin_invoked":false,"proposed_write":false,"confirmed_before_write":false,"wrote_memory":false,"answer":"Five disposable mascot directions.","notes":"No memory or file write."},
+    {"id":"PF-RX-01","codex_local_memory_disabled":true,"plugin_invoked":true,"proposed_write":false,"confirmed_before_write":false,"wrote_memory":false,"answer":"Project Alder is for regional clinic coordinators. Preview links expire after 12 hours and are visible only to invited reviewers.","notes":"One focused search plus two gets."},
+    {"id":"PF-RP-01","codex_local_memory_disabled":true,"plugin_invoked":true,"proposed_write":false,"confirmed_before_write":false,"wrote_memory":false,"answer":"The shared review URL expires after 12 hours and can be opened only by invited reviewers.","notes":"Identity search plus canonical Project Alder search after hyphen normalization."},
+    {"id":"PF-UP-01","plugin_invoked":true,"proposed_write":true,"confirmed_before_write":true,"wrote_memory":true,"answer":"","notes":"Same memory ID advanced to version 2."},
+    {"id":"PF-RU-01","codex_local_memory_disabled":true,"plugin_invoked":true,"proposed_write":false,"confirmed_before_write":false,"wrote_memory":false,"answer":"Project Alder preview links currently expire after 12 hours.","notes":"Only active version restored."},
+    {"id":"COS-TN-01","codex_local_memory_disabled":true,"plugin_invoked":false,"proposed_write":false,"confirmed_before_write":false,"wrote_memory":false,"answer":"Events describe when something happens; tasks describe what needs to be done.","notes":"Negative trigger passed."},
+    {"id":"COS-WR-01","plugin_invoked":true,"proposed_write":true,"confirmed_before_write":true,"wrote_memory":true,"answer":"","notes":"Controller-authored synthetic instruction after dry-run."},
+    {"id":"COS-WR-02","plugin_invoked":true,"proposed_write":true,"confirmed_before_write":true,"wrote_memory":true,"answer":"","notes":"Controller-authored account fact kept mutable CRM fields out."},
+    {"id":"COS-WS-01","plugin_invoked":true,"proposed_write":true,"confirmed_before_write":true,"wrote_memory":true,"answer":"","notes":"Plugin separated instruction and fact, used importance 0.8, and excluded live CRM/calendar state."},
+    {"id":"COS-NW-01","plugin_invoked":false,"proposed_write":false,"confirmed_before_write":false,"wrote_memory":false,"answer":"The synthetic Keystone call is at 2:00 PM today only; I will not store it as durable memory.","notes":"No memory write."},
+    {"id":"COS-RX-01","codex_local_memory_disabled":true,"plugin_invoked":true,"proposed_write":false,"confirmed_before_write":false,"wrote_memory":false,"answer":"Keystone is evaluating security and procurement fit; Jordan Lee is champion. External meetings start at 11:00 AM or later, need a 20-minute buffer, and Tuesday mornings are protected. CRM and calendar facts require source-system verification.","notes":"Correct separation, but invented a 30-minute duration and duplicate persona caused extra searches."},
+    {"id":"COS-UP-01","plugin_invoked":true,"proposed_write":true,"confirmed_before_write":true,"wrote_memory":true,"answer":"","notes":"Same instruction ID advanced to version 2."},
+    {"id":"COS-RU-01","codex_local_memory_disabled":true,"plugin_invoked":true,"proposed_write":false,"confirmed_before_write":false,"wrote_memory":false,"answer":"External meetings start no earlier than 11:00 AM, include a 20-minute buffer, and Tuesday mornings are protected. Do not infer live availability.","notes":"Explicitly rejected the unrelated second persona."}
+  ]
+}

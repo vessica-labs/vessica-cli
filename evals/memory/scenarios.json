@@ -1,0 +1,389 @@
+{
+  "schema": "vessica.memory-eval/v1",
+  "description": "Cold-chat sensors for Vessica plugin memory decisions, storage structure, retrieval, and restoration.",
+  "tracks": ["project_features", "chief_of_staff"],
+  "suites": {
+    "base": ["PF-TN-01", "PF-TP-01", "PF-WR-01", "PF-WR-02", "PF-WS-01", "PF-NW-01", "PF-RX-01", "PF-RP-01", "PF-UP-01", "PF-RU-01", "COS-TN-01", "COS-WR-01", "COS-WR-02", "COS-WS-01", "COS-NW-01", "COS-RX-01", "COS-UP-01", "COS-RU-01"],
+    "retrieval_v2": ["PF-RP-02", "PF-ND-01", "PF-LC-01", "PF-CTX-01", "COS-ID-01", "COS-SC-01", "SYS-EF-01", "SYS-AS-01"]
+  },
+  "seed_keys": {
+    "PF_AUDIENCE": "Project Alder is for regional clinic coordinators, not clinicians.",
+    "PF_ACCESS_V1": "Project Alder preview links expire after 36 hours and are visible only to invited reviewers.",
+    "PF_ACCESS_V2": "Project Alder preview links expire after 12 hours and are visible only to invited reviewers.",
+    "PF_BOUNDARY": "Project Alder v1 excludes analytics and generative suggestions.",
+    "PF_DISTRACTOR": "Project Birch preview links expire after seven days and may be shared with the whole company.",
+    "PF_JUNIPER": "Project Juniper is for municipal grant managers; preview links expire after 18 hours and only invited commenters may open them; v1 excludes PDF export.",
+    "COS_CALENDAR_V1": "For the synthetic chief-of-staff persona, external meetings start no earlier than 10:30 AM America/Los_Angeles, include a 20-minute buffer, and Tuesday mornings are protected for deep work.",
+    "COS_CALENDAR_V2": "For the synthetic chief-of-staff persona, external meetings start no earlier than 11:00 AM America/Los_Angeles, include a 20-minute buffer, and Tuesday mornings are protected for deep work.",
+    "COS_PIPELINE": "For the synthetic chief-of-staff persona, Keystone Labs is evaluating security and procurement fit; Jordan Lee is the champion, but current stage, value, and next activity belong in the CRM.",
+    "COS_TRANSIENT": "The synthetic Keystone Labs call moved to 2:00 PM for one day only. This is calendar state, not durable memory.",
+    "COS_NORTHSTAR": "For a second synthetic chief-of-staff persona, external sales meetings start no earlier than 9:30 AM America/Los_Angeles, include a 15-minute buffer, and Friday afternoons are protected; Northstar Health is evaluating compliance and implementation fit and Riley Chen is the champion."
+  },
+  "sensors": [
+    {
+      "id": "PF-TN-01",
+      "track": "project_features",
+      "phase": "trigger",
+      "prompt": "Explain why Go map iteration order should not be used for deterministic output.",
+      "expected": {
+        "memory_use": "forbidden",
+        "write": "forbidden",
+        "must_restore": [],
+        "must_not_restore": ["Project Alder", "Project Birch"]
+      },
+      "purpose": "Measures false-positive plugin invocation on a self-contained technical question."
+    },
+    {
+      "id": "PF-TP-01",
+      "track": "project_features",
+      "phase": "trigger",
+      "prompt": "We discussed Project Alder in an earlier conversation. Before proposing the next feature, restore the audience, preview-access decision, and v1 boundary we agreed on.",
+      "expected": {
+        "memory_use": "required",
+        "write": "forbidden",
+        "must_restore": ["regional clinic coordinators", "invited reviewers", "analytics", "generative suggestions"],
+        "must_not_restore": ["seven days", "whole company"]
+      },
+      "purpose": "Measures explicit cross-session retrieval and distractor rejection."
+    },
+    {
+      "id": "PF-WR-01",
+      "track": "project_features",
+      "phase": "storage",
+      "prompt": "We have decided that Project Alder is for regional clinic coordinators, not clinicians. This should survive future chats. Store it as durable project knowledge after showing me the proposed write.",
+      "expected": {
+        "memory_use": "required",
+        "write": "required_after_confirmation",
+        "memory_type": "decision",
+        "seed_keys": ["PF_AUDIENCE"],
+        "must_restore": [],
+        "must_not_restore": []
+      },
+      "purpose": "Measures durable-value recognition, decision typing, preview, and confirmation."
+    },
+    {
+      "id": "PF-WR-02",
+      "track": "project_features",
+      "phase": "storage",
+      "prompt": "For Project Alder v1 we chose invited-reviewer-only preview links that expire after 36 hours, and we explicitly excluded analytics and generative suggestions. Preserve the decisions for later feature work, but do not save a transcript.",
+      "expected": {
+        "memory_use": "required",
+        "write": "required_after_confirmation",
+        "memory_type": "decision",
+        "seed_keys": ["PF_ACCESS_V1", "PF_BOUNDARY"],
+        "must_restore": [],
+        "must_not_restore": []
+      },
+      "purpose": "Measures atomic memory structure and resistance to transcript dumping."
+    },
+    {
+      "id": "PF-WS-01",
+      "track": "project_features",
+      "phase": "storage",
+      "prompt": "The user has approved namespaced benchmark writes. Preview and create durable Project Juniper decisions: municipal grant managers are the audience; preview links expire after 18 hours and only invited commenters may open them; v1 excludes PDF export. Prefix titles and bodies with [MEMBENCH:<run-id>] and do not store a transcript.",
+      "expected": {
+        "memory_use": "required",
+        "write": "required_after_confirmation",
+        "memory_type": "decision",
+        "seed_keys": ["PF_JUNIPER"],
+        "must_restore": [],
+        "must_not_restore": []
+      },
+      "purpose": "Measures plugin-authored atomic extraction, naming, confidence, importance, and idempotency."
+    },
+    {
+      "id": "PF-NW-01",
+      "track": "project_features",
+      "phase": "storage",
+      "prompt": "Brainstorm five possible mascot ideas for Project Alder. These are disposable options: do not store any of them.",
+      "expected": {
+        "memory_use": "optional_read_only",
+        "write": "forbidden",
+        "must_restore": [],
+        "must_not_restore": []
+      },
+      "purpose": "Measures explicit non-storage obedience during feature ideation."
+    },
+    {
+      "id": "PF-RX-01",
+      "track": "project_features",
+      "phase": "retrieval",
+      "prompt": "Who is Project Alder for, and what are the preview-link rules? State only decisions you can restore from durable knowledge.",
+      "expected": {
+        "memory_use": "required",
+        "write": "forbidden",
+        "seed_keys": ["PF_AUDIENCE", "PF_ACCESS_V1"],
+        "must_restore": ["regional clinic coordinators", "12 hours", "invited reviewers"],
+        "must_not_restore": ["seven days", "whole company"]
+      },
+      "purpose": "Measures exact lexical recall and calibrated restoration."
+    },
+    {
+      "id": "PF-RP-01",
+      "track": "project_features",
+      "phase": "retrieval",
+      "prompt": "For the clinic-coordinator product, remind me how long a shared review URL lives and who is allowed to open it.",
+      "expected": {
+        "memory_use": "required",
+        "write": "forbidden",
+        "seed_keys": ["PF_AUDIENCE", "PF_ACCESS_V1"],
+        "must_restore": ["12 hours", "invited reviewers"],
+        "must_not_restore": ["seven days", "whole company"]
+      },
+      "purpose": "Measures paraphrase retrieval in lexical mode."
+    },
+    {
+      "id": "PF-UP-01",
+      "track": "project_features",
+      "phase": "update",
+      "prompt": "We changed the Project Alder preview expiry from 36 hours to 12 hours. Keep invited-reviewer-only access. Update durable knowledge so later chats do not present both values as current.",
+      "expected": {
+        "memory_use": "required",
+        "write": "required_after_confirmation",
+        "memory_type": "decision",
+        "seed_keys": ["PF_ACCESS_V2"],
+        "supersedes": ["PF_ACCESS_V1"],
+        "must_restore": [],
+        "must_not_restore": []
+      },
+      "purpose": "Measures versioning and contradiction handling."
+    },
+    {
+      "id": "PF-RU-01",
+      "track": "project_features",
+      "phase": "retrieval_after_update",
+      "prompt": "What is the current Project Alder preview-link expiry? Mention any superseded value only if needed to explain the change.",
+      "expected": {
+        "memory_use": "required",
+        "write": "forbidden",
+        "seed_keys": ["PF_ACCESS_V2"],
+        "must_restore": ["12 hours"],
+        "must_not_restore": ["seven days", "whole company"]
+      },
+      "purpose": "Measures preference for the active version over stale and distracting records."
+    },
+    {
+      "id": "COS-TN-01",
+      "track": "chief_of_staff",
+      "phase": "trigger",
+      "prompt": "What is the difference between a calendar event and a task? Give a generic answer.",
+      "expected": {
+        "memory_use": "forbidden",
+        "write": "forbidden",
+        "must_restore": [],
+        "must_not_restore": ["10:30 AM", "Keystone Labs"]
+      },
+      "purpose": "Measures false-positive memory use on generic chief-of-staff advice."
+    },
+    {
+      "id": "COS-WR-01",
+      "track": "chief_of_staff",
+      "phase": "storage",
+      "prompt": "For this synthetic chief-of-staff benchmark persona, remember these stable scheduling rules: external meetings no earlier than 10:30 AM Pacific, keep a 20-minute buffer, and protect Tuesday mornings for deep work. Show me the proposed durable guidance before storing it.",
+      "expected": {
+        "memory_use": "required",
+        "write": "required_after_confirmation",
+        "memory_type": "instruction",
+        "seed_keys": ["COS_CALENDAR_V1"],
+        "must_restore": [],
+        "must_not_restore": []
+      },
+      "purpose": "Measures explicit durable-guidance typing and confirmation."
+    },
+    {
+      "id": "COS-WR-02",
+      "track": "chief_of_staff",
+      "phase": "storage",
+      "prompt": "Remember this durable account context for the synthetic benchmark: Keystone Labs is evaluating security and procurement fit, and Jordan Lee is the champion. Do not treat CRM stage, deal value, or next activity as memory; those remain structured CRM data.",
+      "expected": {
+        "memory_use": "required",
+        "write": "required_after_confirmation",
+        "memory_type": "fact",
+        "seed_keys": ["COS_PIPELINE"],
+        "must_restore": [],
+        "must_not_restore": []
+      },
+      "purpose": "Measures separation of durable relationship context from mutable pipeline state."
+    },
+    {
+      "id": "COS-WS-01",
+      "track": "chief_of_staff",
+      "phase": "storage",
+      "prompt": "The user has approved namespaced benchmark writes. Preview and create appropriately separated durable knowledge for a second synthetic persona: 9:30 AM external-sales floor, 15-minute buffer, protected Friday afternoons, and Northstar Health relationship context. Keep mutable CRM/calendar fields out of memory.",
+      "expected": {
+        "memory_use": "required",
+        "write": "required_after_confirmation",
+        "memory_type": "instruction",
+        "seed_keys": ["COS_NORTHSTAR"],
+        "must_restore": [],
+        "must_not_restore": []
+      },
+      "purpose": "Measures separation of stable scheduling instruction from durable account fact."
+    },
+    {
+      "id": "COS-NW-01",
+      "track": "chief_of_staff",
+      "phase": "storage",
+      "prompt": "The synthetic Keystone Labs call moved to 2 PM today only. Update the calendar, but do not make this a durable memory.",
+      "expected": {
+        "memory_use": "optional_read_only",
+        "write": "forbidden",
+        "must_restore": [],
+        "must_not_restore": []
+      },
+      "purpose": "Measures rejection of transient operational state as memory."
+    },
+    {
+      "id": "COS-RX-01",
+      "track": "chief_of_staff",
+      "phase": "retrieval",
+      "prompt": "Prepare me for a Keystone Labs follow-up and suggest eligible meeting windows. Restore durable context and scheduling preferences, but label current CRM and calendar availability as facts that must come from their source systems.",
+      "expected": {
+        "memory_use": "required",
+        "write": "forbidden",
+        "seed_keys": ["COS_CALENDAR_V2", "COS_PIPELINE"],
+        "must_restore": ["11:00 AM", "20-minute", "Tuesday mornings", "security", "procurement", "Jordan Lee"],
+        "must_not_restore": ["2:00 PM today"]
+      },
+      "purpose": "Measures multi-memory synthesis without fabricating live calendar or CRM state."
+    },
+    {
+      "id": "COS-UP-01",
+      "track": "chief_of_staff",
+      "phase": "update",
+      "prompt": "For the synthetic persona, external meetings should now start no earlier than 11 AM Pacific. Keep the 20-minute buffer and protected Tuesday mornings. Update the durable rule so the old 10:30 AM value is not active.",
+      "expected": {
+        "memory_use": "required",
+        "write": "required_after_confirmation",
+        "memory_type": "instruction",
+        "seed_keys": ["COS_CALENDAR_V2"],
+        "supersedes": ["COS_CALENDAR_V1"],
+        "must_restore": [],
+        "must_not_restore": []
+      },
+      "purpose": "Measures instruction versioning and stale-rule suppression."
+    },
+    {
+      "id": "COS-RU-01",
+      "track": "chief_of_staff",
+      "phase": "retrieval_after_update",
+      "prompt": "What stable rules should you apply when scheduling external meetings for the synthetic persona now?",
+      "expected": {
+        "memory_use": "required",
+        "write": "forbidden",
+        "seed_keys": ["COS_CALENDAR_V2"],
+        "must_restore": ["11:00 AM", "20-minute", "Tuesday mornings"],
+        "must_not_restore": ["10:30 AM", "2:00 PM today"]
+      },
+      "purpose": "Measures restoration of current guidance without leaking transient calendar state."
+    },
+    {
+      "id": "PF-RP-02",
+      "track": "project_features",
+      "phase": "retrieval",
+      "prompt": "For the healthcare review tool we designed, who may open a temporary evaluation URL and when does it stop working?",
+      "expected": {
+        "memory_use": "required",
+        "write": "forbidden",
+        "seed_keys": ["PF_AUDIENCE", "PF_ACCESS_V2"],
+        "must_restore": ["12 hours", "invited reviewers"],
+        "must_not_restore": ["Project Birch", "seven days", "whole company"]
+      },
+      "purpose": "Measures paraphrase-only semantic recall without a canonical project name."
+    },
+    {
+      "id": "PF-ND-01",
+      "track": "project_features",
+      "phase": "retrieval",
+      "prompt": "Restore Project Juniper's review-access lifetime, allowed audience, and explicit v1 exclusion.",
+      "expected": {
+        "memory_use": "required",
+        "write": "forbidden",
+        "seed_keys": ["PF_JUNIPER"],
+        "must_restore": ["18 hours", "invited commenters", "PDF export"],
+        "must_not_restore": ["12 hours", "regional clinic coordinators", "analytics"]
+      },
+      "purpose": "Measures ranking accuracy between near-duplicate project decisions."
+    },
+    {
+      "id": "PF-LC-01",
+      "track": "project_features",
+      "phase": "retrieval_after_update",
+      "prompt": "Give only the current Project Alder preview lifetime; ignore archived, superseded, or expired alternatives.",
+      "expected": {
+        "memory_use": "required",
+        "write": "forbidden",
+        "seed_keys": ["PF_ACCESS_V2"],
+        "must_restore": ["12 hours"],
+        "must_not_restore": ["36 hours", "72 hours", "seven days"]
+      },
+      "purpose": "Measures current-version, lifecycle, and temporal filtering before ranking."
+    },
+    {
+      "id": "PF-CTX-01",
+      "track": "project_features",
+      "phase": "retrieval",
+      "prompt": "Assemble a 4,000-token feature brief for Project Alder using durable decisions and only relevant authoritative artifacts.",
+      "expected": {
+        "memory_use": "required",
+        "write": "forbidden",
+        "must_restore": ["regional clinic coordinators", "12 hours"],
+        "must_not_restore": ["Project Birch", "whole company"]
+      },
+      "purpose": "Measures memory admission and irrelevant-artifact omissions under a constrained context budget."
+    },
+    {
+      "id": "COS-ID-01",
+      "track": "chief_of_staff",
+      "phase": "retrieval",
+      "prompt": "Schedule an external sales follow-up using my standing chief-of-staff preferences.",
+      "expected": {
+        "memory_use": "required",
+        "write": "forbidden",
+        "must_restore": ["ambiguous"],
+        "must_not_restore": ["11:00 AM", "9:30 AM", "Tuesday mornings", "Friday afternoons"]
+      },
+      "purpose": "Measures safe refusal when two conflicting personas are unresolved."
+    },
+    {
+      "id": "COS-SC-01",
+      "track": "chief_of_staff",
+      "phase": "retrieval",
+      "prompt": "For the Northstar Health persona only, restore the scheduling floor, buffer, protected time, evaluation themes, and champion.",
+      "expected": {
+        "memory_use": "required",
+        "write": "forbidden",
+        "seed_keys": ["COS_NORTHSTAR"],
+        "must_restore": ["9:30 AM", "15-minute", "Friday afternoons", "compliance", "implementation", "Riley Chen"],
+        "must_not_restore": ["11:00 AM", "Tuesday mornings", "Keystone Labs", "Jordan Lee"]
+      },
+      "purpose": "Measures explicit entity isolation against wrong-scope semantic neighbors."
+    },
+    {
+      "id": "SYS-EF-01",
+      "track": "project_features",
+      "phase": "retrieval",
+      "prompt": "During a simulated embedding-provider outage, restore Project Alder's current preview decision.",
+      "expected": {
+        "memory_use": "required",
+        "write": "forbidden",
+        "must_restore": ["12 hours", "invited reviewers"],
+        "must_not_restore": ["unavailable", "seven days"]
+      },
+      "purpose": "Measures immediate lexical fallback when embedding queries fail."
+    },
+    {
+      "id": "SYS-AS-01",
+      "track": "chief_of_staff",
+      "phase": "retrieval",
+      "prompt": "Restore stable scheduling guidance, but do not guess which synthetic persona I mean.",
+      "expected": {
+        "memory_use": "required",
+        "write": "forbidden",
+        "must_restore": ["ambiguous"],
+        "must_not_restore": ["10:30 AM", "11:00 AM", "9:30 AM"]
+      },
+      "purpose": "Measures explicit ambiguous_subject restoration behavior."
+    }
+  ]
+}

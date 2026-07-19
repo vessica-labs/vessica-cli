@@ -128,10 +128,25 @@ func (g *Gateway) GetMemory(ctx context.Context, id string) (ks.Memory, error) {
 	return g.remote.GetMemory(ctx, g.workspace, id, 0)
 }
 func (g *Gateway) SearchMemories(ctx context.Context, q string, scopes []string) ([]ks.Memory, error) {
+	q = normalizeMemorySearchQuery(q)
 	if g.local != nil {
 		return g.store.SearchMemories(ctx, g.workspace, scopes, q, 100)
 	}
 	return g.remote.SearchMemories(ctx, g.workspace, q, scopes)
+}
+
+func (g *Gateway) RetrieveMemories(ctx context.Context, r ks.MemoryRetrievalRequest) (ks.MemoryRetrievalResponse, error) {
+	r.WorkspaceID = g.workspace
+	r.Query = normalizeMemorySearchQuery(r.Query)
+	if g.local != nil {
+		return g.local.RetrieveMemories(ctx, r)
+	}
+	return g.remote.RetrieveMemories(ctx, r)
+}
+
+func normalizeMemorySearchQuery(q string) string {
+	q = strings.NewReplacer("-", " ", "_", " ", "–", " ", "—", " ").Replace(q)
+	return strings.Join(strings.Fields(q), " ")
 }
 func (g *Gateway) VersionMemory(ctx context.Context, key string, v ks.Memory) (ks.Memory, error) {
 	v.WorkspaceID = g.workspace
@@ -144,7 +159,14 @@ func (g *Gateway) SetMemoryState(ctx context.Context, key, id, state string) (ks
 	if g.local != nil {
 		return g.local.SetMemoryState(ctx, g.opts(key), id, state)
 	}
-	return g.remote.SetMemoryState(ctx, key, g.workspace, id, state)
+	action := state
+	switch state {
+	case "archived":
+		action = "archive"
+	case "superseded":
+		action = "supersede"
+	}
+	return g.remote.SetMemoryState(ctx, key, g.workspace, id, action)
 }
 func (g *Gateway) CreateArtifact(ctx context.Context, key string, v ks.Artifact) (ks.Artifact, error) {
 	v.WorkspaceID = g.workspace
