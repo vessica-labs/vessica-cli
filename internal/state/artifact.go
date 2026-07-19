@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/vessica-labs/vessica-cli/internal/id"
@@ -186,11 +187,37 @@ func (db *DB) ApproveArtifact(ctx context.Context, artifactID string) (*Artifact
 }
 
 func (db *DB) CreateArtifactSet(ctx context.Context, epicID, runID string, artifactIDs []string) (*ArtifactSet, error) {
+	b, _ := json.Marshal(artifactIDs)
+	// Ticketization may be replayed after a connection disappears between a
+	// successful commit and the client receiving the response. Reuse the set
+	// already owned by this run and reconcile its members so a partial replay
+	// cannot leave artifacts detached from the set.
+	if runID != "" {
+		var existing ArtifactSet
+		err := db.QueryRow(ctx, `SELECT id, workspace_id, epic_id, status, artifact_ids_json, COALESCE(source_run_id,''), created_at, updated_at
+			FROM artifact_sets WHERE epic_id=? AND source_run_id=? ORDER BY created_at DESC LIMIT 1`, epicID, runID).
+			Scan(&existing.ID, &existing.WorkspaceID, &existing.EpicID, &existing.Status, &existing.ArtifactIDsJSON, &existing.SourceRunID, &existing.CreatedAt, &existing.UpdatedAt)
+		if err == nil {
+			existing.ArtifactIDsJSON = string(b)
+			existing.UpdatedAt = Now()
+			if _, err := db.Exec(ctx, `UPDATE artifact_sets SET artifact_ids_json=?, updated_at=? WHERE id=?`, existing.ArtifactIDsJSON, existing.UpdatedAt, existing.ID); err != nil {
+				return nil, err
+			}
+			for _, aid := range artifactIDs {
+				if _, err := db.Exec(ctx, `UPDATE artifacts SET artifact_set_id=? WHERE id=?`, existing.ID, aid); err != nil {
+					return nil, err
+				}
+			}
+			return &existing, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+	}
 	ws, err := db.GetWorkspace(ctx)
 	if err != nil {
 		return nil, err
 	}
-	b, _ := json.Marshal(artifactIDs)
 	now := Now()
 	s := &ArtifactSet{
 		ID:              id.New(id.ArtifactSet),
@@ -208,7 +235,9 @@ func (db *DB) CreateArtifactSet(ctx context.Context, epicID, runID string, artif
 		return nil, err
 	}
 	for _, aid := range artifactIDs {
-		_, _ = db.Exec(ctx, `UPDATE artifacts SET artifact_set_id=? WHERE id=?`, s.ID, aid)
+		if _, err := db.Exec(ctx, `UPDATE artifacts SET artifact_set_id=? WHERE id=?`, s.ID, aid); err != nil {
+			return nil, err
+		}
 	}
 	return s, nil
 }

@@ -45,7 +45,7 @@ func (db *DB) AppendEvent(ctx context.Context, runID, sandboxID, typ string, pay
 		if existing, lookupErr := db.eventByID(ctx, e.ID); lookupErr == nil && existing != nil {
 			return existing, nil
 		}
-		if !retryablePostgresError(err) || attempt == attempts-1 {
+		if !IsRetryablePostgresError(err) || attempt == attempts-1 {
 			break
 		}
 		delay := time.Duration(50*(1<<attempt)) * time.Millisecond
@@ -95,7 +95,10 @@ func (db *DB) eventByID(ctx context.Context, eventID string) (*Event, error) {
 	return &e, nil
 }
 
-func retryablePostgresError(err error) bool {
+// IsRetryablePostgresError reports whether an operation can be retried after a
+// transient Postgres connection or transaction failure. Callers that retry
+// mutations must make the mutation idempotent before using this classifier.
+func IsRetryablePostgresError(err error) bool {
 	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
@@ -130,4 +133,9 @@ func retryablePostgresError(err error) bool {
 		}
 	}
 	return false
+}
+
+// Keep the package-local name for older tests and internal call sites.
+func retryablePostgresError(err error) bool {
+	return IsRetryablePostgresError(err)
 }

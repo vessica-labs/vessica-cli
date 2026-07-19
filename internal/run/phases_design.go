@@ -149,12 +149,20 @@ func (e *Engine) phaseDesign(ctx context.Context, r *state.Run) error {
 }
 
 func (e *Engine) phaseTicketize(ctx context.Context, r *state.Run) error {
-	epic, err := e.DB.GetEpic(ctx, r.EpicID)
-	if err != nil {
+	var epic *state.Epic
+	if err := e.retryTicketizeState(ctx, r, "load_epic", func() error {
+		var err error
+		epic, err = e.DB.GetEpic(ctx, r.EpicID)
+		return err
+	}); err != nil {
 		return err
 	}
-	arts, err := e.DB.ListArtifacts(ctx, epic.ID, "")
-	if err != nil {
+	var arts []state.Artifact
+	if err := e.retryTicketizeState(ctx, r, "load_artifacts", func() error {
+		var err error
+		arts, err = e.DB.ListArtifacts(ctx, epic.ID, "")
+		return err
+	}); err != nil {
 		return err
 	}
 	arts = artifactsForRun(arts, r.ID)
@@ -162,33 +170,64 @@ func (e *Engine) phaseTicketize(ctx context.Context, r *state.Run) error {
 	for _, a := range arts {
 		ids = append(ids, a.ID)
 	}
-	set, err := e.DB.CreateArtifactSet(ctx, epic.ID, r.ID, ids)
-	if err != nil {
+	var set *state.ArtifactSet
+	if err := e.retryTicketizeState(ctx, r, "create_artifact_set", func() error {
+		var err error
+		set, err = e.DB.CreateArtifactSet(ctx, epic.ID, r.ID, ids)
+		return err
+	}); err != nil {
 		return err
 	}
-	_ = e.DB.ApproveArtifactSet(ctx, set.ID)
+	if err := e.retryTicketizeState(ctx, r, "approve_artifact_set", func() error {
+		return e.DB.ApproveArtifactSet(ctx, set.ID)
+	}); err != nil {
+		return err
+	}
 	r.ArtifactSetID = set.ID
-	_ = e.DB.UpdateRun(ctx, r)
+	if err := e.retryTicketizeState(ctx, r, "attach_artifact_set", func() error {
+		return e.DB.UpdateRun(ctx, r)
+	}); err != nil {
+		return err
+	}
 
-	specs, fastPath, err := e.xsTicketPlan(ctx, r, epic, arts)
-	if err != nil {
+	var specs []plannedTicket
+	var fastPath bool
+	if err := e.retryTicketizeState(ctx, r, "load_xs_ticket_plan", func() error {
+		var err error
+		specs, fastPath, err = e.xsTicketPlan(ctx, r, epic, arts)
+		return err
+	}); err != nil {
 		return err
 	}
 	if !fastPath {
+		var err error
 		specs, err = e.planTickets(ctx, r, epic, arts)
 		if err != nil {
 			return err
 		}
 	}
-	created, err := e.createPlannedTickets(ctx, epic.ID, r.ID, specs)
-	if err != nil {
+	var created []*state.Ticket
+	if err := e.retryTicketizeState(ctx, r, "persist_tickets", func() error {
+		var err error
+		created, err = e.createPlannedTickets(ctx, epic.ID, r.ID, specs)
+		return err
+	}); err != nil {
 		return err
 	}
-	waves, err := e.DB.ComputeWavesForRun(ctx, epic.ID, r.ID)
-	if err != nil {
+	var waves []state.Wave
+	if err := e.retryTicketizeState(ctx, r, "persist_waves", func() error {
+		var err error
+		waves, err = e.DB.ComputeWavesForRun(ctx, epic.ID, r.ID)
+		return err
+	}); err != nil {
 		return err
 	}
-	_, _ = e.DB.UpdateEpic(ctx, epic.ID, "", "", state.EpicStatusPlanned)
+	if err := e.retryTicketizeState(ctx, r, "mark_epic_planned", func() error {
+		_, err := e.DB.UpdateEpic(ctx, epic.ID, "", "", state.EpicStatusPlanned)
+		return err
+	}); err != nil {
+		return err
+	}
 	var ticketIDs []string
 	for _, t := range created {
 		ticketIDs = append(ticketIDs, t.ID)

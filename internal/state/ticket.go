@@ -301,8 +301,12 @@ func (db *DB) computeWaves(ctx context.Context, epicID, sourceRunID string, tick
 		}
 	}
 
-	_, _ = db.Exec(ctx, `DELETE FROM waves WHERE epic_id=?`, epicID)
-	_, _ = db.Exec(ctx, `UPDATE tickets SET wave_id=NULL WHERE epic_id=?`, epicID)
+	if _, err := db.Exec(ctx, `DELETE FROM waves WHERE epic_id=?`, epicID); err != nil {
+		return nil, err
+	}
+	if _, err := db.Exec(ctx, `UPDATE tickets SET wave_id=NULL WHERE epic_id=?`, epicID); err != nil {
+		return nil, err
+	}
 	var waves []Wave
 	assigned := map[string]bool{}
 	waveIdx := 0
@@ -341,7 +345,9 @@ func (db *DB) computeWaves(ctx context.Context, epicID, sourceRunID string, tick
 		}
 		for _, tid := range layer {
 			assigned[tid] = true
-			_, _ = db.Exec(ctx, `UPDATE tickets SET wave_id=?, updated_at=? WHERE id=?`, w.ID, now, tid)
+			if _, err := db.Exec(ctx, `UPDATE tickets SET wave_id=?, updated_at=? WHERE id=?`, w.ID, now, tid); err != nil {
+				return nil, err
+			}
 			for _, dep := range dependents[tid] {
 				remaining[dep]--
 			}
