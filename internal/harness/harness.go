@@ -269,9 +269,28 @@ func Detect(root string) Detected {
 	case hasPython:
 		d.PreviewPort = 8000
 		d.Healthcheck = "http://localhost:8000/"
-		d.BuildCommand = "python -m compileall ."
+		d.BuildCommand = ".venv/bin/python -m compileall ."
+		if fileExists(filepath.Join(root, "manage.py")) {
+			d.PreviewCommand = ".venv/bin/python manage.py runserver 0.0.0.0:8000"
+			d.TestCommand = ".venv/bin/python manage.py test"
+			d.LintCommand = ".venv/bin/python manage.py check && .venv/bin/python manage.py makemigrations --check --dry-run"
+		} else if pythonFastAPIEntry(root) != "" {
+			module := strings.TrimSuffix(filepath.ToSlash(pythonFastAPIEntry(root)), ".py")
+			d.PreviewCommand = ".venv/bin/python -m uvicorn " + strings.ReplaceAll(module, "/", ".") + ":app --host 0.0.0.0 --port 8000"
+			d.TestCommand = ".venv/bin/python -m pytest"
+			d.LintCommand = ".venv/bin/python -m compileall ."
+		}
 	}
 	return d
+}
+
+func pythonFastAPIEntry(root string) string {
+	for _, relative := range []string{"main.py", "app.py", filepath.Join("app", "main.py"), filepath.Join("src", "main.py")} {
+		if fileContains(filepath.Join(root, relative), "FastAPI(") {
+			return relative
+		}
+	}
+	return ""
 }
 
 func goPreviewCommand(root string) string {

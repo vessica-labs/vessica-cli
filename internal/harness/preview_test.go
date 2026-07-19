@@ -77,6 +77,37 @@ func TestDetectCompositeStackAndPackageManagerField(t *testing.T) {
 	}
 }
 
+func TestDetectGeneratesDjangoHarnessCommands(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "requirements.txt"), []byte("Django==4.2.30\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "manage.py"), []byte("# django entrypoint\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	detected := Detect(root)
+	if detected.Stack != "python" || !strings.Contains(detected.PreviewCommand, "manage.py runserver") || !strings.Contains(detected.TestCommand, "manage.py test") || !strings.Contains(detected.LintCommand, "makemigrations --check") {
+		t.Fatalf("detected=%#v", detected)
+	}
+}
+
+func TestDetectGeneratesFastAPIHarnessCommands(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "requirements.txt"), []byte("fastapi\nuvicorn\npytest\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "app", "main.py"), []byte("app = FastAPI()\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	detected := Detect(root)
+	if !strings.Contains(detected.PreviewCommand, "uvicorn app.main:app") || !strings.Contains(detected.TestCommand, "pytest") {
+		t.Fatalf("detected=%#v", detected)
+	}
+}
+
 func writePackage(t *testing.T, body string) string {
 	t.Helper()
 	root := t.TempDir()
