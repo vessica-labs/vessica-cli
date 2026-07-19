@@ -51,6 +51,27 @@ generic toolchain checkpoint when repository metadata is absent or incompatible.
 Variables, credentials, and private-network mode are always supplied at sandbox
 creation and are not part of either checkpoint.
 
+## Warm Snapshot Lifecycle
+
+A **toolchain checkpoint** is the immutable, fingerprinted Vessica worker base:
+the pinned tools and runtime required to start a sandbox. A **repository-bearing
+checkpoint** is a derived snapshot for one repository at a known commit; it also
+contains the clean checkout, prepared dependencies, and warmed package caches.
+Repository, commit, dependency-manifest, and toolchain fingerprints determine
+its identity, so it is compatible only with that recorded contract.
+
+Before a sandbox uses either checkpoint, Vessica verifies its integrity
+attestation. An attestation mismatch triggers full verification and uses the
+compatible toolchain checkpoint when the repository-bearing checkpoint is
+missing, stale, or invalid. A fresh fork from a repository-bearing checkpoint
+then performs incremental Git synchronization: it fetches the default-branch
+delta and refreshes dependencies only when the dependency manifests changed.
+
+Refreshes create and verify an immutable replacement before advancing the
+repository checkpoint metadata. The known-good snapshot remains selected until
+the replacement passes verification; a failed refresh therefore does not
+discard the working snapshot, and the toolchain checkpoint remains the fallback.
+
 Onboarding records a durable operation journal. Provider-login interruptions,
 deploy failures, Sandbox Priority Boarding, and readiness timeouts can be
 continued with `ves up resume <operation-id> --yes --stream jsonl`; do not start
