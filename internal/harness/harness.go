@@ -392,11 +392,22 @@ func nodePreviewCommand(root string, scripts map[string]string, configured strin
 		return command
 	}
 	if strings.Contains(script, "vite") {
-		command := portEnv + nodeRunCommand(root, name) + " --"
-		if !strings.Contains(script, "--host") {
+		command := strings.TrimSpace(configured)
+		if command == "" {
+			command = nodeRunCommand(root, name)
+		}
+		if port > 0 && !strings.HasPrefix(command, "PORT=") {
+			command = portEnv + command
+		}
+		needsHost := !strings.Contains(script, "--host") && !strings.Contains(command, "--host")
+		needsPort := port > 0 && !strings.Contains(script, "--port") && !strings.Contains(command, "--port")
+		if needsHost || needsPort {
+			command += " --"
+		}
+		if needsHost {
 			command += " --host 0.0.0.0"
 		}
-		if port > 0 && !strings.Contains(script, "--port") {
+		if needsPort {
 			command += fmt.Sprintf(" --port %d", port)
 		}
 		return command

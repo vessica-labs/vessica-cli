@@ -14,6 +14,14 @@ func TestResolvePreviewCommandForVite(t *testing.T) {
 	}
 }
 
+func TestResolvePreviewCommandForViteIsIdempotent(t *testing.T) {
+	root := writePackage(t, `{"packageManager":"yarn@4.9.2","scripts":{"dev":"vite dev"},"devDependencies":{"vite":"latest"}}`)
+	configured := "PORT=3000 corepack yarn run dev -- --host 0.0.0.0 --port 3000"
+	if got := ResolvePreviewCommand(root, configured, 3000); got != configured {
+		t.Fatalf("command=%q", got)
+	}
+}
+
 func TestResolvePreviewCommandForVinextBindsSandboxInterface(t *testing.T) {
 	root := writePackage(t, `{"scripts":{"dev":"WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev"},"devDependencies":{"vinext":"latest"}}`)
 	if got := ResolvePreviewCommand(root, "PORT=3000 pnpm run dev", 3000); got != "PORT=3000 npm run dev --hostname 0.0.0.0 --port 3000" {

@@ -11,6 +11,7 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/harness"
 	"github.com/vessica-labs/vessica-cli/internal/isolation"
 	"github.com/vessica-labs/vessica-cli/internal/redaction"
+	"github.com/vessica-labs/vessica-cli/internal/reposnapshot"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 )
 
@@ -19,6 +20,33 @@ import (
 // checkpoints normally project local copy-on-write dependency directories when
 // the worktree is created, avoiding package-manager work on the critical path.
 func (e *Engine) materializeWorktreeDependencies(ctx context.Context, r *state.Run, workdir string) error {
+	changed, err := dependencyContractChanged(e.Root, workdir)
+	if err != nil {
+		return fmt.Errorf("compare worktree dependency contract: %w", err)
+	}
+	if changed {
+		stack, install := reposnapshot.DependencyInstallCommand(workdir)
+		if strings.TrimSpace(install) == "" {
+			return nil
+		}
+		started := time.Now()
+		installCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+		output, installErr := isolation.CommandContext(installCtx, workdir, "bash", "-lc", "export CI=true\n"+install).CombinedOutput()
+		detail := map[string]any{
+			"stage": "worktree_dependencies", "duration_ms": time.Since(started).Milliseconds(),
+			"status": "completed", "cache_hit": false, "mode": "manifest_refresh",
+			"reason": "dependency_fingerprint_changed", "stack": stack,
+		}
+		if installErr != nil {
+			detail["status"] = "failed"
+			e.emit(ctx, r.ID, "run.infrastructure.stage", detail)
+			return fmt.Errorf("refresh changed worktree dependencies: %w: %s", installErr, redaction.Redact(truncate(strings.TrimSpace(string(output)), 2000)))
+		}
+		e.emit(ctx, r.ID, "run.infrastructure.stage", detail)
+		return nil
+	}
+
 	target := filepath.Join(workdir, "node_modules")
 	if _, err := os.Stat(target); err == nil {
 		mode := "existing"
@@ -91,6 +119,21 @@ func (e *Engine) materializeWorktreeDependencies(ctx context.Context, r *state.R
 	}
 	e.emit(ctx, r.ID, "run.infrastructure.stage", detail)
 	return nil
+}
+
+func dependencyContractChanged(root, workdir string) (bool, error) {
+	if filepath.Clean(root) == filepath.Clean(workdir) {
+		return false, nil
+	}
+	base, err := reposnapshot.DependencyFingerprint(root)
+	if err != nil {
+		return false, err
+	}
+	current, err := reposnapshot.DependencyFingerprint(workdir)
+	if err != nil {
+		return false, err
+	}
+	return base != current, nil
 }
 
 func offlineInstallCommand(command string) string {
