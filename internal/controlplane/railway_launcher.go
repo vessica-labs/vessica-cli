@@ -87,9 +87,9 @@ func (l *RailwayLauncher) launch(ctx context.Context, runRecord *state.Run, from
 		"stage": "repository_checkpoint_resolve", "duration_ms": 0, "checkpoint": checkpoint,
 		"checkpoint_kind": checkpointKind, "cache_hit": checkpointKind == "repository", "reason": checkpointReason,
 	})
-	if createdAt, parseErr := time.Parse(time.RFC3339Nano, runRecord.CreatedAt); parseErr == nil {
+	if queuedAt := launchQueueBaseline(runRecord); !queuedAt.IsZero() {
 		_, _ = l.DB.AppendEvent(ctx, runRecord.ID, "", "run.infrastructure.stage", map[string]any{
-			"stage": "control_plane_queue", "duration_ms": requestedAt.Sub(createdAt).Milliseconds(),
+			"stage": "control_plane_queue", "duration_ms": max64(0, requestedAt.Sub(queuedAt).Milliseconds()),
 		})
 	}
 	sbRecord, err := l.DB.GetSandboxForRun(ctx, runRecord.ID)
@@ -153,12 +153,20 @@ func (l *RailwayLauncher) launch(ctx context.Context, runRecord *state.Run, from
 	workerStarted := time.Now()
 	code, execErr := rs.Exec(runCtx, []string{"bash", "-lc", bootstrap}, writer, writer)
 	_, _ = l.DB.AppendEvent(context.WithoutCancel(ctx), runRecord.ID, sbRecord.ID, "run.infrastructure.stage", map[string]any{"stage": "worker_process_total", "duration_ms": time.Since(workerStarted).Milliseconds(), "exit_code": code})
-	latest, getErr := l.DB.GetRun(ctx, runRecord.ID)
+	latest, getErr := l.DB.GetRun(context.WithoutCancel(ctx), runRecord.ID)
 	if getErr != nil {
 		return getErr
 	}
 	if execErr != nil || code != 0 {
-		return fmt.Errorf("railway worker exited %d: %w", code, execErr)
+		if latest.Status == "running" || latest.Status == "pending" {
+			latest, getErr = l.waitForRunTerminalAfterDisconnect(ctx, runRecord.ID, 5*time.Minute)
+			if getErr != nil {
+				return fmt.Errorf("railway worker transport lost after exit %d: %w", code, getErr)
+			}
+		}
+		if latest.Status != "completed" {
+			return fmt.Errorf("railway worker exited %d with run status %s: %w", code, latest.Status, execErr)
+		}
 	}
 	if latest.Status != "completed" {
 		return fmt.Errorf("railway worker finished with run status %s: %s", latest.Status, latest.Error)

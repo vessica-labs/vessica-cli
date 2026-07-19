@@ -16,8 +16,8 @@ import (
 
 // materializeWorktreeDependencies is a fallback for repositories whose
 // checkpoint did not contain a dependency tree. Purpose-built Railway
-// checkpoints share their immutable node_modules tree into the isolated run
-// worktree, avoiding a copy or package-manager invocation on the critical path.
+// checkpoints normally project local copy-on-write dependency directories when
+// the worktree is created, avoiding package-manager work on the critical path.
 func (e *Engine) materializeWorktreeDependencies(ctx context.Context, r *state.Run, workdir string) error {
 	target := filepath.Join(workdir, "node_modules")
 	if _, err := os.Stat(target); err == nil {

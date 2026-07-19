@@ -27,11 +27,18 @@ func (l *RailwayLauncher) enqueueRepositoryCheckpointRefresh(ctx context.Context
 		return
 	}
 	var candidate reposnapshot.Checkpoint
-	if json.Unmarshal(output.Bytes(), &candidate) != nil || !candidate.Ready(toolchain.Fingerprint()) {
+	if json.Unmarshal(output.Bytes(), &candidate) != nil || !candidate.Candidate(toolchain.Fingerprint()) {
 		return
 	}
+	candidate = candidate.Promote("successful_full_run", time.Now())
 	current, _ := reposnapshot.Parse(repository.MetadataJSON)
 	if current.Name == candidate.Name {
+		if current.Verification != candidate.Verification || current.VerifiedAt == "" {
+			if metadata, mergeErr := reposnapshot.Merge(repository.MetadataJSON, candidate); mergeErr == nil {
+				_, _ = l.DB.UpdateRepositoryMetadata(ctx, repository.ID, metadata)
+				_, _ = l.DB.AppendEvent(ctx, runRecord.ID, "", "run.infrastructure.stage", map[string]any{"stage": "repository_checkpoint_promote", "status": "completed", "checkpoint": candidate.Name, "snapshot_reused": true})
+			}
+		}
 		return
 	}
 	_, _ = l.DB.EnqueueJob(ctx, "refresh_repository_checkpoint", repositoryCheckpointRefreshPayload{

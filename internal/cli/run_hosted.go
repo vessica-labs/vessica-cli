@@ -167,6 +167,32 @@ func (a *App) cancelHostedRun(ctx context.Context, runID string) (map[string]any
 	return result, nil
 }
 
+func (a *App) promptHostedRun(ctx context.Context, runID, prompt string) (map[string]any, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]any
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/runs/" + url.PathEscape(runID) + "/prompt?repository_id=" + url.QueryEscape(a.Config.Attachment.RepositoryID)
+	if err := hostedRequestWithKey(ctx, http.MethodPost, endpoint, secrets.APIToken, firstNonEmpty(a.Flags.IdempotencyKey, "prompt-"+runID), map[string]string{"prompt": prompt}, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (a *App) rollbackHostedRun(ctx context.Context, runID string) (map[string]any, error) {
+	secrets, err := loadRailwaySecrets(a.Root)
+	if err != nil {
+		return nil, err
+	}
+	var result map[string]any
+	endpoint := strings.TrimRight(a.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/runs/" + url.PathEscape(runID) + "/rollback?repository_id=" + url.QueryEscape(a.Config.Attachment.RepositoryID)
+	if err := hostedRequestWithKey(ctx, http.MethodPost, endpoint, secrets.APIToken, firstNonEmpty(a.Flags.IdempotencyKey, "rollback-"+runID), nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 func (a *App) getHostedEpicStatus(ctx context.Context, epicID string) (map[string]any, error) {
 	secrets, err := loadRailwaySecrets(a.Root)
 	if err != nil {

@@ -101,6 +101,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/runs/{run_id}/artifacts", s.requireAPIAuth(s.handleRunArtifacts))
 	mux.HandleFunc("POST /api/v1/runs/{run_id}/resume", s.requireAPIAuth(s.handleResumeRun))
 	mux.HandleFunc("POST /api/v1/runs/{run_id}/cancel", s.requireAPIAuth(s.handleCancelRun))
+	mux.HandleFunc("POST /api/v1/runs/{run_id}/prompt", s.requireAPIAuth(s.handlePromptRun))
+	mux.HandleFunc("POST /api/v1/runs/{run_id}/rollback", s.requireAPIAuth(s.handleRollbackRun))
 	mux.HandleFunc("GET /api/v1/receipts/{receipt_id}", s.requireAPIAuth(s.handleReceipt))
 	mux.HandleFunc("GET /api/v1/epics", s.requireAPIAuth(s.handleEpics))
 	mux.HandleFunc("POST /api/v1/epics", s.requireAPIAuth(s.handlePublishEpic))

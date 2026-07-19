@@ -9,14 +9,14 @@ import (
 
 func TestResolvePreviewCommandForVite(t *testing.T) {
 	root := writePackage(t, `{"scripts":{"dev":"vite"},"devDependencies":{"vite":"latest"}}`)
-	if got := ResolvePreviewCommand(root, "npm run dev", 3000); got != "PORT=3000 pnpm run dev -- --host 0.0.0.0 --port 3000" {
+	if got := ResolvePreviewCommand(root, "npm run dev", 3000); got != "PORT=3000 npm run dev -- --host 0.0.0.0 --port 3000" {
 		t.Fatalf("command=%q", got)
 	}
 }
 
 func TestResolvePreviewCommandForVinextBindsSandboxInterface(t *testing.T) {
 	root := writePackage(t, `{"scripts":{"dev":"WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev"},"devDependencies":{"vinext":"latest"}}`)
-	if got := ResolvePreviewCommand(root, "PORT=3000 pnpm run dev", 3000); got != "PORT=3000 pnpm run dev --hostname 0.0.0.0 --port 3000" {
+	if got := ResolvePreviewCommand(root, "PORT=3000 pnpm run dev", 3000); got != "PORT=3000 npm run dev --hostname 0.0.0.0 --port 3000" {
 		t.Fatalf("command=%q", got)
 	}
 }
@@ -38,28 +38,42 @@ func TestPreviewInstallCommandUsesPnpmLockfile(t *testing.T) {
 	}
 }
 
-func TestResolveNodeCommandTranslatesLegacyNpm(t *testing.T) {
+func TestResolveNodeCommandKeepsAuthoritativeNpm(t *testing.T) {
 	root := writePackage(t, `{"scripts":{"build":"vite build"}}`)
-	if got := ResolveNodeCommand(root, "npm run build && npx vite inspect"); got != "pnpm run build && pnpm exec vite inspect" {
+	if got := ResolveNodeCommand(root, "npm run build && npx vite inspect"); got != "npm run build && npx vite inspect" {
 		t.Fatalf("command=%q", got)
 	}
 }
 
 func TestResolveNodeCommandLeavesPnpmUnchanged(t *testing.T) {
 	root := writePackage(t, `{"scripts":{"test":"node --test","build":"vite build"}}`)
+	if err := os.WriteFile(filepath.Join(root, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	command := "pnpm test && pnpm run build"
 	if got := ResolveNodeCommand(root, command); got != command {
 		t.Fatalf("command=%q", got)
 	}
 }
 
-func TestDetectGeneratesPnpmCommands(t *testing.T) {
+func TestDetectGeneratesAuthoritativeNpmCommands(t *testing.T) {
 	root := writePackage(t, `{"scripts":{"dev":"vite","build":"vite build","test":"vitest","lint":"eslint ."}}`)
 	detected := Detect(root)
 	for _, command := range []string{detected.PreviewCommand, detected.BuildCommand, detected.TestCommand, detected.LintCommand} {
-		if !strings.Contains(command, "pnpm") {
-			t.Fatalf("non-pnpm command: %q", command)
+		if !strings.Contains(command, "npm") {
+			t.Fatalf("non-npm command: %q", command)
 		}
+	}
+}
+
+func TestDetectCompositeStackAndPackageManagerField(t *testing.T) {
+	root := writePackage(t, `{"packageManager":"yarn@4.2.0","scripts":{"build":"vite build"}}`)
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	detected := Detect(root)
+	if detected.Stack != "node+go" || detected.PackageManager != "yarn" || detected.BuildCommand != "corepack yarn run build" {
+		t.Fatalf("detected=%#v", detected)
 	}
 }
 

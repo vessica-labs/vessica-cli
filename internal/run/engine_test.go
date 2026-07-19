@@ -22,6 +22,7 @@ func TestParseTicketPlan(t *testing.T) {
       "title": "A",
       "body": "Do A",
       "acceptance_criteria": ["A works"],
+      "owned_paths": ["internal/a"],
       "estimated_complexity": "s",
       "split_justification": "Dependency sequence requires A before the later integration verification work can start."
     },
@@ -31,6 +32,7 @@ func TestParseTicketPlan(t *testing.T) {
       "body": "Do B",
       "acceptance_criteria": ["B works"],
       "depends_on_titles": ["A"],
+      "owned_paths": ["internal/a"],
       "estimated_complexity": "s",
       "split_justification": "Dependency sequence keeps B separate because it integrates behavior after A exists."
     }

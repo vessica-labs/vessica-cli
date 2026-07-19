@@ -11,7 +11,7 @@ import (
 	"github.com/vessica-labs/vessica-cli/internal/state"
 )
 
-func TestPrepareRailwayRunWorkdirUsesIsolatedWorktreeAndSharesDependencies(t *testing.T) {
+func TestPrepareRailwayRunWorkdirUsesIsolatedWorktreeAndLocalDependencies(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "repo")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		t.Fatal(err)
@@ -45,11 +45,11 @@ func TestPrepareRailwayRunWorkdirUsesIsolatedWorktreeAndSharesDependencies(t *te
 		t.Fatalf("branch=%q", branch)
 	}
 	dependencyPath := filepath.Join(workdir, ".venv")
-	if info, err := os.Lstat(dependencyPath); err != nil || info.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("dependency path is not a symlink: info=%v err=%v", info, err)
+	if info, err := os.Lstat(dependencyPath); err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		t.Fatalf("dependency path is not a local directory: info=%v err=%v", info, err)
 	}
-	if info, err := os.Lstat(filepath.Join(workdir, "node_modules")); err != nil || info.Mode()&os.ModeSymlink == 0 {
-		t.Fatalf("snapshot node_modules is not a symlink: info=%v err=%v", info, err)
+	if info, err := os.Lstat(filepath.Join(workdir, "node_modules")); err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		t.Fatalf("snapshot node_modules is not a local directory: info=%v err=%v", info, err)
 	}
 }
 

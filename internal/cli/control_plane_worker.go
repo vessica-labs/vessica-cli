@@ -119,7 +119,7 @@ func ensureWorkerRepo(ctx context.Context, root, remote string) (map[string]any,
 			specification, specificationFingerprint := reposnapshot.InferSpecification(files, stack)
 			commit := strings.TrimSpace(string(commitOutput))
 			candidate := reposnapshot.Checkpoint{
-				SchemaVersion: reposnapshot.SchemaVersion, Status: "ready", BaseCommit: commit,
+				SchemaVersion: reposnapshot.SchemaVersion, Status: "candidate", BaseCommit: commit,
 				DependencyFingerprint: dependencyFingerprint, ToolchainFingerprint: toolchain.Fingerprint(),
 				Stack: stack, DependencyState: map[bool]string{true: "ready", false: marker.DependencyState}[install != ""],
 				Specification: specification, SpecificationFingerprint: specificationFingerprint,

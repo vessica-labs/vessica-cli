@@ -64,6 +64,14 @@ func TestEnsureWorkerRepoUsesCheckpointDeltaAndKeepsDependencies(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(filepath.Dir(root), reposnapshot.MarkerFile)); !os.IsNotExist(err) {
 		t.Fatalf("marker was not consumed: %v", err)
 	}
+	candidateRaw, err := os.ReadFile(filepath.Join(filepath.Dir(root), reposnapshot.CandidateFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var candidate reposnapshot.Checkpoint
+	if json.Unmarshal(candidateRaw, &candidate) != nil || candidate.Status != "candidate" || candidate.VerifiedAt != "" {
+		t.Fatalf("candidate=%#v", candidate)
+	}
 }
 
 func gitTest(t *testing.T, dir string, args ...string) {

@@ -344,6 +344,22 @@ func newRunCmd(app *App) *cobra.Command {
 			if prompt == "" {
 				return app.Printer.Fail("missing_prompt", "prompt is required", "provide text or --file")
 			}
+			if config.IsHostedAttachment(app.Config) {
+				if promptModel != "" || promptReasoning != "" || promptNoPush {
+					return app.Printer.Fail("hosted_prompt_option_unsupported", "hosted refinements use the retained run model and always push preview updates", "remove --model, --reasoning-effort, and --no-push")
+				}
+				if app.Flags.DryRun {
+					return app.dryRun("run.prompt", map[string]any{"run_id": args[0]})
+				}
+				if app.Flags.JSON && !app.Flags.Yes {
+					return app.requireYes("refine the retained run sandbox")
+				}
+				result, err := app.promptHostedRun(cmd.Context(), args[0], prompt)
+				if err != nil {
+					return err
+				}
+				return app.Printer.Success(result)
+			}
 			sandboxRecord, err := app.DB.GetSandboxForRun(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -389,6 +405,13 @@ func newRunCmd(app *App) *cobra.Command {
 			}
 			if replayed, replayErr := app.idempotencyReplay(cmd.Context()); replayErr != nil || replayed {
 				return replayErr
+			}
+			if config.IsHostedAttachment(app.Config) {
+				result, err := app.rollbackHostedRun(cmd.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				return app.Printer.Success(result)
 			}
 			result, err := (&run.Engine{DB: app.DB, Root: app.Root, Config: app.Config}).RollbackRun(cmd.Context(), args[0])
 			if err != nil {

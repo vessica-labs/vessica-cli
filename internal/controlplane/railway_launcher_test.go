@@ -89,7 +89,7 @@ func TestRailwayWorkerEnvironmentPrefersDedicatedWorkerDatabaseURL(t *testing.T)
 }
 
 func TestRailwayLauncherPrefersCompatibleRepositoryCheckpoint(t *testing.T) {
-	checkpoint := reposnapshot.Checkpoint{SchemaVersion: reposnapshot.SchemaVersion, Name: "vessica-repo-ready", Status: "ready", ToolchainFingerprint: toolchain.Fingerprint()}
+	checkpoint := reposnapshot.Checkpoint{SchemaVersion: reposnapshot.SchemaVersion, Name: "vessica-repo-ready", Status: "ready", ToolchainFingerprint: toolchain.Fingerprint(), VerifiedAt: "2026-07-18T00:00:00Z"}
 	metadata, _ := json.Marshal(map[string]any{"repository_checkpoint": checkpoint})
 	launcher := &RailwayLauncher{Config: config.Config{Hosted: config.HostedConfig{WorkerCheckpoint: "toolchain"}}}
 	name, kind, _ := launcher.resolveCheckpoint(&state.Repository{MetadataJSON: string(metadata)})
@@ -101,5 +101,12 @@ func TestRailwayLauncherPrefersCompatibleRepositoryCheckpoint(t *testing.T) {
 	name, kind, _ = launcher.resolveCheckpoint(&state.Repository{MetadataJSON: string(metadata)})
 	if name != "toolchain" || kind != "toolchain" {
 		t.Fatalf("stale name=%s kind=%s", name, kind)
+	}
+}
+
+func TestLaunchQueueBaselineUsesLatestMutationForResume(t *testing.T) {
+	record := &state.Run{CreatedAt: "2026-07-18T10:00:00Z", UpdatedAt: "2026-07-18T10:15:00Z"}
+	if got := launchQueueBaseline(record); got.Format(time.RFC3339) != record.UpdatedAt {
+		t.Fatalf("baseline=%s", got)
 	}
 }

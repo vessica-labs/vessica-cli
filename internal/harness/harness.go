@@ -204,6 +204,8 @@ type Detected struct {
 	TestCommand    string
 	LintCommand    string
 	Stack          string
+	Stacks         []string
+	PackageManager string
 }
 
 // DetectConfig returns a usable harness without writing repository files.
@@ -227,30 +229,44 @@ func Detect(root string) Detected {
 		Healthcheck: "http://localhost:3000/",
 		Stack:       "generic",
 	}
+	var stacks []string
+	hasNode := fileExists(filepath.Join(root, "package.json"))
+	hasGo := fileExists(filepath.Join(root, "go.mod"))
+	hasPython := fileExists(filepath.Join(root, "pyproject.toml")) || fileExists(filepath.Join(root, "requirements.txt"))
+	if hasNode {
+		stacks = append(stacks, "node")
+	}
+	if hasGo {
+		stacks = append(stacks, "go")
+	}
+	if hasPython {
+		stacks = append(stacks, "python")
+	}
+	if len(stacks) > 0 {
+		d.Stack, d.Stacks = strings.Join(stacks, "+"), stacks
+	}
 	switch {
-	case fileExists(filepath.Join(root, "package.json")):
-		d.Stack = "node"
+	case hasNode:
+		d.PackageManager = NodePackageManager(root)
 		scripts := packageScripts(root)
 		d.PreviewCommand = nodePreviewCommand(root, scripts, "", d.PreviewPort)
 		if d.PreviewCommand == "" {
 			d.PreviewCommand = "echo 'configure preview.command in .vessica/harness.yaml'"
 		}
-		d.BuildCommand = nodeScriptCommand(scripts, "build")
-		d.TestCommand = nodeScriptCommand(scripts, "test")
-		d.LintCommand = nodeScriptCommand(scripts, "lint")
+		d.BuildCommand = nodeScriptCommand(root, scripts, "build")
+		d.TestCommand = nodeScriptCommand(root, scripts, "test")
+		d.LintCommand = nodeScriptCommand(root, scripts, "lint")
 		if fileContains(filepath.Join(root, "server.mjs"), "/health") || fileContains(filepath.Join(root, "server.js"), "/health") {
 			d.Healthcheck = "http://localhost:3000/health"
 		}
-	case fileExists(filepath.Join(root, "go.mod")):
-		d.Stack = "go"
+	case hasGo:
 		d.PreviewCommand = goPreviewCommand(root)
 		d.PreviewPort = 8080
 		d.Healthcheck = "http://localhost:8080/"
 		d.BuildCommand = "go build ./..."
 		d.TestCommand = "go test ./..."
 		d.LintCommand = "go vet ./..."
-	case fileExists(filepath.Join(root, "pyproject.toml")) || fileExists(filepath.Join(root, "requirements.txt")):
-		d.Stack = "python"
+	case hasPython:
 		d.PreviewPort = 8000
 		d.Healthcheck = "http://localhost:8000/"
 		d.BuildCommand = "python -m compileall ."
@@ -303,60 +319,14 @@ func packageScripts(root string) map[string]string {
 	return pkg.Scripts
 }
 
-func nodeScriptCommand(scripts map[string]string, name string) string {
+func nodeScriptCommand(root string, scripts map[string]string, name string) string {
 	if scripts == nil {
 		return ""
 	}
 	if strings.TrimSpace(scripts[name]) == "" {
 		return ""
 	}
-	return "pnpm run " + name
-}
-
-// ResolveNodeCommand translates shell command tokens from npm to pnpm.
-func ResolveNodeCommand(root, configured string) string {
-	configured = strings.TrimSpace(configured)
-	if !fileExists(filepath.Join(root, "package.json")) {
-		return configured
-	}
-	configured = replaceShellPhrase(configured, "npm ci", "pnpm install --frozen-lockfile")
-	configured = replaceShellPhrase(configured, "npm install", "pnpm install --no-lockfile")
-	configured = replaceShellPhrase(configured, "npm", "pnpm")
-	return replaceShellPhrase(configured, "npx", "pnpm exec")
-}
-
-func replaceShellPhrase(command, legacy, replacement string) string {
-	var out strings.Builder
-	for cursor := 0; cursor < len(command); {
-		relative := strings.Index(command[cursor:], legacy)
-		if relative < 0 {
-			out.WriteString(command[cursor:])
-			break
-		}
-		start := cursor + relative
-		end := start + len(legacy)
-		if shellBoundary(command, start-1) && shellBoundary(command, end) {
-			out.WriteString(command[cursor:start])
-			out.WriteString(replacement)
-			cursor = end
-			continue
-		}
-		out.WriteString(command[cursor:end])
-		cursor = end
-	}
-	return out.String()
-}
-
-func shellBoundary(command string, index int) bool {
-	if index < 0 || index >= len(command) {
-		return true
-	}
-	switch command[index] {
-	case ' ', '\t', '\r', '\n', ';', '&', '|', '(', ')':
-		return true
-	default:
-		return false
-	}
+	return nodeRunCommand(root, name)
 }
 
 // ResolvePreviewCommand repairs generated Node preview commands when scripts
@@ -367,28 +337,6 @@ func ResolvePreviewCommand(root, configured string, port int) string {
 		return configured
 	}
 	return nodePreviewCommand(root, packageScripts(root), configured, port)
-}
-
-// PreviewInstallCommand returns a lockfile-aware dependency bootstrap command.
-// It avoids creating a new lockfile in the integration checkout.
-func PreviewInstallCommand(root string) string {
-	if !fileExists(filepath.Join(root, "package.json")) {
-		return ""
-	}
-	var pkg struct {
-		Dependencies    map[string]any `json:"dependencies"`
-		DevDependencies map[string]any `json:"devDependencies"`
-	}
-	b, err := os.ReadFile(filepath.Join(root, "package.json"))
-	if err != nil || json.Unmarshal(b, &pkg) != nil || len(pkg.Dependencies)+len(pkg.DevDependencies) == 0 {
-		return ""
-	}
-	switch {
-	case fileExists(filepath.Join(root, "pnpm-lock.yaml")):
-		return PnpmBootstrapCommand() + " && pnpm install --frozen-lockfile"
-	default:
-		return PnpmBootstrapCommand() + " && pnpm install --no-lockfile"
-	}
 }
 
 func nodePreviewCommand(root string, scripts map[string]string, configured string, port int) string {
@@ -415,7 +363,7 @@ func nodePreviewCommand(root string, scripts map[string]string, configured strin
 		portEnv = fmt.Sprintf("PORT=%d ", port)
 	}
 	if strings.Contains(script, "vinext") {
-		command := portEnv + "pnpm run " + name
+		command := portEnv + nodeRunCommand(root, name)
 		if !strings.Contains(script, "--hostname") {
 			command += " --hostname 0.0.0.0"
 		}
@@ -425,7 +373,7 @@ func nodePreviewCommand(root string, scripts map[string]string, configured strin
 		return command
 	}
 	if strings.Contains(script, "vite") {
-		command := portEnv + "pnpm run " + name + " --"
+		command := portEnv + nodeRunCommand(root, name) + " --"
 		if !strings.Contains(script, "--host") {
 			command += " --host 0.0.0.0"
 		}
@@ -437,7 +385,7 @@ func nodePreviewCommand(root string, scripts map[string]string, configured strin
 	if strings.HasPrefix(script, "node ") && !strings.Contains(script, "--watch") {
 		return portEnv + "node --watch-path=. " + strings.TrimSpace(strings.TrimPrefix(script, "node "))
 	}
-	return portEnv + "pnpm run " + name
+	return portEnv + nodeRunCommand(root, name)
 }
 
 func configuredNodeScript(command string) string {
@@ -446,8 +394,11 @@ func configuredNodeScript(command string) string {
 	if len(fields) > 0 && strings.HasPrefix(fields[0], "PORT=") {
 		offset = 1
 	}
-	if len(fields) > offset+2 && (fields[offset] == "npm" || fields[offset] == "pnpm") && fields[offset+1] == "run" {
+	if len(fields) > offset+2 && (fields[offset] == "npm" || fields[offset] == "pnpm" || fields[offset] == "yarn") && fields[offset+1] == "run" {
 		return fields[offset+2]
+	}
+	if len(fields) > offset+3 && fields[offset] == "corepack" && fields[offset+1] == "yarn" && fields[offset+2] == "run" {
+		return fields[offset+3]
 	}
 	if len(fields) > offset+1 && fields[offset] == "node" && strings.HasPrefix(fields[offset+1], "--watch") {
 		return "start"

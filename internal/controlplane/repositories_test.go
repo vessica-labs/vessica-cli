@@ -48,7 +48,7 @@ func TestRepositoryAPIIsAuthenticatedAndIdempotent(t *testing.T) {
 	if one.ID == "" || one.ID != two.ID || one.CanonicalRemote != "github.com/acme/service" {
 		t.Fatalf("repositories=%#v %#v", one, two)
 	}
-	checkpoint := reposnapshot.Checkpoint{SchemaVersion: reposnapshot.SchemaVersion, Name: "vessica-repo-test", Status: "ready", ToolchainFingerprint: toolchain.Fingerprint()}
+	checkpoint := reposnapshot.Checkpoint{SchemaVersion: reposnapshot.SchemaVersion, Name: "vessica-repo-test", Status: "ready", ToolchainFingerprint: toolchain.Fingerprint(), VerifiedAt: "2026-07-18T00:00:00Z"}
 	checkpointBody, _ := json.Marshal(checkpoint)
 	checkpointReq := httptest.NewRequest(http.MethodPut, "/api/v1/repositories/"+one.ID+"/checkpoint", bytes.NewReader(checkpointBody))
 	checkpointReq.Header.Set("Authorization", "Bearer secret")

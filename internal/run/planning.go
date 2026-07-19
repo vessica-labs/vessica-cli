@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/vessica-labs/vessica-cli/internal/state"
@@ -15,6 +16,7 @@ type plannedTicket struct {
 	Body                string   `json:"body"`
 	AcceptanceCriteria  []string `json:"acceptance_criteria"`
 	DependsOnTitles     []string `json:"depends_on_titles"`
+	OwnedPaths          []string `json:"owned_paths"`
 	SplitJustification  string   `json:"split_justification"`
 	EstimatedComplexity string   `json:"estimated_complexity"`
 }
@@ -261,6 +263,7 @@ Return only JSON matching:
       "body": "...",
       "acceptance_criteria": ["..."],
       "depends_on_titles": ["..."],
+      "owned_paths": ["directory/or/file-pattern"],
       "estimated_complexity": "xs|s|m|l|xl",
       "split_justification": ""
     }
@@ -273,6 +276,8 @@ Ticket policy:
 - Tests, docs, accessibility, preview checks, and validation are usually acceptance criteria inside the implementation ticket, not separate tickets.
 - Split only for true dependency ordering, real parallelism, high-risk migrations, or independently reviewable cross-module work.
 - If you split, every split ticket must include a concrete split_justification.
+- For a split plan, every ticket must declare the files or directories it owns in owned_paths.
+- Tickets eligible to run in parallel must not claim the same owned path. If shared-file integration is required, create a dependent integration ticket that owns the shared path.
 - Ticket count caps by complexity: xs=1, s=1, m=3, l=6, xl=12.
 - A simple static-page or localized UI change should be one ticket.
 
@@ -336,6 +341,9 @@ func normalizeTicketPlan(plan ticketPlan) (ticketPlan, error) {
 		specs[i].Body = strings.TrimSpace(specs[i].Body)
 		specs[i].EstimatedComplexity = normalizeComplexity(specs[i].EstimatedComplexity)
 		specs[i].SplitJustification = strings.TrimSpace(specs[i].SplitJustification)
+		for j := range specs[i].OwnedPaths {
+			specs[i].OwnedPaths[j] = filepath.ToSlash(strings.TrimSpace(specs[i].OwnedPaths[j]))
+		}
 		if specs[i].Type == "" {
 			specs[i].Type = "feature"
 		}
@@ -360,6 +368,19 @@ func normalizeTicketPlan(plan ticketPlan) (ticketPlan, error) {
 		for _, spec := range specs {
 			if !strongSplitJustification(spec.SplitJustification) {
 				return ticketPlan{}, fmt.Errorf("planner split ticket %q missing strong split_justification", spec.Title)
+			}
+			if len(spec.OwnedPaths) == 0 {
+				return ticketPlan{}, fmt.Errorf("planner split ticket %q missing owned_paths", spec.Title)
+			}
+		}
+		for i := range specs {
+			for j := i + 1; j < len(specs); j++ {
+				if ticketsAreOrdered(specs[i], specs[j]) {
+					continue
+				}
+				if overlap := overlappingOwnedPath(specs[i].OwnedPaths, specs[j].OwnedPaths); overlap != "" {
+					return ticketPlan{}, fmt.Errorf("parallel planner tickets %q and %q both own %q", specs[i].Title, specs[j].Title, overlap)
+				}
 			}
 		}
 	}
@@ -394,21 +415,6 @@ func inferComplexity(n int) string {
 		return "l"
 	default:
 		return "xl"
-	}
-}
-
-func maxTicketsForComplexity(complexity string) int {
-	switch complexity {
-	case "xs", "s":
-		return 1
-	case "m":
-		return 3
-	case "l":
-		return 6
-	case "xl":
-		return 12
-	default:
-		return 1
 	}
 }
 
@@ -449,6 +455,12 @@ func (e *Engine) createPlannedTickets(ctx context.Context, epicID, runID string,
 		}
 		if spec.SplitJustification != "" {
 			body += "\nSplit justification: " + spec.SplitJustification + "\n"
+		}
+		if len(spec.OwnedPaths) > 0 {
+			body += "\nOwned paths:\n"
+			for _, path := range spec.OwnedPaths {
+				body += "- " + path + "\n"
+			}
 		}
 		t, err := e.DB.CreateTicketForRun(ctx, epicID, runID, spec.Type, spec.Title, body, nil)
 		if err != nil {

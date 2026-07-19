@@ -351,6 +351,7 @@ print(h.hexdigest())
 PY
 )
 stack=generic
+stacks=()
 dependency_state=no_manifest
 install -d -o vessica-agent -g vessica-agent -m 0755 /workspace/repo
 chown -R vessica-agent:vessica-agent /workspace/repo
@@ -361,41 +362,47 @@ run_dependency() {
 }
 dependency_started=$(date +%s%3N)
 if test -f /workspace/repo/package.json; then
-  stack=node
-  dependency_state=ready
+	stacks+=(node)
+	dependency_state=ready
   if test -f /workspace/repo/pnpm-lock.yaml; then
     run_dependency 'cd /workspace/repo && pnpm install --frozen-lockfile'
   elif test -f /workspace/repo/package-lock.json; then
     run_dependency 'cd /workspace/repo && npm ci'
   elif test -f /workspace/repo/yarn.lock; then
     run_dependency 'cd /workspace/repo && corepack yarn install --immutable'
-  else
-    run_dependency 'cd /workspace/repo && pnpm install --no-lockfile'
-  fi
-elif test -f /workspace/repo/go.mod; then
-  stack=go
-  dependency_state=ready
-  run_dependency 'cd /workspace/repo && go mod download'
-elif test -f /workspace/repo/pyproject.toml || test -f /workspace/repo/requirements.txt; then
-  stack=python
-  dependency_state=ready
-  run_dependency 'cd /workspace/repo && python3 -m venv .venv && if test -f requirements.txt; then .venv/bin/pip install -r requirements.txt; else .venv/bin/pip install -e .; fi'
-elif test -f /workspace/repo/Cargo.toml; then
-  stack=rust
-  dependency_state=ready
+	else
+		run_dependency 'cd /workspace/repo && npm install --no-package-lock'
+	fi
+fi
+if test -f /workspace/repo/go.mod; then
+	stacks+=(go)
+	dependency_state=ready
+	run_dependency 'cd /workspace/repo && go mod download'
+fi
+if test -f /workspace/repo/pyproject.toml || test -f /workspace/repo/requirements.txt; then
+	stacks+=(python)
+	dependency_state=ready
+	run_dependency 'cd /workspace/repo && python3 -m venv .venv && if test -f requirements.txt; then .venv/bin/pip install -r requirements.txt; else .venv/bin/pip install -e .; fi'
+fi
+if test -f /workspace/repo/Cargo.toml; then
+	stacks+=(rust)
+	dependency_state=ready
   command -v cargo >/dev/null || { apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cargo rustc && rm -rf /var/lib/apt/lists/*; }
-  run_dependency 'cd /workspace/repo && cargo fetch --locked'
-elif test -f /workspace/repo/Gemfile; then
-  stack=ruby
+	run_dependency 'cd /workspace/repo && cargo fetch --locked'
+fi
+if test -f /workspace/repo/Gemfile; then
+	stacks+=(ruby)
   dependency_state=ready
   command -v bundle >/dev/null || { apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ruby-full bundler && rm -rf /var/lib/apt/lists/*; }
-  run_dependency 'cd /workspace/repo && bundle config set path vendor/bundle && bundle install'
-elif test -f /workspace/repo/pom.xml || test -f /workspace/repo/build.gradle || test -f /workspace/repo/build.gradle.kts; then
-  stack=java
+	run_dependency 'cd /workspace/repo && bundle config set path vendor/bundle && bundle install'
+fi
+if test -f /workspace/repo/pom.xml || test -f /workspace/repo/build.gradle || test -f /workspace/repo/build.gradle.kts; then
+	stacks+=(java)
   dependency_state=ready
   command -v java >/dev/null || { apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends default-jdk maven gradle && rm -rf /var/lib/apt/lists/*; }
-  run_dependency 'cd /workspace/repo && if test -x ./gradlew; then ./gradlew dependencies --no-daemon; elif test -f pom.xml; then mvn -q dependency:go-offline; else gradle dependencies --no-daemon; fi'
+	run_dependency 'cd /workspace/repo && if test -x ./gradlew; then ./gradlew dependencies --no-daemon; elif test -f pom.xml; then mvn -q dependency:go-offline; else gradle dependencies --no-daemon; fi'
 fi
+if test ${#stacks[@]} -gt 0; then stack=$(IFS=+; echo "${stacks[*]}"); fi
 dependency_finished=$(date +%s%3N)
 
 jq -n --arg commit "$commit" --arg dependency_fingerprint "$dependency_fingerprint" --arg stack "$stack" --arg dependency_state "$dependency_state" '{schema_version:1,base_commit:$commit,dependency_fingerprint:$dependency_fingerprint,stack:$stack,dependency_state:$dependency_state}' >/workspace/.vessica-repository-checkpoint.json
@@ -447,6 +454,8 @@ find /workspace/repo -maxdepth 3 -type f -not -path '*/.git/*' -not -path '*/nod
 	orientation.Checkpoint.BaseCommit = commit
 	orientation.Checkpoint.ToolchainFingerprint = toolchain.Fingerprint()
 	orientation.Checkpoint.PreparedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	orientation.Checkpoint.VerifiedAt = orientation.Checkpoint.PreparedAt
+	orientation.Checkpoint.Verification = "orientation_dependency_install"
 	list, listErr := runRailway(ctx, "", nil, append(base, "checkpoint", "list", "--json")...)
 	if listErr != nil || !bytes.Contains(list, []byte(orientation.Checkpoint.Name)) {
 		checkpointJSON, _ := json.Marshal(orientation.Checkpoint)

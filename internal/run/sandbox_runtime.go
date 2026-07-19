@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -92,6 +93,9 @@ func (e *Engine) prepareRailwayRunWorkdir(ctx context.Context, rec *state.Sandbo
 	base := filepath.Join(filepath.Dir(e.Root), "runs", rec.RunID)
 	workdir := filepath.Join(base, "workspace")
 	if _, err := os.Stat(filepath.Join(workdir, ".git")); err == nil {
+		if err := projectCheckpointDependencies(ctx, e.Root, workdir); err != nil {
+			return "", err
+		}
 		return workdir, nil
 	}
 	gitAtRoot := []string{"-c", "safe.directory=" + e.Root, "-C", e.Root}
@@ -121,25 +125,76 @@ func (e *Engine) prepareRailwayRunWorkdir(ctx context.Context, rec *state.Sandbo
 	if err != nil {
 		return "", fmt.Errorf("create hosted run worktree: %w: %s", err, strings.TrimSpace(string(out)))
 	}
-	// Dependency trees are immutable inputs for a run unless their lockfile
-	// fingerprint changes during checkpoint sync. Share the prepared trees with
-	// the isolated worktree instead of copying or reinstalling them.
-	for _, relative := range []string{"node_modules", ".venv", "target", filepath.Join("vendor", "bundle"), ".gradle"} {
-		source := filepath.Join(e.Root, relative)
-		target := filepath.Join(workdir, relative)
-		if _, err := os.Stat(source); err != nil {
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return "", err
-		}
-		if _, err := os.Lstat(target); os.IsNotExist(err) {
-			if err := os.Symlink(source, target); err != nil {
-				return "", fmt.Errorf("share repository dependency tree %s: %w", relative, err)
-			}
-		}
+	// Project dependency trees into the worktree as local directories. Railway
+	// snapshots support copy-on-write reflinks, which retain near-instant warm
+	// starts without exposing tools such as Turbopack to cross-worktree symlinks.
+	if err := projectCheckpointDependencies(ctx, e.Root, workdir); err != nil {
+		return "", err
 	}
 	return workdir, nil
+}
+
+func projectCheckpointDependencies(ctx context.Context, root, workdir string) error {
+	var trees []string
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		depth := strings.Count(filepath.ToSlash(relative), "/")
+		if entry.IsDir() {
+			name := entry.Name()
+			if relative == ".git" || name == "runs" {
+				return filepath.SkipDir
+			}
+			dependency := name == "node_modules" || name == ".venv" || name == "target" || name == ".gradle" || (name == "bundle" && filepath.Base(filepath.Dir(path)) == "vendor")
+			if dependency {
+				trees = append(trees, relative)
+				return filepath.SkipDir
+			}
+			if depth >= 3 {
+				return filepath.SkipDir
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for _, relative := range trees {
+		source, target := filepath.Join(root, relative), filepath.Join(workdir, relative)
+		if info, err := os.Lstat(target); err == nil {
+			if info.Mode()&os.ModeSymlink == 0 {
+				continue
+			}
+			if err := os.Remove(target); err != nil {
+				return fmt.Errorf("replace legacy dependency symlink %s: %w", relative, err)
+			}
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		projected := target + ".vessica-projecting"
+		_ = os.RemoveAll(projected)
+		args := []string{"-a", "--reflink=auto", source, projected}
+		if runtime.GOOS != "linux" {
+			args = []string{"-R", source, projected}
+		}
+		if output, err := exec.CommandContext(ctx, "cp", args...).CombinedOutput(); err != nil {
+			_ = os.RemoveAll(projected)
+			return fmt.Errorf("project repository dependency tree %s: %w: %s", relative, err, strings.TrimSpace(string(output)))
+		}
+		if err := os.Rename(projected, target); err != nil {
+			_ = os.RemoveAll(projected)
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *Engine) prepareRunWorkdir(ctx context.Context, rec *state.Sandbox) (string, error) {
@@ -233,12 +288,13 @@ func (e *Engine) previewPort(workdir string) int {
 }
 
 func (e *Engine) sandboxImage(workdir string) string {
-	switch harness.Detect(workdir).Stack {
-	case "node":
+	stack := harness.Detect(workdir).Stack
+	switch {
+	case strings.Contains(stack, "node"):
 		return "node:24-bookworm"
-	case "go":
+	case strings.Contains(stack, "go"):
 		return sandbox.FallbackImage()
-	case "python":
+	case strings.Contains(stack, "python"):
 		return "python:3.13-bookworm"
 	default:
 		return sandbox.FallbackImage()

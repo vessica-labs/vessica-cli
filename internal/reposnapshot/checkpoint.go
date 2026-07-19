@@ -12,9 +12,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/vessica-labs/vessica-cli/internal/harness"
 )
 
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 const MarkerFile = ".vessica-repository-checkpoint.json"
 const CandidateFile = ".vessica-repository-checkpoint-candidate.json"
@@ -24,6 +27,8 @@ var dependencyFiles = []string{
 	"go.mod", "go.sum", "pyproject.toml", "uv.lock", "poetry.lock", "requirements.txt",
 	"Cargo.toml", "Cargo.lock", "Gemfile", "Gemfile.lock", "pom.xml", "build.gradle", "build.gradle.kts", "gradle.properties", "composer.json", "composer.lock",
 }
+
+var contractFiles = []string{".vessica/harness.yaml", "ARCHITECTURE.md", "TESTING.md"}
 
 // Checkpoint describes an immutable Railway disk snapshot containing a clean
 // repository checkout and its warmed dependency state. Secrets and Railway
@@ -40,17 +45,34 @@ type Checkpoint struct {
 	SpecificationFingerprint string        `json:"specification_fingerprint"`
 	Specification            Specification `json:"specification"`
 	PreparedAt               string        `json:"prepared_at"`
+	VerifiedAt               string        `json:"verified_at,omitempty"`
+	Verification             string        `json:"verification,omitempty"`
 }
 
 // Specification is the reviewable purpose-built snapshot contract inferred
 // on first installation. It records what the snapshot warmed without storing
 // credentials or environment values.
 type Specification struct {
+	Stack           string        `json:"stack"`
+	Stacks          []string      `json:"stacks,omitempty"`
+	PackageManager  string        `json:"package_manager,omitempty"`
+	PackageManagers []string      `json:"package_managers,omitempty"`
+	Manifests       []string      `json:"manifests,omitempty"`
+	RequiredTools   []string      `json:"required_tools,omitempty"`
+	WorkspaceRoots  []string      `json:"workspace_roots,omitempty"`
+	Environments    []Environment `json:"environments,omitempty"`
+}
+
+// Environment is one independently warmed dependency ecosystem within a
+// repository. Composite repositories carry one entry per workspace root and
+// stack instead of silently selecting the first manifest encountered.
+type Environment struct {
+	Root           string   `json:"root"`
 	Stack          string   `json:"stack"`
-	PackageManager string   `json:"package_manager,omitempty"`
+	PackageManager string   `json:"package_manager"`
 	Manifests      []string `json:"manifests,omitempty"`
 	RequiredTools  []string `json:"required_tools,omitempty"`
-	WorkspaceRoots []string `json:"workspace_roots,omitempty"`
+	InstallCommand string   `json:"install_command,omitempty"`
 }
 
 type repositoryMetadata struct {
@@ -69,7 +91,21 @@ func Name(canonicalRemote, commit, dependencyFingerprint, specificationFingerpri
 // Ready reports whether the snapshot can safely derive from the active worker
 // contract. A toolchain change intentionally invalidates repository snapshots.
 func (c Checkpoint) Ready(toolchainFingerprint string) bool {
-	return c.SchemaVersion == SchemaVersion && c.Status == "ready" && strings.TrimSpace(c.Name) != "" && c.ToolchainFingerprint == toolchainFingerprint
+	return c.SchemaVersion == SchemaVersion && c.Status == "ready" && strings.TrimSpace(c.Name) != "" && c.ToolchainFingerprint == toolchainFingerprint && strings.TrimSpace(c.VerifiedAt) != ""
+}
+
+// Candidate reports whether a checkpoint recipe can be promoted after the
+// run that produced it completes all validation and publication phases.
+func (c Checkpoint) Candidate(toolchainFingerprint string) bool {
+	return c.SchemaVersion == SchemaVersion && c.Status == "candidate" && strings.TrimSpace(c.Name) != "" && c.ToolchainFingerprint == toolchainFingerprint
+}
+
+// Promote marks a candidate as validated by a successful full run.
+func (c Checkpoint) Promote(verification string, now time.Time) Checkpoint {
+	c.Status = "ready"
+	c.Verification = strings.TrimSpace(verification)
+	c.VerifiedAt = now.UTC().Format(time.RFC3339Nano)
+	return c
 }
 
 // Parse extracts checkpoint state while tolerating unrelated repository
@@ -106,17 +142,22 @@ func Merge(raw string, checkpoint Checkpoint) (string, error) {
 	return string(encoded), nil
 }
 
-// DependencyFingerprint hashes only files that affect dependency resolution.
-// Source-only changes therefore retain the warmed dependency cache.
+// DependencyFingerprint hashes the bounded, recursive dependency and harness
+// contract. Source-only changes retain the warmed cache, while a nested
+// workspace lockfile or validation-command change invalidates it.
 func DependencyFingerprint(root string) (string, error) {
 	hash := sha256.New()
 	found := false
-	for _, name := range dependencyFiles {
-		path := filepath.Join(root, name)
-		file, err := os.Open(path)
-		if os.IsNotExist(err) {
+	files, err := RepositoryFiles(root)
+	if err != nil {
+		return "", err
+	}
+	for _, name := range files {
+		if !isContractFile(name) {
 			continue
 		}
+		path := filepath.Join(root, filepath.FromSlash(name))
+		file, err := os.Open(path)
 		if err != nil {
 			return "", err
 		}
@@ -134,75 +175,193 @@ func DependencyFingerprint(root string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-// DependencyInstallCommand returns a lockfile-aware cache refresh command for
-// the common repository stacks supported by purpose-built checkpoints.
+// DependencyInstallCommand returns the complete ordered install plan as one
+// shell command for compatibility with the worker lifecycle.
 func DependencyInstallCommand(root string) (stack, command string) {
-	exists := func(name string) bool { _, err := os.Stat(filepath.Join(root, name)); return err == nil }
-	switch {
-	case exists("package.json") && exists("pnpm-lock.yaml"):
-		return "node", "pnpm install --frozen-lockfile"
-	case exists("package.json") && exists("package-lock.json"):
-		return "node", "npm ci"
-	case exists("package.json") && exists("yarn.lock"):
-		return "node", "corepack yarn install --immutable"
-	case exists("package.json"):
-		return "node", "pnpm install --no-lockfile"
-	case exists("go.mod"):
-		return "go", "go mod download"
-	case exists("requirements.txt"):
-		return "python", "test -d .venv || python3 -m venv .venv; .venv/bin/pip install -r requirements.txt"
-	case exists("pyproject.toml"):
-		return "python", "test -d .venv || python3 -m venv .venv; .venv/bin/pip install -e ."
-	case exists("Cargo.toml"):
-		return "rust", "cargo fetch --locked"
-	case exists("Gemfile"):
-		return "ruby", "bundle config set path vendor/bundle && bundle install"
-	case exists("build.gradle"), exists("build.gradle.kts"):
-		return "java", "if test -x ./gradlew; then ./gradlew dependencies --no-daemon; else gradle dependencies --no-daemon; fi"
-	case exists("pom.xml"):
-		return "java", "mvn -q dependency:go-offline"
-	default:
+	environments, err := DependencyInstallPlan(root)
+	if err != nil || len(environments) == 0 {
 		return "generic", ""
 	}
+	var stacks, commands []string
+	seen := map[string]bool{}
+	for _, environment := range environments {
+		if !seen[environment.Stack] {
+			stacks, seen[environment.Stack] = append(stacks, environment.Stack), true
+		}
+		if strings.TrimSpace(environment.InstallCommand) != "" {
+			commands = append(commands, "("+environment.InstallCommand+")")
+		}
+	}
+	return strings.Join(stacks, "+"), strings.Join(commands, " && ")
+}
+
+// DependencyInstallPlan discovers conventional nested workspaces to bounded
+// depth and produces one lockfile-aware install step per ecosystem.
+func DependencyInstallPlan(root string) ([]Environment, error) {
+	files, err := RepositoryFiles(root)
+	if err != nil {
+		return nil, err
+	}
+	return inferEnvironments(files, root), nil
 }
 
 // InferSpecification derives a portable, secret-free snapshot recipe from the
 // repository inventory collected during orientation.
 func InferSpecification(files []string, stack string) (Specification, string) {
-	present := map[string]bool{}
-	for _, file := range files {
-		present[filepath.ToSlash(strings.TrimSpace(file))] = true
-	}
-	spec := Specification{Stack: stack, WorkspaceRoots: []string{"."}}
-	for _, name := range dependencyFiles {
-		if present[name] {
-			spec.Manifests = append(spec.Manifests, name)
+	environments := inferEnvironments(files, "")
+	spec := Specification{Stack: stack, Environments: environments}
+	seenStacks, seenManagers, seenTools, seenRoots := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for _, environment := range environments {
+		if !seenStacks[environment.Stack] {
+			spec.Stacks = append(spec.Stacks, environment.Stack)
+			seenStacks[environment.Stack] = true
+		}
+		if !seenManagers[environment.PackageManager] {
+			spec.PackageManagers = append(spec.PackageManagers, environment.PackageManager)
+			seenManagers[environment.PackageManager] = true
+		}
+		if !seenRoots[environment.Root] {
+			spec.WorkspaceRoots = append(spec.WorkspaceRoots, environment.Root)
+			seenRoots[environment.Root] = true
+		}
+		spec.Manifests = append(spec.Manifests, environment.Manifests...)
+		for _, tool := range environment.RequiredTools {
+			if !seenTools[tool] {
+				spec.RequiredTools = append(spec.RequiredTools, tool)
+				seenTools[tool] = true
+			}
 		}
 	}
-	switch {
-	case present["pnpm-lock.yaml"]:
-		spec.PackageManager, spec.RequiredTools = "pnpm", []string{"node", "pnpm"}
-	case present["package-lock.json"]:
-		spec.PackageManager, spec.RequiredTools = "npm", []string{"node", "npm"}
-	case present["yarn.lock"]:
-		spec.PackageManager, spec.RequiredTools = "yarn", []string{"node", "corepack"}
-	case present["go.mod"]:
-		spec.PackageManager, spec.RequiredTools = "go-modules", []string{"go"}
-	case present["requirements.txt"] || present["pyproject.toml"]:
-		spec.PackageManager, spec.RequiredTools = "python", []string{"python3", "pip"}
-	case present["Cargo.toml"]:
-		spec.PackageManager, spec.RequiredTools = "cargo", []string{"cargo", "rustc"}
-	case present["Gemfile"]:
-		spec.PackageManager, spec.RequiredTools = "bundler", []string{"ruby", "bundle"}
-	case present["pom.xml"]:
-		spec.PackageManager, spec.RequiredTools = "maven", []string{"java", "mvn"}
-	case present["build.gradle"] || present["build.gradle.kts"]:
-		spec.PackageManager, spec.RequiredTools = "gradle", []string{"java", "gradle"}
+	if len(spec.PackageManagers) == 1 {
+		spec.PackageManager = spec.PackageManagers[0]
+	}
+	if len(spec.Stacks) > 0 {
+		spec.Stack = strings.Join(spec.Stacks, "+")
 	}
 	encoded, _ := json.Marshal(spec)
 	sum := sha256.Sum256(encoded)
 	return spec, hex.EncodeToString(sum[:])
 }
+
+func inferEnvironments(files []string, root string) []Environment {
+	present := map[string]bool{}
+	roots := map[string]bool{}
+	for _, file := range files {
+		file = filepath.ToSlash(strings.TrimSpace(file))
+		present[file] = true
+		if isDependencyFile(filepath.Base(file)) {
+			dir := filepath.ToSlash(filepath.Dir(file))
+			if dir == "" {
+				dir = "."
+			}
+			roots[dir] = true
+		}
+	}
+	var orderedRoots []string
+	for dir := range roots {
+		orderedRoots = append(orderedRoots, dir)
+	}
+	sort.Strings(orderedRoots)
+	var environments []Environment
+	for _, dir := range orderedRoots {
+		at := func(name string) bool {
+			path := name
+			if dir != "." {
+				path = dir + "/" + name
+			}
+			return present[path]
+		}
+		prefix := func(command string) string {
+			if dir == "." {
+				return command
+			}
+			return "cd " + shellQuote(dir) + " && " + command + " && cd - >/dev/null"
+		}
+		manifest := func(names ...string) []string {
+			var out []string
+			for _, name := range names {
+				if at(name) {
+					if dir == "." {
+						out = append(out, name)
+					} else {
+						out = append(out, dir+"/"+name)
+					}
+				}
+			}
+			return out
+		}
+		absolute := root
+		if absolute != "" && dir != "." {
+			absolute = filepath.Join(root, filepath.FromSlash(dir))
+		}
+		if at("package.json") {
+			manager := "npm"
+			if absolute != "" {
+				manager = harness.NodePackageManager(absolute)
+			} else if at("pnpm-lock.yaml") {
+				manager = "pnpm"
+			} else if at("yarn.lock") {
+				manager = "yarn"
+			}
+			command, tools := "npm install --no-package-lock", []string{"node", "npm"}
+			switch manager {
+			case "pnpm":
+				command, tools = "pnpm install --frozen-lockfile", []string{"node", "pnpm"}
+			case "yarn":
+				command, tools = "corepack yarn install --immutable", []string{"node", "corepack"}
+			default:
+				if at("package-lock.json") {
+					command = "npm ci"
+				}
+			}
+			environments = append(environments, Environment{Root: dir, Stack: "node", PackageManager: manager, Manifests: manifest("package.json", "pnpm-lock.yaml", "package-lock.json", "yarn.lock"), RequiredTools: tools, InstallCommand: prefix(command)})
+		}
+		if at("go.mod") {
+			environments = append(environments, Environment{Root: dir, Stack: "go", PackageManager: "go-modules", Manifests: manifest("go.mod", "go.sum"), RequiredTools: []string{"go"}, InstallCommand: prefix("go mod download")})
+		}
+		if at("requirements.txt") || at("pyproject.toml") {
+			command := "test -d .venv || python3 -m venv .venv; .venv/bin/pip install -e ."
+			if at("requirements.txt") {
+				command = "test -d .venv || python3 -m venv .venv; .venv/bin/pip install -r requirements.txt"
+			}
+			environments = append(environments, Environment{Root: dir, Stack: "python", PackageManager: "python", Manifests: manifest("pyproject.toml", "uv.lock", "poetry.lock", "requirements.txt"), RequiredTools: []string{"python3", "pip"}, InstallCommand: prefix(command)})
+		}
+		if at("Cargo.toml") {
+			environments = append(environments, Environment{Root: dir, Stack: "rust", PackageManager: "cargo", Manifests: manifest("Cargo.toml", "Cargo.lock"), RequiredTools: []string{"cargo", "rustc"}, InstallCommand: prefix("cargo fetch --locked")})
+		}
+		if at("Gemfile") {
+			environments = append(environments, Environment{Root: dir, Stack: "ruby", PackageManager: "bundler", Manifests: manifest("Gemfile", "Gemfile.lock"), RequiredTools: []string{"ruby", "bundle"}, InstallCommand: prefix("bundle config set path vendor/bundle && bundle install")})
+		}
+		if at("pom.xml") {
+			environments = append(environments, Environment{Root: dir, Stack: "java", PackageManager: "maven", Manifests: manifest("pom.xml"), RequiredTools: []string{"java", "mvn"}, InstallCommand: prefix("mvn -q dependency:go-offline")})
+		} else if at("build.gradle") || at("build.gradle.kts") {
+			environments = append(environments, Environment{Root: dir, Stack: "java", PackageManager: "gradle", Manifests: manifest("build.gradle", "build.gradle.kts", "gradle.properties"), RequiredTools: []string{"java", "gradle"}, InstallCommand: prefix("if test -x ./gradlew; then ./gradlew dependencies --no-daemon; else gradle dependencies --no-daemon; fi")})
+		}
+	}
+	return environments
+}
+
+func isDependencyFile(name string) bool {
+	for _, candidate := range dependencyFiles {
+		if name == candidate {
+			return true
+		}
+	}
+	return false
+}
+func isContractFile(path string) bool {
+	if isDependencyFile(filepath.Base(path)) {
+		return true
+	}
+	path = filepath.ToSlash(path)
+	for _, candidate := range contractFiles {
+		if path == candidate {
+			return true
+		}
+	}
+	return false
+}
+func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" }
 
 // RepositoryFiles returns the bounded inventory used by the snapshot spec.
 func RepositoryFiles(root string) ([]string, error) {

@@ -20,6 +20,105 @@ type runMutationResponse struct {
 	Job *state.Job `json:"job,omitempty"`
 }
 
+func (s *Server) handlePromptRun(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		writeAPIError(w, http.StatusBadRequest, "idempotency_required", "Idempotency-Key header is required")
+		return
+	}
+	var request struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&request); err != nil || strings.TrimSpace(request.Prompt) == "" || len(request.Prompt) > 4000 {
+		writeAPIError(w, http.StatusBadRequest, "invalid_prompt", "prompt must contain 1 to 4,000 characters")
+		return
+	}
+	runRecord, err := s.authorizeRepositoryRun(r)
+	if err != nil {
+		writeAPIError(w, http.StatusNotFound, "run_not_found", err.Error())
+		return
+	}
+	idempotencyKey := "prompt:" + runRecord.ID + ":" + key
+	if raw, ok, err := s.DB.GetIdempotency(r.Context(), idempotencyKey); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "idempotency_read_failed", err.Error())
+		return
+	} else if ok {
+		var response map[string]any
+		if json.Unmarshal(raw, &response) != nil {
+			writeAPIError(w, http.StatusInternalServerError, "idempotency_decode_failed", "stored prompt result is invalid")
+			return
+		}
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
+	if runRecord.Status != "completed" || runRecord.PRMode == "merged" || runRecord.PRMode == "rolled_back" {
+		writeAPIError(w, http.StatusConflict, "run_not_refinable", "run is not available for refinement")
+		return
+	}
+	prompter, ok := s.Launcher.(hostedRunPrompter)
+	if !ok {
+		writeAPIError(w, http.StatusNotImplemented, "prompt_unavailable", "launcher cannot prompt retained sandboxes")
+		return
+	}
+	result, err := prompter.Prompt(r.Context(), runRecord, strings.TrimSpace(request.Prompt))
+	if err != nil {
+		writeAPIError(w, http.StatusBadGateway, "prompt_failed", err.Error())
+		return
+	}
+	if err := s.DB.PutIdempotency(r.Context(), idempotencyKey, result); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "idempotency_write_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleRollbackRun(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		writeAPIError(w, http.StatusBadRequest, "idempotency_required", "Idempotency-Key header is required")
+		return
+	}
+	runRecord, err := s.authorizeRepositoryRun(r)
+	if err != nil {
+		writeAPIError(w, http.StatusNotFound, "run_not_found", err.Error())
+		return
+	}
+	idempotencyKey := "rollback:" + runRecord.ID + ":" + key
+	if raw, ok, readErr := s.DB.GetIdempotency(r.Context(), idempotencyKey); readErr != nil {
+		writeAPIError(w, http.StatusInternalServerError, "idempotency_read_failed", readErr.Error())
+		return
+	} else if ok {
+		var response map[string]any
+		if json.Unmarshal(raw, &response) != nil {
+			writeAPIError(w, http.StatusInternalServerError, "idempotency_decode_failed", "stored rollback result is invalid")
+			return
+		}
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
+	if err := s.rollbackRun(r.Context(), r.PathValue("run_id")); err != nil {
+		writeAPIError(w, http.StatusConflict, "rollback_failed", err.Error())
+		return
+	}
+	response := map[string]any{"run_id": r.PathValue("run_id"), "rolled_back": true}
+	if err := s.DB.PutIdempotency(r.Context(), idempotencyKey, response); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "idempotency_write_failed", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) authorizeRepositoryRun(r *http.Request) (*state.Run, error) {
+	runRecord, err := s.DB.GetRun(r.Context(), r.PathValue("run_id"))
+	if err != nil {
+		return nil, err
+	}
+	if repositoryID := strings.TrimSpace(r.URL.Query().Get("repository_id")); repositoryID != "" && runRecord.RepositoryID != repositoryID {
+		return nil, errors.New("run not found in repository")
+	}
+	return runRecord, nil
+}
+
 func (s *Server) handleRotateCredential(w http.ResponseWriter, r *http.Request) {
 	if s.Credentials == nil {
 		writeAPIError(w, http.StatusServiceUnavailable, "credential_rotation_unavailable", "hosted credential storage is not configured")
