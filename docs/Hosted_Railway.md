@@ -59,6 +59,23 @@ stage and recovery action.
 
 The control plane receives only `VES_CONTROL_DATABASE_URL`. The knowledge service receives only `VES_KNOWLEDGE_DATABASE_URL`. No service receives the other store's URL, and there is no generic database variable that can silently point a process at the wrong store.
 
+## Warm Snapshot Lifecycle
+
+A **toolchain checkpoint** is the fingerprinted worker base: its pinned runtime,
+tools, and runtime attestation are reusable across repositories. A
+**repository checkpoint** is a derived, immutable snapshot containing a clean
+repository checkout, prepared dependencies, and warmed package caches for one
+repository, commit, dependency fingerprint, and toolchain fingerprint.
+
+Before a warm fork is used, Vessica verifies its checkpoint attestation; a
+mismatch falls back to full verification and, when necessary, the compatible
+toolchain checkpoint. A fresh run from a repository checkpoint fetches only the
+Git delta and refreshes dependencies only when dependency manifests changed.
+After a successful delta-based run, Vessica can asynchronously fork and scrub
+the sandbox to capture a newer repository checkpoint. It advances the mapped
+generation only after the replacement is verified, retaining the known-good
+checkpoint as the fallback until then.
+
 ## OAuth Application Setup
 
 The official Vessica Railway and Linear client IDs are compiled into the CLI, so installed releases require no OAuth configuration. Client IDs are public; client secrets are never embedded. Forks and development builds can override the defaults with `VES_RAILWAY_OAUTH_CLIENT_ID` and `VES_LINEAR_OAUTH_CLIENT_ID`.
