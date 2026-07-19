@@ -308,38 +308,6 @@ func (db *DB) ListSandboxesForRun(ctx context.Context, runID string) ([]Sandbox,
 	return out, rows.Err()
 }
 
-func (db *DB) AppendEvent(ctx context.Context, runID, sandboxID, typ string, payload any) (*Event, error) {
-	tx, err := db.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	seq, err := db.nextSequenceTx(ctx, tx, runID)
-	if err != nil {
-		return nil, err
-	}
-	b, _ := json.Marshal(payload)
-	e := &Event{
-		ID:          id.New(id.Event),
-		RunID:       runID,
-		SandboxID:   sandboxID,
-		Seq:         seq,
-		Type:        typ,
-		PayloadJSON: string(b),
-		CreatedAt:   Now(),
-	}
-	_, err = tx.ExecContext(ctx, db.Rebind(`INSERT INTO events(id, run_id, sandbox_id, seq, type, payload_json, created_at) VALUES (?,?,?,?,?,?,?)`),
-		e.ID, nullStr(e.RunID), nullStr(e.SandboxID), e.Seq, e.Type, e.PayloadJSON, e.CreatedAt)
-	if err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return e, nil
-}
-
 func (db *DB) nextSequenceTx(ctx context.Context, tx *sql.Tx, scope string) (int64, error) {
 	var seq int64
 	query := db.Rebind(`INSERT INTO event_sequences(scope,last_seq) VALUES(?,1)

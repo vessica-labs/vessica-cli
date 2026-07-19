@@ -194,11 +194,17 @@ func TestCoderDirectPromptKeepsGlobalPackageManagerRule(t *testing.T) {
 func TestScenarioSteps(t *testing.T) {
 	steps := scenarioSteps(`# Test Scenarios
 
-1. Happy path loads
-2. Validation errors handled
-- Regression suite green
+1. A visitor can navigate from the call to action to registration.
+2. Valid registration creates an account and establishes a secure session.
+- [ ] Logout denies later access.
+- PostgreSQL is authoritative in production.
+
+Supporting prose should not become a browser step.
 `)
-	if len(steps) != 3 {
+	if len(steps) != 4 {
 		t.Fatalf("steps=%#v", steps)
+	}
+	if steps[0] != "A visitor can navigate from the call to action to registration." || steps[3] != "PostgreSQL is authoritative in production." {
+		t.Fatalf("unexpected parsed steps=%#v", steps)
 	}
 }

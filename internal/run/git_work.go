@@ -103,22 +103,34 @@ func scenarioSteps(markdown string) []string {
 	var steps []string
 	for _, line := range strings.Split(markdown, "\n") {
 		s := strings.TrimSpace(line)
-		s = strings.TrimPrefix(s, "- [ ]")
-		s = strings.TrimPrefix(s, "- [x]")
-		s = strings.TrimPrefix(s, "-")
-		if len(s) > 2 && s[1] == '.' && s[0] >= '0' && s[0] <= '9' {
-			s = strings.TrimSpace(s[2:])
+		listed := false
+		for _, prefix := range []string{"- [ ]", "- [x]", "- [X]", "- ", "* "} {
+			if strings.HasPrefix(s, prefix) {
+				s = strings.TrimSpace(strings.TrimPrefix(s, prefix))
+				listed = true
+				break
+			}
 		}
-		if len(s) > 3 && s[2] == '.' && s[0] >= '0' && s[0] <= '9' && s[1] >= '0' && s[1] <= '9' {
-			s = strings.TrimSpace(s[3:])
+		if !listed {
+			dot := strings.IndexByte(s, '.')
+			if dot > 0 && dot <= 3 {
+				numbered := true
+				for _, char := range s[:dot] {
+					if char < '0' || char > '9' {
+						numbered = false
+						break
+					}
+				}
+				if numbered && len(s) > dot+1 && (s[dot+1] == ' ' || s[dot+1] == '\t') {
+					s = strings.TrimSpace(s[dot+1:])
+					listed = true
+				}
+			}
 		}
-		if s == "" || strings.HasPrefix(s, "#") {
+		if !listed || s == "" {
 			continue
 		}
-		lower := strings.ToLower(s)
-		if strings.Contains(lower, "scenario") || strings.Contains(lower, "path") || strings.Contains(lower, "works") || strings.Contains(lower, "loads") || strings.Contains(lower, "handled") || strings.Contains(lower, "green") || strings.Contains(lower, "regression") {
-			steps = append(steps, s)
-		}
+		steps = append(steps, s)
 	}
 	return steps
 }
