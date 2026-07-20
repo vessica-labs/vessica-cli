@@ -94,15 +94,19 @@ Use the Vessica CLI for durable project state.
 Engine-managed runs:
 - When invoked by `+"`ves run epic`"+`, Vessica owns ticket lifecycle and run state.
 - Do not run `+"`ves ticket claim`"+`, `+"`ves ticket close`"+`, `+"`ves ticket heartbeat`"+`, `+"`ves ticket release`"+`, or `+"`ves memory add`"+` from inside the coding task.
-- Implement the requested change, run relevant local checks, and return a concise evidence summary.
+- Implement the requested change, run focused local checks, and return a concise evidence summary. The engine owns integration and repository-wide build, lint, test, preview, and receipt gates.
 
 Standalone/manual agent commands:
+- ves capabilities --json
 - ves prime --json
+- ves memory retrieve "<query>" --rerank auto --json
 - ves ticket ready --json
 - ves ticket claim --next --epic <epic_id> --agent <agent_id> --lease 45m --json
 - ves memory add --stdin --json
 - ves ticket close <ticket_id> --agent <agent_id> --evidence <receipt_id> --json
 
+Parse vessica.cli/v1 JSON and vessica.stream/v1 JSONL; do not scrape human output.
+In a hosted workspace, do not create a writable local fallback during an outage.
 Do not create ad hoc TODO/plan/memory files when Vessica is initialized.
 `, runner)
 }

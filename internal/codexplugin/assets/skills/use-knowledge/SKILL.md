@@ -22,7 +22,7 @@ Use these JSON-only workflows:
 - Durable understanding: `ves memory retrieve "<query>" --limit 5 --rerank auto --json`, `ves memory get <id> --json`, and confirmed `memory add|update|supersede|archive` mutations. Keep `ves memory search` for administrative lexical inspection. Create an `instruction` only when the user explicitly requests durable guidance.
 - Work history: query for the task, run, epic, ticket, PR, receipt, or commit. Cite the returned artifact IDs, external references, and provenance in the answer.
 - Embeddings: quickstart is healthy in lexical mode. Enable semantic retrieval later with `ves knowledge embeddings enable --provider openai --api-key-env <name> --yes`, and confirm before changing retrieval configuration.
-- Reranking: leave it disabled unless benchmark promotion gates pass. Preview with `ves knowledge reranking enable --provider openai --api-key-env <name> --model gpt-5.6-luna --dry-run --json`; enabling requires separate confirmation because readable candidate text is sent to the provider.
+- Reranking: leave it disabled by default. Retrieval v2 cleared the current quality gate without a model reranker. Preview with `ves knowledge reranking enable --provider openai --api-key-env <name> --model gpt-5.6-luna --dry-run --json`; enabling requires separate confirmation because readable candidate text is sent to the provider.
 
 Treat `retrieval_mode: lexical` and `embedding_state: not_configured` as a healthy hosted state. Never fall back to local writes on API failure. Report typed errors and preserve the hosted authority.
 

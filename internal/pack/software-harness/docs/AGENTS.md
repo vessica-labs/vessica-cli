@@ -4,7 +4,7 @@ This repository is managed with Vessica (`ves`).
 
 ## Agent rules
 
-1. Prefer `ves` for memory, tickets, and context.
+1. Prefer `ves` for authoritative artifacts, durable memory, tickets, and context.
 2. Do not invent ad hoc TODO/plan files when Vessica state exists.
 3. Follow ARCHITECTURE.md, DESIGN.md, TESTING.md, DEPLOY.md, SECURITY.md.
 4. Respect the current execution mode.
@@ -22,7 +22,7 @@ Do not run lifecycle commands from inside the coding task:
 - `ves ticket release`
 - `ves memory add`
 
-Implement the requested change, run relevant local checks, and return a concise evidence summary. The Vessica engine will commit, merge, close tickets, create receipts, and update memory/state after the runner returns.
+Implement the requested change, run relevant local checks, and return a concise evidence summary. The Vessica engine will integrate work, run repository-wide build/lint/test/preview gates, commit, merge, close tickets, create receipts, and update memory/state after the runner returns.
 
 ## Standalone/manual agents
 
@@ -33,8 +33,10 @@ manual ticket management, use Vessica ticket lifecycle commands.
 
 ```bash
 ves prime --json
+ves capabilities --json
 ves ticket ready --json
 ves ticket claim --next --epic <epic_id> --agent <agent_id> --lease 45m --json
+ves memory retrieve "<query>" --rerank auto --json
 ves memory add --stdin --json
 ves ticket close <ticket_id> --agent <agent_id> --evidence <receipt_id> --json
 ```

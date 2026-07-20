@@ -5,16 +5,27 @@ and architecture records.
 
 ## Current user and operator guidance
 
-- [`../README.md`](../README.md): product overview, quickstart, capabilities,
+- [Root `README.md`](https://github.com/vessica-labs/vessica-cli/blob/main/README.md):
+  product overview, quickstart, capabilities,
   command map, integrations, security, and current release status.
 - [`Vessica_Operator_Guide.md`](Vessica_Operator_Guide.md): safe CLI workflows,
-  hosted setup, knowledge, Linear, recovery, and troubleshooting.
+  hosted setup, agent/plugin use, knowledge, Linear, recovery, and
+  troubleshooting.
+- [`CLI_Reference.md`](CLI_Reference.md): complete public command inventory,
+  JSON/confirmation contract, aliases, current boundaries, and hidden-role
+  distinction.
+- [`Codex_Plugin.md`](Codex_Plugin.md): plugin installation/versioning, skill
+  routing, confirmation and authority boundaries, knowledge restoration, run
+  review, and troubleshooting.
 - [`Hosted_Railway.md`](Hosted_Railway.md): hosted topology, provisioning,
   OAuth, operations, previews, and secrets.
 - [`Vessica_stream_v1.md`](Vessica_stream_v1.md): stable JSONL streaming
   protocol and resume semantics.
 - [`Knowledge_Layer_Followups.md`](Knowledge_Layer_Followups.md): current shipped
   state and remaining knowledge/operations gaps.
+- [`Repository_Checkpoint_Acceleration_Plan.md`](Repository_Checkpoint_Acceleration_Plan.md):
+  implemented repository-checkpoint architecture, production treatment,
+  telemetry, security contract, and remaining optimization work.
 
 Repository contributors should also read the root `ARCHITECTURE.md`,
 `SECURITY.md`, `TESTING.md`, `DEPLOY.md`, `DESIGN.md`, and `AGENTS.md`.

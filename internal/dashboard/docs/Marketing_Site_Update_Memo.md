@@ -1,7 +1,7 @@
 # Memo: Vessica marketing-site update input
 
-**Date:** 2026-07-16
-**Product baseline:** Vessica CLI 0.2.6
+**Date:** 2026-07-20
+**Product baseline:** Vessica CLI 0.2.45
 **Purpose:** Source material for a concise marketing-site brief. This memo
 describes capabilities available today and keeps roadmap ideas separate.
 
@@ -36,12 +36,16 @@ keeping the human approval boundary explicit.
 | Durable coordination | Atomic claims, leases, heartbeats, dependencies, waves, and resumable phases reduce collisions and make interrupted work recoverable. |
 | Isolated Railway workers | Coding and repository commands run as an unprivileged user with an allowlisted environment and protected Git metadata, limiting exposure of control-plane credentials and privileged hooks. |
 | Pinned worker toolchain | A fingerprinted contract for Codex, Node, Go, pnpm, Playwright, GitHub CLI, and common agent utilities makes cloud runs more reproducible and diagnoses missing tools before work begins. |
+| Verified multi-stack repository checkpoints | Vessica prepares every detected ecosystem and nested workspace once, reuses dependencies for source-only changes, refreshes changed manifests before validation, and promotes a scrubbed generation only after a successful run. |
+| Engine-owned integration gates | Coding agents focus on their assigned changes while Vessica owns repository-wide build, lint, architecture, test, preview, and receipt truth on the integrated branch. |
 | Live previews and retained sandboxes | Reviewers can evaluate the running change, request focused refinements, and retain the environment long enough to resolve feedback without restarting the entire workflow. |
 | Draft PR and explicit approval | Vessica can automate through validation and review preparation while merge remains a deliberate, head-SHA-protected human decision. |
 | Embedded dashboard and streams | Developers and leads can follow live agent messages, phases, sandboxes, evidence, knowledge, access, and repositories through a browser, TUI, human logs, or stable JSONL. |
 | Receipts and persisted result truth | The final outcome includes artifacts, validation evidence, commits, preview and PR references, and persisted failure state—not merely success-shaped terminal output. |
 | Durable knowledge with provenance | Vessica retrieves active artifacts, decisions, facts, instructions, and prior work with source references and ranking explanations, reducing repeated discovery and context loss. |
+| Ambiguity-safe retrieval v2 | Entity constraints, lifecycle/temporal filtering, typed omissions, and a hard ambiguity stop restore the right project or persona without silently applying the nearest match. |
 | Zero-key lexical retrieval | Useful hosted knowledge works immediately without requiring an embeddings API key; semantic-hybrid retrieval is an optional, reversible upgrade funded by the user. |
+| First-party Codex plugin | Conversational setup, workflow choice, epic creation, monitoring, refinement, knowledge, and evidence review all use a checksum-matched `ves` binary and preserve explicit confirmation boundaries. |
 | Focused Linear integration | Teams can select a Linear project by ID, slug, or name, project Vessica-created work there, and switch the default project without rebuilding the workspace or knowledge service. |
 | Recovery-oriented operations | Stage-based onboarding, durable resume, typed errors, attachment-only forget, locked migrations, and readiness verification make partial setup and deployment failures recoverable. |
 
@@ -70,6 +74,14 @@ describe these as product qualities, not as a changelog dump:
   locked and separated from service startup, pools are bounded, vulnerable
   dependencies were upgraded, and duplicate control-plane replicas are rejected
   until scale-out guarantees are complete.
+- **Warm without sacrificing truth.** Repository checkpoints, dependency
+  projection, bounded context packets, and overlapped gates shorten the critical
+  path while clean promotion, persisted failure truth, and full post-repair
+  reruns preserve correctness.
+- **Memory restoration that refuses to guess.** Retrieval v2 constrains named
+  subjects, filters stale or wrong-scope candidates, and stops on ambiguous
+  identities. The checked-in `0.2.45` treatment cleared the current quality gate
+  without model reranking.
 
 ## Suggested site narrative
 
@@ -102,6 +114,9 @@ describe these as product qualities, not as a changelog dump:
   evidence, preview and PR references, and a receipt.
 - Harness versions are pinned to immutable Git commit SHAs and can come from a
   team's own fork.
+- A checked-in cold-chat retrieval treatment scored 97/100 and reduced
+  comparable Codex input tokens by 37.6%; present these as treatment results,
+  not universal production guarantees.
 
 ## Claims to avoid or qualify
 

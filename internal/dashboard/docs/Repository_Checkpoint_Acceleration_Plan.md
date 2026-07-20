@@ -35,7 +35,7 @@ run request
   -> refresh dependencies only if dependency manifests changed
   -> consume the one-time checkpoint marker
   -> create an isolated integration Git worktree
-  -> link immutable dependencies directly from the repository snapshot
+  -> project dependency trees into each worktree with copy-on-write copies
   -> execute the Vessica phase graph
 ```
 
@@ -83,9 +83,11 @@ run branch and uncommitted preview state.
 - Fetch only the Git delta and preserve installed dependency directories.
 - Refresh dependencies only when the manifest fingerprint changes.
 - Create an isolated Git worktree from the checkpoint checkout without a
-  second clone. Link the snapshot's immutable `node_modules` and other prepared
-  dependency trees directly into it, with package installation retained only
-  as a stale/missing-snapshot fallback.
+  second clone. Project the snapshot's `node_modules`, `.venv`, `target`,
+  `.gradle`, and Bundler trees into each worktree with reflink-capable copies,
+  with offline reconstruction and package installation retained as
+  stale/missing-snapshot fallbacks. Cross-worktree dependency symlinks are
+  forbidden.
 - Reuse a complete committed engineering pack or the CLI's embedded release
   pack instead of cloning the pack repository on each run.
 
@@ -162,8 +164,9 @@ The post-benchmark runtime pass now includes:
    `safe.directory` for the unprivileged agent.
 4. Coders receive focused validation guidance and leave repository-wide gates to
    the engine.
-5. Railway worktrees link the immutable dependency tree from the repository
-   snapshot; reflink/offline/normal installs remain compatibility fallbacks.
+5. Railway ticket worktrees receive independent copy-on-write projections of
+   prepared dependency trees; offline reconstruction and normal installs remain
+   compatibility fallbacks.
 6. Engine-managed Codex calls consume a pre-attested MCP inventory, disable
    configured MCP servers by default, and use an explicit allowlist for tasks
    that need them.

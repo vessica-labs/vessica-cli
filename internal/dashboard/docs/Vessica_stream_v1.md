@@ -19,6 +19,9 @@ ves run watch <run_id> --jsonl --after-seq <seq>
 ```
 
 Use ordinary `--json` for non-streaming commands such as `epic add`, `ticket list`, and `run view`.
+Use `ves run artifacts <run_id> --json` and
+`ves run receipt <run_id> --json` for final evidence rather than expanding every
+heavy payload in the live stream.
 
 ## Transport Contract
 
@@ -30,7 +33,7 @@ Use ordinary `--json` for non-streaming commands such as `epic add`, `ticket lis
 - Consumers must retain `run_id` and the greatest processed `seq` for reconnection.
 - Consumers must ignore unknown fields and unknown event types for forward compatibility.
 - A terminal `result` record contains `ok`, the final run in `data`, and an optional structured `error`.
-- Process exit status remains authoritative for command execution; `result.ok` describes the workflow outcome.
+- Process exit status remains authoritative for command execution; `result.ok` and the persisted run status describe the workflow outcome. A preceding success-shaped `agent.message` never overrides a failed terminal record.
 - Heavy payload fields such as prompts, commands, patch bodies, and command output are omitted from the live protocol and named in `payload.collapsed_fields`.
 - `raw_log_path` and byte offsets remain available on agent events; use `run logs --detail` or `run logs --raw` only when detailed inspection is necessary.
 
@@ -60,7 +63,12 @@ Use ordinary `--json` for non-streaming commands such as `epic add`, `ticket lis
 }
 ```
 
-Important event types include `run.started`, `run.phase.started`, `agent.prompt`, `agent.activity`, `agent.message`, `agent.usage`, `error`, and `run.completed`. The set is extensible.
+Important event types include `run.started`, `run.phase.started`,
+`run.infrastructure.stage`, `agent.prompt`, `agent.activity`, `agent.message`,
+`agent.usage`, `error`, and `run.completed`. Infrastructure stages report
+checkpoint resolution, worker readiness, repository synchronization, dependency
+projection/refresh, exact Git trust, bounded context packets, and MCP policy.
+The set is extensible.
 
 ## Result Record
 
@@ -90,3 +98,4 @@ On failure, `ok` is false and `error` has stable `code` and human-readable `mess
 4. Record `run_id` from the first event and update the checkpoint from each `seq`.
 5. If the tool process is interrupted, reconnect with `run watch --jsonl --after-seq`.
 6. Treat prompts, raw logs, and detailed command output as opt-in inspection data rather than normal conversation output.
+7. On terminal output, reconcile against `ves run view`/`ves run receipt`; do not infer success from the last conversational message.

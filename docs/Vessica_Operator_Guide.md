@@ -64,6 +64,22 @@ ves toolchain verify --profile workstation --json
 
 Use `--dry-run --json` before mutations. Do not scrape human output or echo secret values into arguments.
 
+## Codex plugin
+
+Install or update the first-party plugin and managed `AGENTS.md` guidance with:
+
+```bash
+ves setup codex --plugin
+ves setup codex --check --json
+```
+
+The plugin is a guidance and checksum-verified CLI-bootstrap layer. It routes
+setup, workflow choice, epic creation, dispatch, monitoring, refinement,
+evidence review, harness operations, knowledge, and troubleshooting through the
+version-matched `ves` binary. It does not contain Vessica lifecycle logic or an
+MCP runtime. See the [Codex plugin guide](Codex_Plugin.md) for skill routing and
+confirmation boundaries.
+
 ## Knowledge
 
 ```bash
@@ -119,7 +135,7 @@ Monitor and recover:
 
 ```bash
 ves run view <run_id> --json
-ves run watch <run_id> --json
+ves run watch <run_id> --jsonl --after-seq <last-seq>
 ves run resume <run_id> --yes --idempotency-key resume-<unique> --json
 ```
 
@@ -127,14 +143,23 @@ Review evidence before approval:
 
 ```bash
 ves receipt view <receipt_id> --json
+ves run artifacts <run_id> --json
+ves run receipt <run_id> --json
+ves run prompt <run_id> --file refinement.md --dry-run --json
 ves run approve <run_id> --dry-run --json
 ves run approve <run_id> --yes --idempotency-key approve-<unique> --json
 ves run rollback <run_id> --yes --idempotency-key rollback-<unique> --json
 ```
 
+Persisted run status and receipt truth override success-shaped agent chatter.
+Refinement is valid only for an inactive retained sandbox and requires its own
+confirmation before `ves run prompt` is repeated with `--yes` and an
+idempotency key. `ves run rollback` closes the run pull request and destroys its
+preview; it is not an alias for cancel.
+
 Meaningful epic, run, ticket, blocker, follow-up, refinement, receipt, PR, and commit events become queryable episode memories. Heartbeats and polling noise do not.
 
-## Optional semantic retrieval
+## Optional retrieval features
 
 No embeddings credential is used during quickstart. To opt in later, place the provider key in a local environment variable and name that variable to Vessica:
 
@@ -154,7 +179,11 @@ ves knowledge reranking enable --provider openai --api-key-env OPENAI_API_KEY --
 ves knowledge reranking disable --yes
 ```
 
-Promote it only after the retrieval benchmark gate passes. Any provider timeout, rate limit, refusal, schema violation, or unknown ID falls back to deterministic hybrid order.
+Retrieval v2 cleared the current quality gate without model reranking, so it
+remains disabled by default. Any provider timeout, rate limit, refusal, schema
+violation, or unknown ID falls back to deterministic hybrid order.
+
+## Hosted operations
 
 Keep the Railway control-plane service at one replica. This release intentionally rejects a second replica from the same deployment with a database-backed singleton lease. Worker sandboxes remain independently scalable; control-plane scale-out is deferred until preview coordination, scheduled loops, and all remaining process-local ownership are distributed.
 
@@ -168,6 +197,20 @@ ves railway preview-session smoke
 ```
 
 The first command prints a short-lived Railway device-authorization link. The control plane then generates and registers its forwarding key, encrypts the CLI session and key in Postgres, and restores them automatically after deployments. Repeat authorization only when Railway revokes the grant or refresh validation fails. If only the forwarding key was registered to the wrong Railway key scope, use `repair-key`; it rotates the key without repeating device authorization.
+
+Inspect the deployment and upgrade only the hosted knowledge service when an
+explicit release change is intended:
+
+```bash
+ves railway status --json
+ves railway logs --lines 200
+ves knowledge server upgrade --dry-run --json
+ves knowledge server upgrade --yes --idempotency-key knowledge-upgrade-<unique> --json
+```
+
+The upgrade command changes the knowledge-service image only, waits for the
+deployment and readiness result, and preserves the control-plane deployment.
+Do not use it as a general hosted repair command.
 
 Optional Linear setup is separate:
 
@@ -234,9 +277,11 @@ so a toolchain change creates a new checkpoint instead of silently mutating an
 existing one.
 
 Each attached repository also has a purpose-built derived checkpoint. First
-installation records its stack, package manager, manifests, workspace roots,
-and required tools as a reviewable specification. Run `ves up --refresh --yes`
-to force an immediate refresh. Normal runs fetch the default-branch delta and,
+installation records every detected stack, authoritative package manager,
+nested manifest, workspace root, required tool, and install recipe as a
+reviewable specification. Run `ves up --refresh --dry-run --json`, then confirm
+`ves up --refresh --yes`, to force an immediate refresh. Normal runs fetch the
+default-branch delta and,
 after success, asynchronously fork and scrub the sandbox to capture the newer
 repository checkpoint. The active run does not wait for capture. Run receipts
 include `infrastructure` spans and `wall_elapsed` so operators can separate
@@ -244,8 +289,10 @@ provisioning time from model and phase execution.
 
 For ticket worktrees, the worker reports `git_worktree_trust`,
 `worktree_dependencies`, and `coder_context_packet` infrastructure stages.
-`worktree_dependencies.mode` is normally `snapshot_symlink`; `reflink`,
-`offline_install`, and `install` are compatibility fallbacks. `runtime_integrity`
+`worktree_dependencies.mode` reports the snapshot projection path;
+copy-on-write reflink, offline reconstruction, and ordinary installation are
+stale/missing-snapshot fallbacks. Cross-worktree dependency symlinks are not
+allowed. `runtime_integrity`
 reports `snapshot_attestation` or `full_verify`, and `worker_download` reports
 `snapshot_binary` or `verified_download`. The
 `cache_hit` identifies paths that avoided a networked install. Engine-managed

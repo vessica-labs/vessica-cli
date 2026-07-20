@@ -45,11 +45,24 @@ Provisioning creates only one managed Postgres service. It waits for the service
 
 The remote repository-orientation step also captures an immutable Railway disk
 checkpoint containing `/workspace/repo`, installed dependencies, and warmed
-package caches. Its name is fingerprinted by repository, commit, dependency
-manifests, and worker toolchain. Runs prefer this checkpoint and fall back to the
-generic toolchain checkpoint when repository metadata is absent or incompatible.
+package caches. Its reviewable contract records every detected Node, Go,
+Python, Rust, Ruby, Java, or generic stack; authoritative package manager;
+nested manifest; workspace root; required tool; and install recipe. Its name is
+fingerprinted by repository, commit, dependency and harness manifests, and
+worker toolchain. Runs prefer this checkpoint and fall back to the generic
+toolchain checkpoint when repository metadata is absent or incompatible.
 Variables, credentials, and private-network mode are always supplied at sandbox
 creation and are not part of either checkpoint.
+
+Each run forks a fresh filesystem, synchronizes the remote once, and creates an
+isolated integration worktree. Prepared dependency trees are projected with
+copy-on-write behavior; offline reconstruction and ordinary installation remain
+fallbacks when a snapshot is stale or incomplete. Source-only changes remain
+warm, while manifest or harness-validation changes trigger deterministic
+refresh before validation. After all run gates pass, a background job forks and
+scrubs the sandbox, verifies a clean root, captures the new generation, and
+atomically promotes repository metadata. Failed or partial runs never promote a
+golden checkpoint.
 
 Onboarding records a durable operation journal. Provider-login interruptions,
 deploy failures, Sandbox Priority Boarding, and readiness timeouts can be
@@ -105,7 +118,7 @@ and Codex authentication remains owned by the installed `codex` CLI.
 ## Dashboard and preview origins
 
 Hosted dashboard delivery is part of the control-plane process and is enabled
-with `VES_DASHBOARD_ENABLED=1`. `ves up --provider railway` configures the
+with `VES_DASHBOARD_ENABLED=1`. `ves up` configures the
 dashboard origin and, by default, provisions a small `vessica-preview-edge`
 service with its own generated HTTPS domain:
 
@@ -128,6 +141,7 @@ reserved for contributor workflows and is never a quickstart fallback.
     ves railway preview-session repair-key
     ves railway preview-session smoke
     ves railway approve <run_id>
+    ves knowledge server upgrade --dry-run --json
     ves railway down --yes
 
 If only the local repository attachment is stale, use `ves workspace forget`
@@ -152,6 +166,11 @@ redeploy the knowledge service.
 
 Approval marks the draft PR ready, squash-merges it with head-SHA protection, moves the Linear epic to Done, and destroys the run sandbox.
 
+`ves knowledge server upgrade` is the narrow maintenance path for a published
+knowledge-service image. Preview it, confirm it with `--yes` and an idempotency
+key, and verify the returned deployment/readiness result. It does not upgrade or
+redeploy the control plane.
+
 Hosted lifecycle commands always use the control-plane API. They never open the repository-local run database:
 
     ves run cancel <run_id> --yes
@@ -163,6 +182,12 @@ Hosted lifecycle commands always use the control-plane API. They never open the 
     ves sandbox logs <sandbox_id>
 
 Cancel releases active job leases, persists a terminal run, and retains the Railway sandbox for recovery. Resume is idempotent and reuses that sandbox when it is still available.
+
+Engine-managed Codex processes receive a bounded current-run context packet and
+an invocation-scoped MCP policy. The worker discovers the configured MCP
+inventory once, disables all servers by default, and enables only names in
+`VES_CODEX_MCP_ALLOWLIST`. This never rewrites the user's persistent Codex
+configuration.
 
 ## Trigger Rules
 

@@ -12,4 +12,6 @@ Ticket planning policy:
 - Split only for true dependency ordering, real parallelism, high-risk migrations, or independently reviewable cross-module work.
 - If you split work, provide a concrete split justification for each ticket.
 - Use the complexity rubric: `xs` and `s` => 1 ticket, `m` => up to 3, `l` => up to 6, `xl` => up to 12.
+- An explicitly declared, localized `xs` epic should produce lean deterministic planning artifacts and one implementation ticket; ambiguous work still needs model-backed planning.
 - Encode dependencies explicitly by title only when one ticket cannot start until another is complete.
+- Give independently runnable tickets disjoint owned paths. Put shared-file integration in a dependent ticket rather than assigning overlapping ownership.

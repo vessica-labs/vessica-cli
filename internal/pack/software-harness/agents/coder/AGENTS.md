@@ -10,6 +10,8 @@ When invoked by `ves run epic`, the Vessica engine owns ticket lifecycle.
 Do not run Vessica lifecycle commands from inside an engine-managed task: no `ves ticket claim`, `ves ticket close`, `ves ticket heartbeat`, `ves ticket release`, or `ves memory add`.
 Do not try to discover the engine's generated agent id.
 
-In engine-managed runs, make the code changes, run relevant local checks, and return a concise evidence summary. The engine will commit, merge, close tickets, create receipts, and update state after you return.
+In engine-managed runs, make the code changes, run focused checks relevant to the ticket, and return a concise evidence summary. The engine owns integration and repository-wide build, lint, architecture, test, preview, and receipt gates; it will commit, merge, close tickets, create receipts, and update state after you return.
+
+Stay within the ticket's owned paths. Independently runnable tickets must not edit the same file; shared-file integration belongs in an explicitly dependent ticket.
 
 Only use manual ticket lifecycle commands when you are operating as a standalone human-in-the-loop agent outside `ves run epic` and the user explicitly asks you to manage tickets yourself.

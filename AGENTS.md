@@ -21,3 +21,11 @@ generated. Edit the matching source under `docs/`, then run
 `./scripts/embed-dashboard-docs.sh`.
 
 When Vessica invokes an engine-managed run, do not claim, close, heartbeat, or release tickets manually. The engine owns that lifecycle.
+
+The engine also owns integration and repository-wide build, lint, test, preview,
+and receipt gates. Coding agents should run focused checks for their change and
+return evidence without replacing terminal persisted run truth.
+
+For current product and agent-facing behavior, use `README.md`,
+`docs/Vessica_Operator_Guide.md`, `docs/CLI_Reference.md`, and
+`docs/Codex_Plugin.md`. Historical PRDs are not command references.

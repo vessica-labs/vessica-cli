@@ -81,7 +81,7 @@ cd your-repository
 ves up
 ```
 
-`ves up` scans the repository, shows one Railway infrastructure plan, provisions the hosted control plane and lexical knowledge service, prepares the cloud runner checkpoint, attaches the repository, and creates a repository-specific harness when one is absent. Lexical retrieval is healthy immediately and requires no embeddings API key.
+`ves up` scans the repository, shows one Railway infrastructure plan, provisions the hosted control plane and lexical knowledge service, prepares the cloud runner checkpoint, attaches the repository, and creates a repository-specific harness when one is absent. The operation is journaled, idempotent, and resumable. Lexical retrieval is healthy immediately and requires no embeddings API key.
 
 The first remote repository scan now produces a repository-bearing Railway disk
 checkpoint derived from the pinned worker toolchain. It records all detected
@@ -200,19 +200,20 @@ flowchart TB
 | Engineering harness | Agent definitions, repository docs, templates, workflow definitions, architecture lint |
 | Planning | Epics transformed into PRDs, ADRs, designs, test scenarios, and dependency-aware tickets |
 | Coordination | Atomic ticket claims, leases, heartbeats, blockers, readiness, and execution waves |
-| Execution | Phase controls, concurrent coding workers, integration branches, resume, cancellation |
+| Execution | Phase controls, concurrent coding workers, isolated integration worktrees, resume, cancellation, retained-run refinement |
 | Sandboxes | Docker execution, live previews, retained environments, direct refinement prompts |
 | Observability | Human streams, interactive TUI, versioned JSONL, raw Codex logs, traces, receipts |
 | Dashboard | Hosted React UI for repositories, runs, sandboxes, review, knowledge, and access |
 | Integrations | GitHub authentication and PRs, best-effort Linear synchronization, Railway hosting |
-| Agent ergonomics | `ves prime`, stable JSON envelopes, idempotency keys, managed runner guidance |
-| Knowledge | Zero-key hosted lexical retrieval, optional user-funded semantic retrieval, immutable versions, and workflow episodes |
+| Agent ergonomics | `ves prime`, stable JSON envelopes, idempotency keys, managed runner guidance, and the first-party Codex plugin |
+| Knowledge | Retrieval v2, ambiguity-safe entity constraints, zero-key lexical retrieval, optional semantic retrieval, immutable versions, and workflow episodes |
+| Runtime acceleration | Verified multi-stack repository checkpoints, dependency projection, bounded context packets, and engine-owned gates |
 
 ### Durable knowledge
 
 `ves memory retrieve` is the retrieval-v2 restoration path, with weighted lexical and optional semantic rank fusion, entity constraints, ambiguity detection, and component explanations. `ves knowledge context` assembles relevant active artifacts, instructions, entities, decisions, facts, and work episodes under separate type budgets. `ves memory search` remains available for compatible administrative lexical inspection. `ves prime --for codex` includes the same bounded context for coding agents.
 
-The hosted [Vessica Knowledge Server](https://github.com/vessica-labs/vessica-knowledge-server) starts in lexical mode on Postgres without an embeddings key. Enable semantic-hybrid retrieval later with `ves knowledge embeddings enable --api-key-env OPENAI_API_KEY --yes`; the key is stored directly as a Railway secret and existing memories backfill asynchronously. Conditional model reranking has a separate key and enable/disable control and should remain off until its benchmark promotion gate passes.
+The hosted [Vessica Knowledge Server](https://github.com/vessica-labs/vessica-knowledge-server) starts in lexical mode on Postgres without an embeddings key. Enable semantic-hybrid retrieval later with `ves knowledge embeddings enable --api-key-env OPENAI_API_KEY --yes`; the key is stored directly as a Railway secret and existing memories backfill asynchronously. Conditional model reranking has a separate key and enable/disable control but remains off by default because retrieval v2 cleared the current quality gate without it.
 
 See the [Vessica Operator Guide](docs/Vessica_Operator_Guide.md) for installation, command safety, knowledge, runs, Railway operations, and troubleshooting.
 
@@ -245,7 +246,7 @@ Download the archive for your operating system and architecture from [GitHub Rel
 For example, on Apple Silicon macOS:
 
 ```bash
-version=0.2.6
+version=0.2.45
 curl -LO "https://github.com/vessica-labs/vessica-cli/releases/download/v${version}/vessica-cli_${version}_darwin_arm64.tar.gz"
 curl -LO "https://github.com/vessica-labs/vessica-cli/releases/download/v${version}/checksums.txt"
 shasum -a 256 --check checksums.txt --ignore-missing
@@ -280,8 +281,8 @@ make install
 The hosted control-plane image is published to GitHub Container Registry for `linux/amd64` and `linux/arm64`:
 
 ```bash
-docker pull ghcr.io/vessica-labs/vessica-cli:0.2.6
-docker run --rm ghcr.io/vessica-labs/vessica-cli:0.2.6 version
+docker pull ghcr.io/vessica-labs/vessica-cli:0.2.45
+docker run --rm ghcr.io/vessica-labs/vessica-cli:0.2.45 version
 ```
 
 Use a version tag for reproducible deployments. The `latest` tag follows the newest published release.
@@ -406,8 +407,8 @@ Inspect and approve the result:
 ```bash
 ves artifact list --json
 ves artifact view <artifact_id>
-ves artifact diff <artifact_id>
-ves artifact approve <artifact_id>
+ves artifact update <artifact_id> --body "Revised decision text" --dry-run --json
+ves artifact activate <artifact_id> --yes --idempotency-key activate-<unique> --json
 ves ticket list --json
 ves wave list --json
 ```
@@ -436,6 +437,23 @@ ves run cancel <run_id>
 
 Runs use an integration branch. Ticket work is coordinated independently, merged into that branch, validated as a coherent whole, and optionally published as a pull request.
 
+Inspect the persisted run rather than inferring success from the last agent
+message:
+
+```bash
+ves run view <run_id> --json
+ves run artifacts <run_id> --json
+ves run receipt <run_id> --json
+```
+
+After a run has stopped, apply a focused follow-up in its retained sandbox:
+
+```bash
+ves run prompt <run_id> --file refinement.md --dry-run --json
+ves run prompt <run_id> --file refinement.md \
+  --yes --idempotency-key refine-<unique> --json
+```
+
 ### Approve a completed run
 
 ```bash
@@ -443,6 +461,14 @@ ves run approve <run_id> --merge-method squash
 ```
 
 Approval verifies the pull request head, marks a draft ready, merges it, and cleans up the integration branch and preview by default. Use `--keep-branch` or `--keep-preview` when you need to retain either one.
+
+To reject the result, close its pull request and destroy its preview through the
+same lifecycle boundary:
+
+```bash
+ves run rollback <run_id> --dry-run --json
+ves run rollback <run_id> --yes --idempotency-key rollback-<unique> --json
+```
 
 ## Streams and logs
 
@@ -479,7 +505,11 @@ See the [streaming protocol](docs/Vessica_stream_v1.md) for record types and res
 
 ## Sandboxes and previews
 
-The default local backend creates Docker sandboxes and an integration checkout. Preview-enabled runs start the detected development server during coding and keep it aligned with the integration branch.
+Hosted attachments use isolated Railway sandboxes restored from a compatible
+repository checkpoint. Explicit `ves dev` workspaces use Docker. Preview-enabled
+runs start the detected development server after integration/build, keep it
+aligned with the integration branch, and publish only a health-checked,
+capability-protected HTTPS URL.
 
 ```bash
 ves run epic <epic_id> --preview
@@ -523,8 +553,10 @@ Vessica exposes its state model directly so humans and standalone agents can use
 ves epic add --title "..." --body-file epic.md
 ves epic list
 ves epic status <epic_id>
+ves entity resolve "OAuth" --json
 ves artifact list
 ves artifact create --type adr --title "..." --body-file ADR.md --yes --idempotency-key <key>
+ves artifact update <artifact_id> --body "Revised decision text" --yes --idempotency-key <key>
 ves artifact activate <artifact_id> --yes --idempotency-key <key>
 ```
 
@@ -571,7 +603,13 @@ ves setup codex --check --json
 ves capabilities --json
 ```
 
-The plugin drives the `ves` Go CLI through shell commands; it does not add an MCP runtime or bypass Vessica state. Agent-facing JSON responses use the versioned `vessica.cli/v1` envelope, while run streams use `vessica.stream/v1` JSONL. Mutating JSON workflows return `confirmation_required` until repeated with `--yes`; use `--idempotency-key` for retryable writes.
+The plugin drives the `ves` Go CLI through shell commands; it does not add an MCP runtime or bypass Vessica state. It includes skills for setup, workflow selection, epic creation, dispatch, monitoring, refinement, review, harness management, knowledge, and operations. Agent-facing JSON responses use the versioned `vessica.cli/v1` envelope, while run streams use `vessica.stream/v1` JSONL. Mutating JSON workflows return `confirmation_required` until repeated with `--yes`; use `--idempotency-key` for retryable writes.
+
+Plugin-only installations use the packaged `ensure-ves.sh` bootstrap to install
+the matching release archive under `~/.vessica/bin`, verify it against the
+published checksum, and keep plugin and CLI versions compatible. See the
+[Codex plugin guide](docs/Codex_Plugin.md) for installation, skill routing,
+confirmation boundaries, knowledge restoration, and troubleshooting.
 
 For a local source checkout, use `make install` after pulling changes. It builds and installs the version in `VERSION`, refreshes the plugin source, forces Codex to replace its cached plugin copy, and verifies that the installed CLI and cached plugin versions match. Use `make install-cli` only when intentionally updating the standalone CLI without changing the Codex plugin. Normal builds never change `VERSION`; update that file deliberately when preparing a new version.
 
@@ -582,11 +620,11 @@ ves epic draft --spec-file epic.json --json
 ves epic add --spec-file epic.json --yes --idempotency-key epic-<unique> --json
 ```
 
-When a hosted control plane is configured, spec creation publishes the canonical graph to the repository-scoped hosted workspace. If Linear is connected, Vessica also projects the parent issue and subissues there.
-
-```bash
-ves epic publish <local_epic_id> --yes --idempotency-key publish-<unique> --json
-```
+When a hosted control plane is configured, `ves epic add` writes the canonical
+graph directly to the repository-scoped hosted workspace. If Linear is
+connected, Vessica also projects the parent issue and subissues there. Retry a
+failed create with the same `ves epic add` command and idempotency key; do not
+create a second epic or call Linear directly.
 
 ## Authentication and integrations
 
@@ -758,17 +796,18 @@ Common environment overrides:
 | `ves workspace forget` | Remove only the local hosted attachment and credentials for recovery; keep Railway resources and repository guidance |
 | `ves dev` | Explicit local development and test utilities |
 | `ves status`, `ves doctor` | Inspect configuration and readiness |
+| `ves capabilities` | Report the versioned command, schema, tool, authentication, and workspace contract for agents |
 | `ves config` | Read and update workspace configuration |
 | `ves auth` | Login, logout, and inspect provider credentials |
 | `ves setup` | Install managed guidance for coding clients |
 | `ves pack` | Install, fork, pin, sync, and update engineering harnesses |
 | `ves harness` | Create, audit, sync, lint, and inspect repository guidance |
-| `ves epic` | Create and plan units of product work |
-| `ves artifact` | Version and approve planning artifacts |
+| `ves epic` | Draft, create, inspect, update, plan, and report units of product work |
+| `ves artifact` | Create, version, activate, and supersede authoritative artifacts |
 | `ves ticket`, `ves wave` | Coordinate dependency-aware execution |
-| `ves memory`, `ves prime` | Preserve and retrieve durable context |
-| `ves knowledge` | Inspect retrieval health, assemble context, and opt into semantic retrieval |
-| `ves run` | Execute, resume, watch, preview, approve, and inspect runs |
+| `ves entity`, `ves memory`, `ves prime` | Resolve identity, preserve durable context, and prime agents |
+| `ves knowledge` | Inspect health, assemble context, manage embeddings/reranking, and upgrade the hosted knowledge service |
+| `ves run` | Execute, resume, watch, inspect evidence, refine, preview, approve, roll back, and cancel runs |
 | `ves sandbox` | Operate retained local or Railway environments |
 | `ves toolchain verify` | Verify the complete managed worker toolchain and launch Playwright Chromium |
 | `ves toolchain verify --profile workstation` | Verify only the tools required to operate hosted Vessica locally |
@@ -776,7 +815,7 @@ Common environment overrides:
 | `ves tracker` | Connect and synchronize external trackers |
 | `ves integration` | Connect hosted integrations and select the active Linear project |
 | `ves receipt`, `ves trace` | Inspect evidence and diagnostics |
-| `ves railway` | Provision and operate the hosted control plane |
+| `ves railway` | Inspect logs/status, manage preview forwarding, approve runs, and tear down the hosted control plane |
 | `ves dashboard` | Open the embedded local or hosted workspace dashboard |
 
 Every command supports `--help`. Useful global flags include:
@@ -790,6 +829,10 @@ Every command supports `--help`. Useful global flags include:
 --quiet                  reduce human output
 --no-color               disable terminal color
 ```
+
+The [CLI reference](docs/CLI_Reference.md) lists every current public command
+group and subcommand. `ves capabilities --json` is the machine-readable subset
+intended for coding agents.
 
 ## Automation contract
 
@@ -821,6 +864,9 @@ ves epic add \
 - OAuth browser flows use PKCE and loopback callbacks.
 - Hosted OAuth credentials are encrypted with AES-256-GCM before Postgres persistence.
 - Coding sandboxes receive only the credentials needed for their work; hosted workers remove bootstrap and infrastructure secrets from the agent environment.
+- Engine-managed Codex calls disable configured MCP servers unless they are explicitly named in `VES_CODEX_MCP_ALLOWLIST`.
+- Repository checkpoints exclude variables and credentials, and successful-run promotion scrubs run state and agent authentication before capture.
+- Coding agents receive exact worktree Git trust without writable repository metadata or wildcard `safe.directory` entries.
 - Pull-request approval checks the expected head SHA before merge.
 - Pack installs are pinned to an immutable Git commit in `.vessica/pack.lock`.
 
@@ -875,7 +921,7 @@ Please keep changes scoped, add tests for behavioral changes, preserve machine-r
 
 ## Current status
 
-Vessica is actively developed. The current documented release is `0.2.6`, and
+Vessica is actively developed. The current documented release is `0.2.45`, and
 the project remains pre-1.0.
 
 ### What changed in 0.2.x
@@ -903,6 +949,26 @@ the project remains pre-1.0.
   control plane.
 - Run output now preserves agent messages while reporting persisted failures as
   failures in human, JSON, dashboard, and receipt views.
+- Multi-stack repository checkpoints now detect nested Node, Go, Python, Rust,
+  Ruby, Java, and generic preparation plans; changed dependency manifests are
+  refreshed before validation, while source-only changes reuse prepared trees.
+- Harness/runtime inference covers lockfile-specific Node commands, Go services
+  and CLIs, and Django/FastAPI applications. Repositories without a preview are
+  valid, and Vite host/port flags are forwarded through the detected package
+  manager.
+- Successful runs promote a scrubbed copy-on-write checkpoint generation only
+  after all gates pass. Transient event, ticketization, and artifact-set writes
+  retain progress and retry safely.
+- Small, explicitly localized `xs` epics can use lean deterministic planning and
+  one ticket. Larger work keeps model-backed, dependency-aware decomposition.
+- Engine-owned build, lint, architecture, test, preview, and receipt gates use
+  verified integration state; coding agents receive bounded current-run context
+  and focused validation responsibilities.
+- Retrieval v2 adds weighted lexical/semantic rank fusion, entity constraints,
+  ambiguity stops, relevant-artifact admission, typed omissions, and benchmarked
+  cold-chat restoration. Conditional model reranking remains disabled by
+  default because deterministic hybrid retrieval already cleared its quality
+  gate.
 
 Implemented today:
 
@@ -916,6 +982,9 @@ Implemented today:
 - Persistent hosted Railway control plane
 - Embedded dashboard with repository switching, live run streams, retained
   previews, knowledge exploration, and GitHub-based workspace access
+- First-party Codex plugin with checksum-verified CLI bootstrap and skills for
+  setup, interactive/dispatch/hybrid routing, knowledge, run operations, and
+  evidence review
 
 Current boundaries:
 
@@ -930,6 +999,8 @@ Current boundaries:
 - [Vessica v1 product requirements](docs/Vessica_v1_PRD.md)
 - [Documentation index](docs/README.md)
 - [Vessica Operator Guide](docs/Vessica_Operator_Guide.md)
+- [CLI reference](docs/CLI_Reference.md)
+- [Codex plugin guide](docs/Codex_Plugin.md)
 - [Streaming protocol](docs/Vessica_stream_v1.md)
 - [Hosted Railway control plane](docs/Hosted_Railway.md)
 - [Default engineering harness](https://github.com/vessica-labs/engineering-harness)

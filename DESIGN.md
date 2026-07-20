@@ -4,6 +4,12 @@
 
 The local and hosted dashboards are alternate adapters over the same use cases, not separate products with different lifecycle rules. Their APIs use the schema documented in `docs/Vessica_Dashboard_v1_OpenAPI.yaml`; generated TypeScript clients and embedded assets must be reproducible from `web/dashboard`.
 
+The Codex plugin is a conversational guidance and version-matched bootstrap
+layer over `ves`, not another lifecycle implementation. Plugin skills use the
+same `vessica.cli/v1` JSON and `vessica.stream/v1` JSONL contracts, preserve
+explicit confirmation boundaries, and treat persisted hosted state as terminal
+truth.
+
 Human approval is an explicit boundary. Planning, coding, validation, and preview may be automated, but merging, destructive teardown, promotion, and credential-bearing infrastructure mutations require the documented confirmation or authorization path.
 
 Errors should name the failed operation and suggest a concrete recovery action without exposing secrets or raw privileged logs. Current functionality must be described separately from roadmap or scale-out intent.

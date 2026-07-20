@@ -1,7 +1,7 @@
 {
   "name": "vessica",
   "version": "0.4.0+codex.20260716223856",
-  "description": "Set up and operate hosted Vessica workspaces, repositories, sandboxes, and durable knowledge through the ves CLI.",
+  "description": "Set up and operate hosted Vessica workspaces, engineering runs, evidence, previews, harnesses, and durable knowledge through the ves CLI.",
   "author": {
     "name": "Vessica Labs",
     "url": "https://github.com/vessica-labs"
@@ -19,8 +19,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Vessica",
-    "shortDescription": "Set up and drive hosted coding factories through ves.",
-    "longDescription": "Use the ves Go CLI to create a Railway-hosted Vessica workspace, attach repositories, generate engineering harnesses, dispatch cloud coding runs, retrieve shared knowledge, refine previews, and review evidence.",
+    "shortDescription": "Set up and operate hosted engineering workflows through ves.",
+    "longDescription": "Use the version-matched ves Go CLI to create or recover a Railway-hosted Vessica workspace, attach repositories, manage engineering harnesses, choose interactive or dispatched work, run and refine cloud coding workflows, restore ambiguity-safe shared knowledge, and review persisted evidence before approval or rollback.",
     "developerName": "Vessica Labs",
     "category": "Productivity",
     "capabilities": [
@@ -32,6 +32,7 @@
       "Set up Vessica in this repository.",
       "Turn this request into a Vessica epic.",
       "Show me the status of my Vessica runs.",
+      "Review the artifacts and receipt for this Vessica run.",
       "What does Vessica remember about this repository?",
       "Help me configure or troubleshoot Vessica."
     ],
