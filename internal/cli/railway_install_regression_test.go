@@ -187,6 +187,30 @@ func TestResumeRetriesFailedRepositoryMapping(t *testing.T) {
 	}
 }
 
+func TestAttachedRailwayUpOptionsPreserveOperationalConfiguration(t *testing.T) {
+	cfg := config.Config{
+		Hosted: config.HostedConfig{WorkspaceID: "workspace-id", WorkspaceName: "workspace-name", WorkerCheckpoint: "checkpoint"},
+		Tracker: config.TrackerConfig{
+			Provider:       "linear",
+			TeamID:         "team",
+			ProjectID:      "project",
+			TodoStateID:    "todo",
+			WIPStateID:     "wip",
+			DoneStateID:    "done",
+			BlockedStateID: "blocked",
+			TriggerLabel:   "Vessica",
+		},
+	}
+
+	opts := attachedRailwayUpOptions(cfg, "", "", nil)
+	if opts.Workspace != "workspace-id" || opts.WorkspaceName != "workspace-name" || opts.WorkerCheckpoint != "checkpoint" {
+		t.Fatalf("hosted options were not preserved: %#v", opts)
+	}
+	if !opts.EnableLinear || opts.Team != "team" || opts.LinearProject != "project" || opts.TodoState != "todo" || opts.WIPState != "wip" || opts.DoneState != "done" || opts.BlockedState != "blocked" || opts.TriggerLabel != "Vessica" {
+		t.Fatalf("tracker options were not preserved: %#v", opts)
+	}
+}
+
 func TestSyncHostedKnowledgeCredentialsUpdatesLocalTokens(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
