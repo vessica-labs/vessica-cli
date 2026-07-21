@@ -206,8 +206,22 @@ func TestAttachedRailwayUpOptionsPreserveOperationalConfiguration(t *testing.T) 
 	if opts.Workspace != "workspace-id" || opts.WorkspaceName != "workspace-name" || opts.WorkerCheckpoint != "checkpoint" {
 		t.Fatalf("hosted options were not preserved: %#v", opts)
 	}
-	if !opts.EnableLinear || opts.Team != "team" || opts.LinearProject != "project" || opts.TodoState != "todo" || opts.WIPState != "wip" || opts.DoneState != "done" || opts.BlockedState != "blocked" || opts.TriggerLabel != "Vessica" {
+	if !opts.PreserveTracker || opts.Team != "team" || opts.LinearProject != "project" || opts.TodoState != "todo" || opts.WIPState != "wip" || opts.DoneState != "done" || opts.BlockedState != "blocked" || opts.TriggerLabel != "Vessica" {
 		t.Fatalf("tracker options were not preserved: %#v", opts)
+	}
+}
+
+func TestTrackerConfigFromAttachedIntegration(t *testing.T) {
+	got, found, err := trackerConfigFromAttachedIntegration(&attachedIntegrationStatus{
+		Provider:   "linear",
+		Status:     "connected",
+		ConfigJSON: `{"team_id":"team","project_id":"project","todo_state_id":"todo","wip_state_id":"wip","done_state_id":"done","trigger_label":"Vessica"}`,
+	})
+	if err != nil || !found {
+		t.Fatalf("found=%v err=%v", found, err)
+	}
+	if got.Provider != "linear" || got.Mode != "best_efforts" || got.TeamID != "team" || got.ProjectID != "project" || got.TriggerLabel != "Vessica" {
+		t.Fatalf("tracker config=%#v", got)
 	}
 }
 

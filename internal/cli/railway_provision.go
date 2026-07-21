@@ -131,9 +131,21 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		return nil, err
 	}
 	progress("control and knowledge databases are initialized")
+	if opts.PreserveTracker {
+		currentVariables, readErr := readRailwayVariables(ctx, cfg, cfg.Hosted.ServiceID)
+		if readErr != nil {
+			return nil, fmt.Errorf("read hosted integration variables: %w", readErr)
+		}
+		linearToken = currentVariables["LINEAR_API_KEY"]
+		linearOAuth = currentVariables["VES_LINEAR_OAUTH_JSON"]
+	}
 	var linear *tracker.LinearClient
 	var team tracker.LinearTeam
-	if linearToken != "" || linearOAuth != "" {
+	if opts.PreserveTracker {
+		// The control plane owns its durable integration credential. Preserve the
+		// recovered definition and any existing bootstrap variables without
+		// requiring the upgrading workstation to log in to the provider again.
+	} else if linearToken != "" || linearOAuth != "" {
 		if linearToken == "" {
 			linearToken, err = auth.Token("linear")
 			if err != nil {
@@ -290,7 +302,7 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		"knowledge_endpoint": cfg.Knowledge.Endpoint, "knowledge_service_id": cfg.Knowledge.ServiceID,
 		"agent_runtime_service_id": cfg.Hosted.AgentRuntimeServiceID, "agent_runtime_image": cfg.Hosted.AgentRuntimeImage,
 		"retrieval_mode": "lexical", "embedding_state": "not_configured",
-		"linear_connected": linear != nil, "linear_team": team.Name, "linear_project_id": cfg.Tracker.ProjectID, "todo_state_id": cfg.Tracker.TodoStateID}, nil
+		"linear_connected": linear != nil || strings.EqualFold(cfg.Tracker.Provider, "linear"), "linear_team": firstNonEmpty(team.Name, cfg.Tracker.TeamID), "linear_project_id": cfg.Tracker.ProjectID, "todo_state_id": cfg.Tracker.TodoStateID}, nil
 }
 
 func attachedRailwayUpOptions(cfg config.Config, workspace, workspaceName string, progress func(string)) railwayUpOptions {
@@ -299,7 +311,7 @@ func attachedRailwayUpOptions(cfg config.Config, workspace, workspaceName string
 		WorkspaceName:    firstNonEmpty(workspaceName, cfg.Hosted.WorkspaceName),
 		Image:            defaultControlPlaneImage(),
 		WorkerCheckpoint: cfg.Hosted.WorkerCheckpoint,
-		EnableLinear:     strings.EqualFold(cfg.Tracker.Provider, "linear"),
+		PreserveTracker:  true,
 		Team:             cfg.Tracker.TeamID,
 		LinearProject:    cfg.Tracker.ProjectID,
 		TodoState:        cfg.Tracker.TodoStateID,

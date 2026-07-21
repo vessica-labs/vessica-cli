@@ -27,6 +27,7 @@ type railwayUpOptions struct {
 	KnowledgeImage, KnowledgeSource, EmbeddingAPIKey, EmbeddingAPIKeyEnv                                      string
 	AgentRuntimeImage, AgentRuntimeSource                                                                     string
 	EnableLinear                                                                                              bool
+	PreserveTracker                                                                                           bool
 	Progress                                                                                                  func(string)
 }
 
