@@ -18,12 +18,14 @@ import (
 type railwaySecrets struct {
 	RuntimeToken, ServiceToken, APIToken, WorkerToken, PreviewEdgeToken, WebhookSecret, WebhookID, CredentialKey, KnowledgeToken, KnowledgeAdminToken string
 	ControlDatabasePassword, KnowledgeDatabasePassword                                                                                                string
+	AgentRuntimeToken                                                                                                                                 string
 }
 
 type railwayUpOptions struct {
 	Workspace, WorkspaceName, Source, Image, RuntimeToken, LinearToken, GitHubToken, OpenAIKey, PreviewOrigin string
 	Team, LinearProject, TodoState, WIPState, DoneState, BlockedState, TriggerLabel, WorkerCheckpoint         string
 	KnowledgeImage, KnowledgeSource, EmbeddingAPIKey, EmbeddingAPIKeyEnv                                      string
+	AgentRuntimeImage, AgentRuntimeSource                                                                     string
 	EnableLinear                                                                                              bool
 	Progress                                                                                                  func(string)
 }
@@ -85,6 +87,8 @@ func newRailwayCmd(app *App) *cobra.Command {
 	up.Flags().StringVar(&opts.PreviewOrigin, "preview-origin", "", "separate HTTPS origin for hosted previews")
 	up.Flags().StringVar(&opts.KnowledgeImage, "knowledge-image", "", "knowledge-server OCI image override (resolved to an immutable digest)")
 	up.Flags().StringVar(&opts.KnowledgeSource, "knowledge-source", "", "development-only knowledge-server source directory")
+	up.Flags().StringVar(&opts.AgentRuntimeImage, "agent-runtime-image", "", "agent-runtime OCI image override (resolved to an immutable digest)")
+	up.Flags().StringVar(&opts.AgentRuntimeSource, "agent-runtime-source", "", "development-only agent-runtime source directory")
 	up.Flags().StringVar(&opts.EmbeddingAPIKeyEnv, "embedding-api-key-env", "", "optional environment variable containing an embedding provider key")
 	cmd.AddCommand(up, newRailwayStatusCmd(app), newRailwayLogsCmd(app), newRailwayApproveCmd(app), newRailwayPreviewSessionCmd(app), newRailwayDownCmd(app))
 	return cmd

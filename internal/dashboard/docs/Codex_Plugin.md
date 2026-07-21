@@ -43,6 +43,7 @@ you intentionally do not want to refresh the plugin.
 | `review-run` | Collect the run, planning artifacts, receipt, validation, preview, and PR evidence before confirmed approval or rollback. |
 | `manage-harness` | Inspect, install, audit, lint, or synchronize managed repository guidance while preserving unmanaged content. |
 | `use-knowledge` | Resolve entities; retrieve, version, or diagnose artifacts and memories; and manage optional retrieval features. |
+| `use-agents` | Discover the active registry; build or edit durable agents; invoke them; and resume `arun_` streams from the greatest sequence. |
 | `operate-vessica` | Explain commands, diagnose setup/hosted state, operate Railway preview forwarding, and maintain the knowledge service. |
 
 ## Confirmation and authority boundaries
@@ -121,6 +122,12 @@ PR links, and the last consumed sequence. Refinement uses `ves run prompt`; it
 does not enter the sandbox or bypass receipts. Review presents missing evidence
 as well as passing gates. Approval and rollback always remain explicit user
 decisions and are performed through `ves`, never by calling GitHub directly.
+
+General-agent runs follow the same persisted-stream rule. The plugin discovers
+agents with `ves agent registry --json`, invokes one with `ves agent run ...
+--stream=jsonl`, retains the greatest sequence, and reconnects with `ves run
+watch <arun_id> --jsonl --after-seq <sequence>`. Agent definitions, schedules,
+budgets, attempts, child runs, and critic results remain control-plane state.
 
 ## Security and current boundaries
 

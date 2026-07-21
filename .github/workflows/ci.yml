@@ -35,9 +35,17 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: web/dashboard/package-lock.json
+          cache-dependency-path: |
+            web/dashboard/package-lock.json
+            services/agent-runtime/package-lock.json
       - run: npm ci
         working-directory: web/dashboard
+      - run: npm ci
+        working-directory: services/agent-runtime
+      - run: npm run typecheck && npm test && npm run build
+        working-directory: services/agent-runtime
+      - run: docker build -t vessica-agent-runtime:ci .
+        working-directory: services/agent-runtime
       - name: Initialize isolated control and knowledge databases
         run: ./scripts/init-postgres.sh
       - run: ./scripts/embed-dashboard-docs.sh

@@ -4,6 +4,7 @@ import {
   BookOpen,
   Box,
   Brain,
+  Bot,
   Cloud,
   LayoutDashboard,
   Moon,
@@ -17,6 +18,7 @@ import { api } from "@/lib/api";
 const nav = [
   ["/", "Overview", LayoutDashboard],
   ["/runs", "Runs", Activity],
+  ["/agents", "Agents", Bot],
   ["/sandboxes", "Sandboxes", Box],
   ["/knowledge", "Knowledge", Brain],
   ["/docs", "Documentation", BookOpen],

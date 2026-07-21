@@ -40,6 +40,7 @@ type Server struct {
 	LinearWebhookSecret string
 	APIToken            string
 	WorkerDownloadToken string
+	AgentRuntimeToken   string
 	BinaryPath          string
 	Logger              *log.Logger
 	PreviewBroker       *PreviewBroker
@@ -51,6 +52,9 @@ type Server struct {
 	projectionMu        sync.Mutex
 	importMu            sync.Mutex
 	mutationMu          sync.Mutex
+	agentRuntimeMu      sync.RWMutex
+	agentRuntimeCaps    runtimeCapabilities
+	agentRuntimeSeenAt  time.Time
 	binaryDigestOnce    sync.Once
 	binaryDigest        string
 	binaryDigestErr     error
@@ -114,6 +118,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/sandboxes/{sandbox_id}/logs", s.requireAPIAuth(s.handleSandboxLogs))
 	mux.HandleFunc("POST /api/v1/runs/{run_id}/approve", s.requireAPIAuth(s.handleApproveRun))
 	mux.HandleFunc("POST /api/v1/migrations/workplan", s.requireAPIAuth(s.handleImportWorkplan))
+	s.registerAgentRoutes(mux)
 	mux.HandleFunc("GET /review/runs/{run_id}", s.handleReviewPage)
 	mux.HandleFunc("GET /review/runs/{run_id}/panel", s.handleReviewPage)
 	mux.HandleFunc("GET /review/runs/{run_id}/window", s.handleReviewPage)
@@ -202,6 +207,11 @@ func dashboardRoute(r *http.Request) bool {
 	if strings.HasPrefix(p, "/api/v1/runs") {
 		return !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") || r.Header.Get("Accept") == "application/vnd.vessica.dashboard+json"
 	}
+	for _, prefix := range []string{"/api/v1/agents", "/api/v1/agent-runs", "/api/v1/agent-builds", "/api/v1/agent-tools"} {
+		if strings.HasPrefix(p, prefix) {
+			return !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ")
+		}
+	}
 	if strings.HasPrefix(p, "/api/v1/repositories") {
 		return !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ")
 	}
@@ -256,6 +266,7 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	go s.projectionLoop(workerCtx)
 	go s.reconciliationLoop(workerCtx)
 	go s.sandboxCleanupLoop(workerCtx)
+	go s.agentScheduleLoop(workerCtx)
 
 	httpServer := &http.Server{Addr: addr, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	errCh := make(chan error, 1)
@@ -307,7 +318,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	jobs, _ := s.DB.ListJobs(r.Context(), 20)
 	workspace, _ := s.DB.GetWorkspace(r.Context())
 	repositories, _ := s.DB.ListRepositories(r.Context())
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "workspace": workspace, "repositories": repositories, "integration": integration, "jobs": jobs})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "workspace": workspace, "repositories": repositories, "integration": integration, "jobs": jobs, "agent_runtime": s.AgentRuntimeStatus()})
 }
 
 func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {

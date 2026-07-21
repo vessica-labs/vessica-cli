@@ -114,6 +114,7 @@ func NewRoot() *cobra.Command {
 	root.AddCommand(newTicketCmd(app))
 	root.AddCommand(newWaveCmd(app))
 	root.AddCommand(newRunCmd(app))
+	root.AddCommand(newAgentCmd(app))
 	root.AddCommand(newSandboxCmd(app))
 	root.AddCommand(newRepoCmd(app))
 	root.AddCommand(newTrackerCmd(app))

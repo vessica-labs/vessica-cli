@@ -2,8 +2,17 @@ package state
 
 import "time"
 
+const timestampLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
 func Now() string {
-	return time.Now().UTC().Format(time.RFC3339Nano)
+	return FormatTime(time.Now())
+}
+
+// FormatTime returns a fixed-width RFC 3339 timestamp. State timestamps are
+// stored as text in both supported databases, so fixed-width fractional
+// seconds are required for chronological SQL comparisons to remain valid.
+func FormatTime(value time.Time) string {
+	return value.UTC().Format(timestampLayout)
 }
 
 type Workspace struct {

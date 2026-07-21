@@ -84,10 +84,10 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 			if cfg.State.DBURL == "" {
 				return fmt.Errorf("VES_CONTROL_DATABASE_URL is required")
 			}
-			if err := configureHostedAuth(); err != nil {
+			if err := configureHostedAuth(false); err != nil {
 				return err
 			}
-			root := "/var/lib/vessica"
+			root := envDefault("VES_CONTROL_PLANE_ROOT", "/var/lib/vessica")
 			if err := os.MkdirAll(root, 0o755); err != nil {
 				return err
 			}
@@ -150,6 +150,7 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 				PreviewEdgeToken:    os.Getenv("VES_PREVIEW_EDGE_TOKEN"),
 				LinearWebhookSecret: os.Getenv("VES_LINEAR_WEBHOOK_SECRET"),
 				APIToken:            os.Getenv("VES_CONTROL_PLANE_API_TOKEN"),
+				AgentRuntimeToken:   os.Getenv("VES_AGENT_RUNTIME_TOKEN"),
 				WorkerDownloadToken: os.Getenv("VES_WORKER_DOWNLOAD_TOKEN"),
 				Logger:              log.New(os.Stdout, "control-plane ", log.LstdFlags|log.LUTC),
 				PreviewPublicURL:    os.Getenv("VES_PREVIEW_ORIGIN"),
@@ -177,6 +178,7 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 				dash.CancelAction = server.DashboardCancel
 				dash.RetainAction = server.DashboardRetain
 				dash.DestroyAction = server.DashboardDestroy
+				dash.RuntimeStatus = server.AgentRuntimeStatus
 				server.Dashboard = dash.Handler()
 			}
 			go server.RestoreHostedPreviews(cmd.Context())
@@ -269,7 +271,7 @@ func openHostedWorker(ctx context.Context) (*runengine.Engine, *state.DB, error)
 		cfg.State.DBURL = os.Getenv("VES_CONTROL_DATABASE_URL")
 	}
 	authStarted := time.Now()
-	if err := configureHostedAuth(); err != nil {
+	if err := configureHostedAuth(true); err != nil {
 		return nil, nil, err
 	}
 	if err := installCodexAuth(); err != nil {
@@ -399,10 +401,13 @@ func installCodexAuth() error {
 	return os.Chmod(path, 0o600)
 }
 
-func configureHostedAuth() error {
+func configureHostedAuth(required bool) error {
 	token := strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
 	if token == "" {
-		return fmt.Errorf("GITHUB_TOKEN is required")
+		if required {
+			return fmt.Errorf("GITHUB_TOKEN is required")
+		}
+		return nil
 	}
 	return auth.Login("github", token, "hosted")
 }

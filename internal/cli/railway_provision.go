@@ -240,6 +240,11 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		return nil, err
 	}
 	progress("control plane is ready")
+	progress("deploying and verifying the private TypeScript agent runtime")
+	if err := ensureRailwayAgentRuntime(ctx, workDir, app, &cfg, opts, secrets.AgentRuntimeToken, secrets.ServiceToken, openAIKey); err != nil {
+		return nil, err
+	}
+	progress("agent runtime service is deployed")
 	if secrets.APIToken == "" {
 		subject, validateErr := auth.ValidateGitHubToken(githubToken)
 		if validateErr != nil {
@@ -283,6 +288,7 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		"preview_service_id": cfg.Hosted.PreviewServiceID, "control_plane_url": cfg.Hosted.ControlPlaneURL,
 		"preview_url": cfg.Hosted.PreviewURL, "webhook_id": secrets.WebhookID,
 		"knowledge_endpoint": cfg.Knowledge.Endpoint, "knowledge_service_id": cfg.Knowledge.ServiceID,
+		"agent_runtime_service_id": cfg.Hosted.AgentRuntimeServiceID, "agent_runtime_image": cfg.Hosted.AgentRuntimeImage,
 		"retrieval_mode": "lexical", "embedding_state": "not_configured",
 		"linear_connected": linear != nil, "linear_team": team.Name, "linear_project_id": cfg.Tracker.ProjectID, "todo_state_id": cfg.Tracker.TodoStateID}, nil
 }

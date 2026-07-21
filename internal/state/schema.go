@@ -1,7 +1,7 @@
 package state
 
 // SchemaSQL is the shared DDL for SQLite (Postgres adaptations applied at migrate time).
-const SchemaSQL = `
+const baseSchemaSQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version INTEGER PRIMARY KEY,
   applied_at TEXT NOT NULL
@@ -448,6 +448,8 @@ CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_status ON webhook_deliveries(s
 CREATE INDEX IF NOT EXISTS idx_jobs_ready ON jobs(status, available_at, lease_until);
 CREATE INDEX IF NOT EXISTS idx_outbox_ready ON outbox_messages(status, available_at);
 `
+
+const SchemaSQL = baseSchemaSQL + AgentSchemaSQL
 
 const SchemaFTSSQLite = `
 CREATE VIRTUAL TABLE IF NOT EXISTS artifact_fts USING fts5(

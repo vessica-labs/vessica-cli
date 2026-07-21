@@ -16,6 +16,9 @@ import (
 
 func (s *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
 	v, err := s.App.System(r.Context())
+	if err == nil && s.RuntimeStatus != nil {
+		v.AgentRuntime = s.RuntimeStatus()
+	}
 	s.respond(w, r, v, err)
 }
 func (s *Server) handleIntegrations(w http.ResponseWriter, r *http.Request) {

@@ -13,6 +13,13 @@ The local CLI, persistent control plane, and sandbox worker are roles of the sam
       -> transactional outbox
       -> Linear comments, sub-issues, and status updates
 
+General agents use a separate private TypeScript service. The Go control plane
+owns definitions, schedules, budgets, durable runs, events, and all privileged
+tools. `agent-runtime` polls a fenced internal protocol, executes one OpenAI
+Agents SDK instance per admitted run, and streams normalized events back. It
+has no database, Railway, GitHub, Codex, or knowledge credentials and no public
+domain. Coding runs and their Go sandbox orchestrator are unchanged.
+
 One Railway Postgres service hosts two deliberately separate logical stores:
 
 - `vessica_control`, owned by `vessica_control_user`, is the workflow and control-plane authority.
@@ -43,6 +50,20 @@ New installations always create the Railway project as `vessica-control-plane`, 
 
 Provisioning creates only one managed Postgres service. It waits for the service variables, connects through the public bootstrap endpoint without logging the URL, creates or reconciles both fixed database roles and databases under an advisory lock, enables `vector` in `vessica_knowledge`, and then configures the application services. Repeating or resuming the operation reuses the same Railway service and logical databases.
 
+Provisioning also discovers or creates one private `agent-runtime` service,
+sets its variables before attaching the digest-pinned release image, waits for
+deployment health, and verifies its protocol/model/tool capability handshake.
+The local installation remains one Go executable; Node.js is never installed
+on the user's machine. Existing workspaces gain the service by rerunning
+`ves up`, and reconciliation reuses the recorded Railway service ID.
+
+If an OpenAI key is unavailable, installation still succeeds with the runtime
+healthy but inactive and coding remains available. Configure only that Railway
+service without printing the key:
+
+    export OPENAI_API_KEY='...'
+    ves auth login openai --env OPENAI_API_KEY
+
 The remote repository-orientation step also captures an immutable Railway disk
 checkpoint containing `/workspace/repo`, installed dependencies, and warmed
 package caches. Its reviewable contract records every detected Node, Go,
@@ -71,6 +92,11 @@ a second installation to compensate. `ves up status --json` reports the current
 stage and recovery action.
 
 The control plane receives only `VES_CONTROL_DATABASE_URL`. The knowledge service receives only `VES_KNOWLEDGE_DATABASE_URL`. No service receives the other store's URL, and there is no generic database variable that can silently point a process at the wrong store.
+
+The runtime receives `VES_CONTROL_PLANE_INTERNAL_URL`, a dedicated
+`VES_AGENT_RUNTIME_TOKEN`, runtime protocol/concurrency settings, and optionally
+`OPENAI_API_KEY`. `/healthz` is deployment health; `/readyz` separately reports
+credential readiness.
 
 ## OAuth Application Setup
 

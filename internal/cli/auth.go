@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/vessica-labs/vessica-cli/internal/auth"
@@ -16,12 +17,18 @@ import (
 
 func newAuthCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "auth", Short: "Manage provider authentication"}
-	var token, account, clientID string
+	var token, account, clientID, tokenEnv string
 	login := &cobra.Command{
 		Use:   "login [provider]",
-		Short: "Open browser login for railway|linear|github|codex",
+		Short: "Authenticate railway|linear|github|codex or configure the hosted OpenAI runtime",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if tokenEnv != "" {
+				token = strings.TrimSpace(os.Getenv(tokenEnv))
+				if token == "" {
+					return fmt.Errorf("environment variable %s is empty", tokenEnv)
+				}
+			}
 			providers := []string{"railway", "linear", "github", "codex"}
 			if len(args) == 1 {
 				providers = []string{strings.ToLower(args[0])}
@@ -43,6 +50,7 @@ func newAuthCmd(app *App) *cobra.Command {
 	login.Flags().StringVar(&token, "token", "", "access token for headless or CI login")
 	login.Flags().StringVar(&account, "account", "", "account label")
 	login.Flags().StringVar(&clientID, "client-id", "", "OAuth client ID (Railway or Linear)")
+	login.Flags().StringVar(&tokenEnv, "env", "", "read the credential from this environment variable without printing it")
 	cmd.AddCommand(login)
 
 	cmd.AddCommand(&cobra.Command{
@@ -122,10 +130,19 @@ func loginProvider(ctx context.Context, cmd *cobra.Command, app *App, provider, 
 		return authResult("github", account, "github_cli"), nil
 	case "codex", "openai":
 		if token != "" {
-			if err := auth.Login("openai", token, account); err != nil {
+			if provider == "codex" {
+				if err := auth.Login("openai", token, account); err != nil {
+					return nil, err
+				}
+				return authResult("codex", account, "api_key"), nil
+			}
+			if err := syncAgentRuntimeOpenAIKey(ctx, app, token); err != nil {
 				return nil, err
 			}
-			return authResult("codex", account, "api_key"), nil
+			return authResult("openai", account, "api_key"), nil
+		}
+		if provider == "openai" {
+			return nil, fmt.Errorf("openai runtime login requires --env NAME or --token")
 		}
 		path, err := exec.LookPath("codex")
 		if err != nil {
@@ -162,6 +179,38 @@ func loginProvider(ctx context.Context, cmd *cobra.Command, app *App, provider, 
 	default:
 		return nil, app.Printer.Fail("invalid_provider", "unsupported provider", "railway|linear|github|codex|gitlab|jira")
 	}
+}
+
+func syncAgentRuntimeOpenAIKey(ctx context.Context, app *App, key string) error {
+	root, err := config.FindRoot(app.Root)
+	if err != nil {
+		return fmt.Errorf("find Vessica workspace: %w", err)
+	}
+	cfg, err := config.Load(root)
+	if err != nil {
+		return err
+	}
+	if cfg.Hosted.AgentRuntimeServiceID == "" {
+		return fmt.Errorf("agent runtime service is not configured; rerun ves up first")
+	}
+	if err = setRailwayVariableForService(ctx, cfg, cfg.Hosted.AgentRuntimeServiceID, "OPENAI_API_KEY", key); err != nil {
+		return fmt.Errorf("update agent-runtime OpenAI secret: %w", err)
+	}
+	previous := ""
+	if latest, e := latestRailwayDeploymentForService(ctx, cfg, cfg.Hosted.AgentRuntimeServiceID); e == nil {
+		previous = latest.ID
+	}
+	if _, err = runRailway(ctx, "", nil, "redeploy", "--project", cfg.Hosted.ProjectID, "-e", cfg.Hosted.EnvironmentID, "-s", cfg.Hosted.AgentRuntimeServiceID, "--yes"); err != nil {
+		return err
+	}
+	if err = waitForRailwayDeploymentForService(ctx, cfg, cfg.Hosted.AgentRuntimeServiceID, previous, 8*time.Minute); err != nil {
+		return err
+	}
+	secrets, err := loadRailwaySecrets(root)
+	if err != nil {
+		return err
+	}
+	return waitForAgentRuntimeCapabilities(ctx, cfg.Hosted.ControlPlaneURL, secrets.ServiceToken, true, 2*time.Minute)
 }
 
 func rotateAttachedHostedCredential(ctx context.Context, app *App, provider string) error {

@@ -37,7 +37,7 @@ replica_id TEXT NOT NULL,
 heartbeat_at TEXT NOT NULL,
 acquired_at TEXT NOT NULL
 );
-`}}
+`}, {version: 5, sql: AgentSchemaSQL}}
 
 func latestMigrationVersion() int {
 	if len(migrations) == 0 {

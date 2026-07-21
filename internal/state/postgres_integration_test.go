@@ -135,4 +135,75 @@ func TestPostgresHostedSchema(t *testing.T) {
 	if winners != 1 {
 		t.Fatalf("Postgres claim winners=%d, want 1", winners)
 	}
+
+	agentName := fmt.Sprintf("PGAGENT-%d", time.Now().UnixNano())
+	agent, err := db.CreateAgent(ctx, agentName, "Postgres agent concurrency", testDefinition, `{"source":"postgres-test"}`, 1_000_000, "UTC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	admissionStart := make(chan struct{})
+	admissionStatuses := make(chan string, 2)
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-admissionStart
+			run, runErr := db.CreateAgentRun(ctx, agent.ID, "manual", `{"prompt":"postgres"}`, "", "", nil)
+			if runErr != nil {
+				admissionStatuses <- "error"
+				return
+			}
+			admissionStatuses <- run.Status
+		}()
+	}
+	close(admissionStart)
+	wg.Wait()
+	close(admissionStatuses)
+	admissions := map[string]int{}
+	for status := range admissionStatuses {
+		admissions[status]++
+	}
+	if admissions["queued"] != 1 || admissions["budget_blocked"] != 1 {
+		t.Fatalf("Postgres agent admissions=%v", admissions)
+	}
+	runs, err := db.ListAgentRuns(ctx, agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var queued *AgentRun
+	for i := range runs {
+		if runs[i].Status == "queued" {
+			queued = &runs[i]
+			break
+		}
+	}
+	if queued == nil {
+		t.Fatal("missing admitted Postgres agent run")
+	}
+	task, _, err := db.ClaimAgentRuntimeTaskForRun(ctx, queued.ID, "postgres-runtime", time.Minute)
+	if err != nil || task == nil {
+		t.Fatalf("claim Postgres agent task=%#v err=%v", task, err)
+	}
+	if err = db.AppendAgentRunEvents(ctx, queued.ID, task.FenceToken, []AgentRunEvent{{AttemptOrdinal: 1, Type: "agent.run.started", PayloadJSON: `{}`}}); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.BeginAgentToolCall(ctx, queued.ID, task.FenceToken, 1, "artifact.create", "postgres-hash"); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.CompleteAgentToolCall(ctx, queued.ID, task.FenceToken, 1, "artifact.create", "postgres-hash", `{"id":"art_pg"}`); err != nil {
+		t.Fatal(err)
+	}
+	if err = db.CompleteAgentRun(ctx, queued.ID, task.FenceToken, `{"ok":true}`, `{"total_tokens":20}`, 200_000); err != nil {
+		t.Fatal(err)
+	}
+	if released, releaseErr := db.ReleaseBudgetBlockedRuns(ctx, agent.ID); releaseErr != nil || released != 1 {
+		t.Fatalf("release Postgres budget-blocked runs=%d err=%v", released, releaseErr)
+	}
+	if _, err = db.AddAgentVersion(ctx, agent.ID, "updated", testDefinition, `{"source":"postgres-test"}`); err != nil {
+		t.Fatal(err)
+	}
+	pinned, err := db.GetAgentRun(ctx, queued.ID)
+	if err != nil || pinned.DefinitionVersion != 1 {
+		t.Fatalf("Postgres pinned version=%d err=%v", pinned.DefinitionVersion, err)
+	}
 }

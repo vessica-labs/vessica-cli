@@ -165,7 +165,7 @@ func (db *DB) ClaimJob(ctx context.Context, owner string, lease time.Duration) (
 	if err != nil {
 		return nil, err
 	}
-	leaseUntil := time.Now().UTC().Add(lease).Format(time.RFC3339Nano)
+	leaseUntil := FormatTime(time.Now().Add(lease))
 	if _, err := tx.ExecContext(ctx, db.Rebind(`UPDATE jobs SET status='running', attempts=attempts+1, lease_owner=?, lease_until=?, updated_at=? WHERE id=?`), owner, leaseUntil, now, job.ID); err != nil {
 		return nil, err
 	}
@@ -234,7 +234,7 @@ func (db *DB) FailJob(ctx context.Context, job *Job, message string) error {
 		status = "failed"
 	}
 	backoff := time.Duration(job.Attempts*job.Attempts) * time.Minute
-	available := time.Now().UTC().Add(backoff).Format(time.RFC3339Nano)
+	available := FormatTime(time.Now().Add(backoff))
 	_, err := db.Exec(ctx, `UPDATE jobs SET status=?, lease_owner=NULL, lease_until=NULL, available_at=?, last_error=?, updated_at=? WHERE id=? AND status!='cancelled'`, status, available, message, Now(), job.ID)
 	return err
 }
@@ -279,7 +279,7 @@ func (db *DB) ClaimOutbox(ctx context.Context) (*OutboxMessage, error) {
 	}
 	defer tx.Rollback()
 	now := Now()
-	stale := time.Now().UTC().Add(-5 * time.Minute).Format(time.RFC3339Nano)
+	stale := FormatTime(time.Now().Add(-5 * time.Minute))
 	query := `SELECT id, workspace_id, integration_id, operation, idempotency_key, payload_json, status, attempts, available_at, COALESCE(last_error,''), created_at, updated_at
 		FROM outbox_messages WHERE (status IN ('pending','retry') AND available_at<=?) OR (status='running' AND updated_at<?) ORDER BY created_at LIMIT 1`
 	if db.Dialect == "postgres" {
@@ -316,7 +316,7 @@ func (db *DB) FailOutbox(ctx context.Context, message *OutboxMessage, failure st
 	if message.Attempts >= 8 {
 		status = "failed"
 	}
-	available := time.Now().UTC().Add(time.Duration(message.Attempts*message.Attempts) * time.Minute).Format(time.RFC3339Nano)
+	available := FormatTime(time.Now().Add(time.Duration(message.Attempts*message.Attempts) * time.Minute))
 	_, err := db.Exec(ctx, `UPDATE outbox_messages SET status=?, available_at=?, last_error=?, updated_at=? WHERE id=?`, status, available, failure, Now(), message.ID)
 	return err
 }

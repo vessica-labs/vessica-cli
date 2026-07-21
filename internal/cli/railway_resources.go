@@ -137,6 +137,8 @@ func reconcileRailwayResourceIDs(ctx context.Context, cfg *config.Config) error 
 			cfg.Hosted.PostgresServiceID = edge.Node.ID
 		case name == "knowledge-server":
 			cfg.Knowledge.ServiceID = edge.Node.ID
+		case name == "agent-runtime":
+			cfg.Hosted.AgentRuntimeServiceID = edge.Node.ID
 		}
 	}
 	if cfg.Hosted.EnvironmentID == "" || cfg.Hosted.ServiceID == "" || cfg.Hosted.PostgresServiceID == "" {

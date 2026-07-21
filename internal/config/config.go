@@ -241,6 +241,12 @@ func Set(c *Config, key, value string) error {
 		c.Hosted.PreviewURL = value
 	case "hosted.control_plane_image":
 		c.Hosted.ControlPlaneImage = value
+	case "hosted.agent_runtime_service_id":
+		c.Hosted.AgentRuntimeServiceID = value
+	case "hosted.agent_runtime_image":
+		c.Hosted.AgentRuntimeImage = value
+	case "hosted.agent_runtime_version":
+		c.Hosted.AgentRuntimeVersion = value
 	case "hosted.worker_checkpoint":
 		c.Hosted.WorkerCheckpoint = value
 	case "knowledge.mode":
@@ -299,43 +305,46 @@ func Flatten(c Config) map[string]string {
 
 func flatten(c Config) map[string]string {
 	return map[string]string{
-		"state.backend":              c.State.Backend,
-		"state.db_url":               c.State.DBURL,
-		"sandbox.backend":            c.Sandbox.Backend,
-		"runner.default":             c.Runner.Default,
-		"repo.provider":              c.Repo.Provider,
-		"repo.remote":                c.Repo.Remote,
-		"tracker.provider":           c.Tracker.Provider,
-		"tracker.mode":               c.Tracker.Mode,
-		"tracker.team_id":            c.Tracker.TeamID,
-		"tracker.project_id":         c.Tracker.ProjectID,
-		"tracker.todo_state_id":      c.Tracker.TodoStateID,
-		"tracker.wip_state_id":       c.Tracker.WIPStateID,
-		"tracker.done_state_id":      c.Tracker.DoneStateID,
-		"tracker.blocked_state_id":   c.Tracker.BlockedStateID,
-		"tracker.trigger_label":      c.Tracker.TriggerLabel,
-		"hosted.provider":            c.Hosted.Provider,
-		"hosted.workspace_id":        c.Hosted.WorkspaceID,
-		"hosted.project_id":          c.Hosted.ProjectID,
-		"hosted.environment_id":      c.Hosted.EnvironmentID,
-		"hosted.service_id":          c.Hosted.ServiceID,
-		"hosted.preview_service_id":  c.Hosted.PreviewServiceID,
-		"hosted.postgres_service_id": c.Hosted.PostgresServiceID,
-		"hosted.control_plane_url":   c.Hosted.ControlPlaneURL,
-		"hosted.preview_url":         c.Hosted.PreviewURL,
-		"hosted.control_plane_image": c.Hosted.ControlPlaneImage,
-		"hosted.worker_checkpoint":   c.Hosted.WorkerCheckpoint,
-		"knowledge.mode":             c.Knowledge.Mode,
-		"knowledge.workspace_id":     c.Knowledge.WorkspaceID,
-		"knowledge.endpoint":         c.Knowledge.Endpoint,
-		"knowledge.local_path":       c.Knowledge.LocalPath,
-		"knowledge.service_id":       c.Knowledge.ServiceID,
-		"knowledge.version":          c.Knowledge.Version,
-		"knowledge.image":            c.Knowledge.Image,
-		"pack.lockfile":              c.Pack.Lockfile,
-		"preview.command":            c.Preview.Command,
-		"preview.port":               fmt.Sprintf("%d", c.Preview.Port),
-		"preview.healthcheck":        c.Preview.Healthcheck,
+		"state.backend":                   c.State.Backend,
+		"state.db_url":                    c.State.DBURL,
+		"sandbox.backend":                 c.Sandbox.Backend,
+		"runner.default":                  c.Runner.Default,
+		"repo.provider":                   c.Repo.Provider,
+		"repo.remote":                     c.Repo.Remote,
+		"tracker.provider":                c.Tracker.Provider,
+		"tracker.mode":                    c.Tracker.Mode,
+		"tracker.team_id":                 c.Tracker.TeamID,
+		"tracker.project_id":              c.Tracker.ProjectID,
+		"tracker.todo_state_id":           c.Tracker.TodoStateID,
+		"tracker.wip_state_id":            c.Tracker.WIPStateID,
+		"tracker.done_state_id":           c.Tracker.DoneStateID,
+		"tracker.blocked_state_id":        c.Tracker.BlockedStateID,
+		"tracker.trigger_label":           c.Tracker.TriggerLabel,
+		"hosted.provider":                 c.Hosted.Provider,
+		"hosted.workspace_id":             c.Hosted.WorkspaceID,
+		"hosted.project_id":               c.Hosted.ProjectID,
+		"hosted.environment_id":           c.Hosted.EnvironmentID,
+		"hosted.service_id":               c.Hosted.ServiceID,
+		"hosted.preview_service_id":       c.Hosted.PreviewServiceID,
+		"hosted.postgres_service_id":      c.Hosted.PostgresServiceID,
+		"hosted.control_plane_url":        c.Hosted.ControlPlaneURL,
+		"hosted.preview_url":              c.Hosted.PreviewURL,
+		"hosted.control_plane_image":      c.Hosted.ControlPlaneImage,
+		"hosted.agent_runtime_service_id": c.Hosted.AgentRuntimeServiceID,
+		"hosted.agent_runtime_image":      c.Hosted.AgentRuntimeImage,
+		"hosted.agent_runtime_version":    c.Hosted.AgentRuntimeVersion,
+		"hosted.worker_checkpoint":        c.Hosted.WorkerCheckpoint,
+		"knowledge.mode":                  c.Knowledge.Mode,
+		"knowledge.workspace_id":          c.Knowledge.WorkspaceID,
+		"knowledge.endpoint":              c.Knowledge.Endpoint,
+		"knowledge.local_path":            c.Knowledge.LocalPath,
+		"knowledge.service_id":            c.Knowledge.ServiceID,
+		"knowledge.version":               c.Knowledge.Version,
+		"knowledge.image":                 c.Knowledge.Image,
+		"pack.lockfile":                   c.Pack.Lockfile,
+		"preview.command":                 c.Preview.Command,
+		"preview.port":                    fmt.Sprintf("%d", c.Preview.Port),
+		"preview.healthcheck":             c.Preview.Healthcheck,
 	}
 }
 
