@@ -440,6 +440,7 @@ func writeAgentEvent(e state.AgentRunEvent) error {
 	return output.PrintJSONL(os.Stdout, record)
 }
 func watchAgentRun(ctx context.Context, app *App, token, runID string, after int64, jsonl bool) error {
+	terminalObserved := false
 	for {
 		var eventResult struct {
 			Events []state.AgentRunEvent `json:"events"`
@@ -466,8 +467,17 @@ func watchAgentRun(ctx context.Context, app *App, token, runID string, after int
 			return err
 		}
 		if runTerminal(detail.Run.Status) {
+			// A fast runtime can commit its final event batch between the event
+			// request above and this status request. Observe terminal state once,
+			// then keep draining until an event request returns empty so the live
+			// stream never emits its result ahead of persisted final events.
+			if !terminalObserved || len(eventResult.Events) > 0 {
+				terminalObserved = true
+				continue
+			}
 			return streaming.WriteRecord(os.Stdout, streaming.ResultRecord(runID, detail.Run, map[bool]error{true: fmt.Errorf("%s", detail.Run.TerminalError), false: nil}[detail.Run.Status == "failed"]))
 		}
+		terminalObserved = false
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
