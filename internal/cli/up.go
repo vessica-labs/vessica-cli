@@ -223,6 +223,9 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 	var result map[string]any
 	if alreadyAttached {
 		_ = emit("resource_provision", "running", "reconciling the existing Railway installation")
+		if err := hydrateAttachedTrackerConfig(cmd.Context(), app); err != nil {
+			return fail("resource_provision", "hosted_configuration_recovery_failed", err)
+		}
 		result, err = railwayUp(cmd.Context(), app, attachedRailwayUpOptions(app.Config, opts.Workspace, workspaceName, func(message string) {
 			_ = emit("resource_provision", "running", message)
 		}))
