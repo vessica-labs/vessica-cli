@@ -56,20 +56,12 @@ type railwayProjectListItem struct {
 	} `json:"services"`
 }
 
-func verifyAttachedInstallation(ctx context.Context, app *App) (map[string]any, error) {
-	secrets, err := loadRailwaySecrets(app.Root)
-	if err != nil {
-		return nil, err
+func installationCandidateSummary(candidates []railwayInstallationCandidate) string {
+	items := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		items = append(items, candidate.ProjectID+" ("+candidate.Endpoint+")")
 	}
-	var status map[string]any
-	endpoint := strings.TrimRight(app.Config.Hosted.ControlPlaneURL, "/") + "/api/v1/status"
-	if err := hostedRequest(ctx, "GET", endpoint, secrets.APIToken, nil, &status); err != nil {
-		return nil, err
-	}
-	if _, err := runRailway(ctx, "", nil, "sandbox", "list", "-p", app.Config.Hosted.ProjectID, "-e", app.Config.Hosted.EnvironmentID, "--json"); err != nil {
-		return nil, err
-	}
-	return map[string]any{"status": "running", "reused": true, "control_plane": status}, nil
+	return strings.Join(items, ", ")
 }
 
 func sandboxFeatureError(err error) bool {

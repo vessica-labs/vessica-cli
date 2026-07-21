@@ -293,6 +293,24 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		"linear_connected": linear != nil, "linear_team": team.Name, "linear_project_id": cfg.Tracker.ProjectID, "todo_state_id": cfg.Tracker.TodoStateID}, nil
 }
 
+func attachedRailwayUpOptions(cfg config.Config, workspace, workspaceName string, progress func(string)) railwayUpOptions {
+	return railwayUpOptions{
+		Workspace:        firstNonEmpty(workspace, cfg.Hosted.WorkspaceID),
+		WorkspaceName:    firstNonEmpty(workspaceName, cfg.Hosted.WorkspaceName),
+		Image:            defaultControlPlaneImage(),
+		WorkerCheckpoint: cfg.Hosted.WorkerCheckpoint,
+		EnableLinear:     strings.EqualFold(cfg.Tracker.Provider, "linear"),
+		Team:             cfg.Tracker.TeamID,
+		LinearProject:    cfg.Tracker.ProjectID,
+		TodoState:        cfg.Tracker.TodoStateID,
+		WIPState:         cfg.Tracker.WIPStateID,
+		DoneState:        cfg.Tracker.DoneStateID,
+		BlockedState:     cfg.Tracker.BlockedStateID,
+		TriggerLabel:     cfg.Tracker.TriggerLabel,
+		Progress:         progress,
+	}
+}
+
 func linkRailwayWorkDir(ctx context.Context, workDir string, cfg config.Config) error {
 	if cfg.Hosted.ProjectID == "" || cfg.Hosted.EnvironmentID == "" {
 		return fmt.Errorf("Railway project and environment ids are required before linking the provisioning workspace")

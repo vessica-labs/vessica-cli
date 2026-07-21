@@ -222,12 +222,18 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 	missingBefore := missingHarnessTargets(profile)
 	var result map[string]any
 	if alreadyAttached {
-		_ = emit("resource_provision", "skipped", "existing Railway installation reused")
-		result, err = verifyAttachedInstallation(cmd.Context(), app)
+		_ = emit("resource_provision", "running", "reconciling the existing Railway installation")
+		result, err = railwayUp(cmd.Context(), app, attachedRailwayUpOptions(app.Config, opts.Workspace, workspaceName, func(message string) {
+			_ = emit("resource_provision", "running", message)
+		}))
 		if err != nil {
-			return fail("hosted_verification", "hosted_verification_failed", err)
+			return fail("resource_provision", "railway_reconcile_failed", err)
 		}
-		_ = emit("service_deploy", "skipped", "existing hosted services are healthy")
+		if result["status"] != "running" {
+			return fail("provider_authentication", "credentials_required", fmt.Errorf("hosted prerequisites are incomplete: %v", result))
+		}
+		_ = emit("resource_provision", "succeeded", "existing Railway resources reconciled")
+		_ = emit("service_deploy", "succeeded", "hosted deployments reached success")
 	} else {
 		_ = emit("resource_provision", "running", "provisioning Railway services")
 		result, err = railwayUp(cmd.Context(), app, railwayUpOptions{Workspace: opts.Workspace, WorkspaceName: workspaceName, Image: defaultControlPlaneImage(), Progress: func(message string) {
@@ -352,14 +358,6 @@ func runHostedUp(cmd *cobra.Command, app *App, opts hostedUpOptions) error {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(final)
 	}
 	return app.Printer.Success(final)
-}
-
-func installationCandidateSummary(candidates []railwayInstallationCandidate) string {
-	items := make([]string, 0, len(candidates))
-	for _, candidate := range candidates {
-		items = append(items, candidate.ProjectID+" ("+candidate.Endpoint+")")
-	}
-	return strings.Join(items, ", ")
 }
 
 func ensureHostedOwnerClaim(ctx context.Context, endpoint, token, operationID string) (string, bool, error) {
