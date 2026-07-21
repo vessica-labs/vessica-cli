@@ -138,6 +138,14 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		}
 		linearToken = currentVariables["LINEAR_API_KEY"]
 		linearOAuth = currentVariables["VES_LINEAR_OAUTH_JSON"]
+		runtimeVariables := map[string]string{}
+		if cfg.Hosted.AgentRuntimeServiceID != "" {
+			runtimeVariables, readErr = readRailwayVariables(ctx, cfg, cfg.Hosted.AgentRuntimeServiceID)
+			if readErr != nil {
+				return nil, fmt.Errorf("read agent runtime variables: %w", readErr)
+			}
+		}
+		openAIKey = retainedOpenAIKey(openAIKey, runtimeVariables, currentVariables)
 	}
 	var linear *tracker.LinearClient
 	var team tracker.LinearTeam
@@ -303,6 +311,10 @@ func railwayUp(ctx context.Context, app *App, opts railwayUpOptions) (map[string
 		"agent_runtime_service_id": cfg.Hosted.AgentRuntimeServiceID, "agent_runtime_image": cfg.Hosted.AgentRuntimeImage,
 		"retrieval_mode": "lexical", "embedding_state": "not_configured",
 		"linear_connected": linear != nil || strings.EqualFold(cfg.Tracker.Provider, "linear"), "linear_team": firstNonEmpty(team.Name, cfg.Tracker.TeamID), "linear_project_id": cfg.Tracker.ProjectID, "todo_state_id": cfg.Tracker.TodoStateID}, nil
+}
+
+func retainedOpenAIKey(configured string, runtimeVariables, controlVariables map[string]string) string {
+	return firstNonEmpty(configured, runtimeVariables["OPENAI_API_KEY"], controlVariables["OPENAI_API_KEY"])
 }
 
 func attachedRailwayUpOptions(cfg config.Config, workspace, workspaceName string, progress func(string)) railwayUpOptions {

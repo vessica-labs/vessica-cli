@@ -225,6 +225,20 @@ func TestTrackerConfigFromAttachedIntegration(t *testing.T) {
 	}
 }
 
+func TestRetainedOpenAIKeyPrefersConfiguredThenRuntimeThenControl(t *testing.T) {
+	runtimeVariables := map[string]string{"OPENAI_API_KEY": "runtime-key"}
+	controlVariables := map[string]string{"OPENAI_API_KEY": "control-key"}
+	if got := retainedOpenAIKey("configured-key", runtimeVariables, controlVariables); got != "configured-key" {
+		t.Fatalf("configured key was not preferred: %q", got)
+	}
+	if got := retainedOpenAIKey("", runtimeVariables, controlVariables); got != "runtime-key" {
+		t.Fatalf("runtime key was not retained: %q", got)
+	}
+	if got := retainedOpenAIKey("", nil, controlVariables); got != "control-key" {
+		t.Fatalf("control-plane key was not retained as fallback: %q", got)
+	}
+}
+
 func TestSyncHostedKnowledgeCredentialsUpdatesLocalTokens(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
