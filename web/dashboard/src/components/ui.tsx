@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, PropsWithChildren, ReactNode } from "react";
+import type { ButtonHTMLAttributes, HTMLAttributes, PropsWithChildren, ReactNode } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -21,8 +21,9 @@ export function Button({
 export function Card({
   children,
   className = "",
-}: PropsWithChildren<{ className?: string }>) {
-  return <section className={`card ${className}`}>{children}</section>;
+  ...props
+}: PropsWithChildren<HTMLAttributes<HTMLElement>>) {
+  return <section className={`card ${className}`} {...props}>{children}</section>;
 }
 export function Badge({ status }: { status?: string }) {
   const normalized = (status || "unknown").toLowerCase();

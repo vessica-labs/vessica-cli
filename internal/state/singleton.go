@@ -51,7 +51,7 @@ func (db *DB) AcquireControlPlaneLease(ctx context.Context, name, holderID, depl
 	now := time.Now().UTC()
 	insert := db.Rebind(`INSERT INTO control_plane_leases(name,holder_id,deployment_id,replica_id,heartbeat_at,acquired_at)
 		VALUES(?,?,?,?,?,?) ON CONFLICT(name) DO NOTHING`)
-	if _, err = tx.ExecContext(ctx, insert, name, holderID, deploymentID, replicaID, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano)); err != nil {
+	if _, err = tx.ExecContext(ctx, insert, name, holderID, deploymentID, replicaID, FormatTime(now), FormatTime(now)); err != nil {
 		return nil, fmt.Errorf("initialize control-plane lease: %w", err)
 	}
 	query := `SELECT holder_id,deployment_id,replica_id,heartbeat_at FROM control_plane_leases WHERE name=?`
@@ -69,7 +69,7 @@ func (db *DB) AcquireControlPlaneLease(ctx context.Context, name, holderID, depl
 	}
 	if currentHolder != holderID {
 		update := db.Rebind(`UPDATE control_plane_leases SET holder_id=?,deployment_id=?,replica_id=?,heartbeat_at=?,acquired_at=? WHERE name=?`)
-		if _, err = tx.ExecContext(ctx, update, holderID, deploymentID, replicaID, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano), name); err != nil {
+		if _, err = tx.ExecContext(ctx, update, holderID, deploymentID, replicaID, FormatTime(now), FormatTime(now), name); err != nil {
 			return nil, fmt.Errorf("take over control-plane lease: %w", err)
 		}
 	}

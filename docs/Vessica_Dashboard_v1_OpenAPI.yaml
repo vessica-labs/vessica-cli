@@ -53,6 +53,47 @@ paths:
     post: {$ref: '#/components/pathItems/ResourceMutation'}
   /api/v1/runs/{id}/preview-access:
     post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/agents:
+    get: {operationId: listAgents, responses: {'200': {$ref: '#/components/responses/Success'}}}
+    post: {$ref: '#/components/pathItems/Mutation'}
+  /api/v1/agents/{id}:
+    get: {operationId: getAgent, parameters: [{$ref: '#/components/parameters/ID'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+    patch: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/agents/{id}/pause:
+    post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/agents/{id}/resume:
+    post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/agents/{id}/archive:
+    post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/agents/{id}/budget:
+    put: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/agents/{id}/heartbeat:
+    put: {$ref: '#/components/pathItems/ResourceMutation'}
+    delete: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/agents/{id}/runs:
+    post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/agent-builds:
+    get: {operationId: listAgentBuilds, responses: {'200': {$ref: '#/components/responses/Success'}}}
+    post: {$ref: '#/components/pathItems/Mutation'}
+  /api/v1/agent-builds/{id}:
+    get: {operationId: getAgentBuild, parameters: [{$ref: '#/components/parameters/ID'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/agent-builds/{id}/activate:
+    post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/agent-runs:
+    get: {operationId: listAgentRuns, responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/agent-runs/{id}:
+    get: {operationId: getAgentRun, parameters: [{$ref: '#/components/parameters/ID'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/agent-runs/{id}/events:
+    get: {operationId: listAgentRunEvents, parameters: [{$ref: '#/components/parameters/ID'}, {$ref: '#/components/parameters/After'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/agent-runs/{id}/stream:
+    get:
+      operationId: streamAgentRun
+      parameters: [{$ref: '#/components/parameters/ID'}, {$ref: '#/components/parameters/After'}, {name: Last-Event-ID, in: header, schema: {type: integer, format: int64}}]
+      responses: {'200': {description: Resumable vessica.stream/v1 Server-Sent Events, content: {text/event-stream: {schema: {type: string}}}}}
+  /api/v1/agent-runs/{id}/cancel:
+    post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/agent-tools:
+    get: {operationId: listAgentTools, responses: {'200': {$ref: '#/components/responses/Success'}}}
   /api/v1/sandboxes:
     get: {operationId: listSandboxes, parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
   /api/v1/sandboxes/{id}/retain:

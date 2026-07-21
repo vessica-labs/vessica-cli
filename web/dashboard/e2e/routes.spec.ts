@@ -21,8 +21,11 @@ async function mockDashboard(page: Page) {
         knowledge: { status: "ready", retrieval_mode: "lexical" },
         integrations: [],
         counts: { runs: 0, sandboxes: 0 },
+        agent_runtime: { connected: true, credentials_ready: false },
         warnings: [],
       };
+    } else if (path === "/api/v1/agents") {
+      data = { agents: [] };
     } else if (path === "/api/v1/runs" || path === "/api/v1/sandboxes") {
       data = { items: [] };
     } else if (path === "/api/v1/repositories") {
@@ -55,6 +58,7 @@ test("primary dashboard routes expose deliberate empty and ready states", async 
     ["/docs", "Documentation"],
     ["/workspace", "Vessica workspace"],
     ["/access", "Access"],
+    ["/agents", "Agents"],
   ]) {
     await page.goto(path);
     await expect(
@@ -64,4 +68,6 @@ test("primary dashboard routes expose deliberate empty and ready states", async 
   const theme = page.locator(".sidebar .icon-button");
   await theme.click();
   await expect(theme).toHaveAttribute("aria-label", "Theme: light");
+  await page.goto("/agents");
+  await expect(page.getByText("OpenAI credentials required")).toBeVisible();
 });

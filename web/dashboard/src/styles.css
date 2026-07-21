@@ -64,6 +64,17 @@ textarea,
 select {
   font: inherit;
 }
+.inline-control { display:flex; align-items:center; gap:.55rem; margin:.8rem 0; }
+.inline-control input { width:auto; }
+.inline-form { display:flex; gap:.55rem; margin:.7rem 0; }
+.inline-form input { flex:1; }
+.conversation { display:grid; gap:.65rem; }
+.event-card { padding:.8rem 1rem; border:1px solid var(--line); border-radius:.65rem; background:var(--surface-2); }
+.event-card p { margin:.35rem 0 0; white-space:pre-wrap; }
+.attempt-boundary { margin:1rem 0 .35rem; color:var(--muted); font-size:.75rem; text-transform:uppercase; letter-spacing:.08em; }
+.agent-tabs { display:flex; flex-wrap:wrap; gap:.5rem; margin:0 0 1rem; }
+.agent-tabs a { border:1px solid var(--line); border-radius:999px; color:var(--muted); padding:.45rem .75rem; }
+.agent-tabs a:hover, .agent-tabs a:focus-visible { border-color:var(--primary); color:var(--text); }
 .skip-link {
   position: fixed;
   left: 1rem;

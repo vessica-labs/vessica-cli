@@ -25,6 +25,7 @@ func newCapabilitiesCmd(app *App) *cobra.Command {
 					"epic draft", "epic add", "epic view", "epic list", "epic update",
 					"ticket add", "ticket list", "ticket update", "ticket block", "ticket unblock",
 					"run epic", "run view", "run list", "run watch", "run cancel", "run resume", "run prompt", "run approve", "run rollback",
+					"agent create", "agent list", "agent view", "agent update", "agent pause", "agent resume", "agent archive", "agent draft view", "agent draft approve", "agent budget set", "agent heartbeat set", "agent heartbeat disable", "agent registry", "agent run",
 					"receipt view",
 					"knowledge status", "knowledge context", "knowledge server upgrade", "knowledge embeddings status", "knowledge embeddings enable", "knowledge embeddings disable", "knowledge reranking status", "knowledge reranking enable", "knowledge reranking disable",
 					"entity create", "entity resolve", "entity search", "artifact create", "artifact get", "artifact list", "artifact activate", "artifact supersede",

@@ -57,7 +57,7 @@ func (db *DB) ClaimTicket(ctx context.Context, ticketID, agentID string, lease t
 	defer func() { _ = tx.Rollback() }()
 
 	now := time.Now().UTC()
-	nowStr := now.Format(time.RFC3339Nano)
+	nowStr := FormatTime(now)
 	// Expire old leases and atomically transition this ticket. The conditional
 	// update is the claim lock: concurrent Postgres claimers cannot both change
 	// the same ready row.
@@ -85,7 +85,7 @@ func (db *DB) ClaimTicket(ctx context.Context, ticketID, agentID string, lease t
 		return nil, nil, fmt.Errorf("ticket not claimable (status=%s)", status)
 	}
 
-	leaseUntil := now.Add(lease).Format(time.RFC3339Nano)
+	leaseUntil := FormatTime(now.Add(lease))
 	claim := &Claim{
 		ID:          id.New(id.Claim),
 		TicketID:    ticketID,
@@ -127,8 +127,8 @@ func (db *DB) HeartbeatClaim(ctx context.Context, ticketID, agentID string, leas
 		lease = 45 * time.Minute
 	}
 	now := time.Now().UTC()
-	leaseUntil := now.Add(lease).Format(time.RFC3339Nano)
-	nowStr := now.Format(time.RFC3339Nano)
+	leaseUntil := FormatTime(now.Add(lease))
+	nowStr := FormatTime(now)
 	tx, err := db.Begin(ctx)
 	if err != nil {
 		return nil, err

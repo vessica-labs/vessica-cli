@@ -88,6 +88,9 @@ func newRunCmd(app *App) *cobra.Command {
 			}
 			defer app.closeDB()
 			if config.IsHostedAttachment(app.Config) {
+				if strings.HasPrefix(args[0], "arun_") {
+					return viewHostedAgentRunFromCLI(cmd.Context(), app, args[0])
+				}
 				runRecord, err := app.getHostedRun(cmd.Context(), args[0])
 				if err != nil {
 					return err
@@ -109,6 +112,9 @@ func newRunCmd(app *App) *cobra.Command {
 			}
 			defer app.closeDB()
 			if config.IsHostedAttachment(app.Config) {
+				if strings.HasPrefix(args[0], "arun_") {
+					return listHostedAgentRunEventsFromCLI(cmd.Context(), app, args[0], logsJSONL)
+				}
 				return app.printHostedRunLogs(cmd.Context(), args[0], logsDetail, logsAgentOnly, logsJSONL, logsRaw)
 			}
 			if logsDetail != "" {
@@ -163,6 +169,13 @@ func newRunCmd(app *App) *cobra.Command {
 			}
 			defer app.closeDB()
 			if config.IsHostedAttachment(app.Config) {
+				if strings.HasPrefix(args[0], "arun_") {
+					token, err := agentSecret(app)
+					if err != nil {
+						return err
+					}
+					return watchAgentRun(cmd.Context(), app, token, args[0], watchAfter, jsonl)
+				}
 				return app.watchHostedRun(cmd.Context(), args[0], watchAfter, jsonl)
 			}
 			if watchUI && isTTYOutput() {
@@ -438,6 +451,9 @@ func newRunCmd(app *App) *cobra.Command {
 				return err
 			}
 			if config.IsHostedAttachment(app.Config) {
+				if strings.HasPrefix(args[0], "arun_") {
+					return cancelHostedAgentRun(cmd.Context(), app, args[0])
+				}
 				return app.executeHostedCancel(cmd.Context(), args[0])
 			}
 			r, err := appservice.NewRunLifecycle(app.DB, app.Root, app.Config, nil).Cancel(cmd.Context(), args[0], "cli")

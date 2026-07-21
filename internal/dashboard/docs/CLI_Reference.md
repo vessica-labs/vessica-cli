@@ -38,6 +38,7 @@ stderr. Do not parse pretty output.
 | `ves toolchain` | `verify` | Verify the workstation or complete pinned worker toolchain. |
 | `ves config` | `list`, `get`, `set`, `unset` | Inspect or modify explicit developer-mode configuration. |
 | `ves auth` | `login`, `logout`, `status` | Manage GitHub, Linear, Railway, Codex, and knowledge credentials. |
+| `ves agent` | `create`, `list`, `view`, `update`, `pause`, `resume`, `archive`, `draft view`, `draft approve`, `budget set`, `heartbeat set`, `heartbeat disable`, `registry`, `run` | Build and manage workspace-wide general agents, operational settings, and ad-hoc cloud runs. |
 | `ves setup` | `codex`, `claude`, `cursor`, `pi`, `mcp` | Install managed repository guidance. `ves setup codex --plugin` also installs or updates the first-party Codex plugin; `--check` is read-only. |
 | `ves prime` | — | Assemble workspace guidance, ready work, and bounded authoritative/durable context for a human or agent. |
 | `ves completion` | `bash`, `fish`, `powershell`, `zsh` | Generate shell completion. |

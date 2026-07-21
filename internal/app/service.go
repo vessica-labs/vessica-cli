@@ -46,6 +46,7 @@ type SystemStatus struct {
 	Counts           map[string]int      `json:"counts"`
 	Warnings         []map[string]string `json:"warnings"`
 	Repositories     []state.Repository  `json:"repositories"`
+	AgentRuntime     map[string]any      `json:"agent_runtime,omitempty"`
 }
 type RunDetail struct {
 	Run       *state.Run          `json:"run"`

@@ -93,6 +93,9 @@ func initializeRailwaySecrets(secrets railwaySecrets, runtimeToken string) railw
 	if secrets.KnowledgeAdminToken == "" {
 		secrets.KnowledgeAdminToken = randomSecret(32)
 	}
+	if secrets.AgentRuntimeToken == "" {
+		secrets.AgentRuntimeToken = randomSecret(32)
+	}
 	if secrets.ControlDatabasePassword == "" {
 		secrets.ControlDatabasePassword = randomSecret(32)
 	}

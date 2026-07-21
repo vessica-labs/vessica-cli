@@ -33,6 +33,7 @@ func configureRailwayService(ctx context.Context, cfg config.Config, secrets rai
 		"VES_RAILWAY_PREVIEW_SERVICE_ID":  cfg.Hosted.PreviewServiceID,
 		"VES_RAILWAY_WORKSPACE_ID":        cfg.Hosted.WorkspaceID,
 		"VES_WORKER_DOWNLOAD_TOKEN":       secrets.WorkerToken, "VES_CONTROL_PLANE_API_TOKEN": secrets.ServiceToken,
+		"VES_AGENT_RUNTIME_TOKEN":   secrets.AgentRuntimeToken,
 		"VES_PREVIEW_EDGE_TOKEN":    secrets.PreviewEdgeToken,
 		"VES_LINEAR_WEBHOOK_SECRET": secrets.WebhookSecret, "LINEAR_API_KEY": linearToken,
 		"GITHUB_TOKEN": githubToken, "OPENAI_API_KEY": openAIKey, "RAILWAY_TOKEN": secrets.RuntimeToken,

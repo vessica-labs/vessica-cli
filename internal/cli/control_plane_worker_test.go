@@ -74,6 +74,17 @@ func TestEnsureWorkerRepoUsesCheckpointDeltaAndKeepsDependencies(t *testing.T) {
 	}
 }
 
+func TestConfigureHostedAuthAllowsAgentOnlyControlPlane(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("GITHUB_TOKEN", "")
+	if err := configureHostedAuth(false); err != nil {
+		t.Fatalf("optional hosted auth: %v", err)
+	}
+	if err := configureHostedAuth(true); err == nil {
+		t.Fatal("coding worker auth should still require GITHUB_TOKEN")
+	}
+}
+
 func gitTest(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	command := repo.GitCommandContext(context.Background(), args...)

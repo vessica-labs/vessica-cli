@@ -1,7 +1,7 @@
 {
   "name": "vessica",
-  "version": "0.4.0+codex.20260716223856",
-  "description": "Set up and operate hosted Vessica workspaces, engineering runs, evidence, previews, harnesses, and durable knowledge through the ves CLI.",
+  "version": "0.4.0+codex.20260721194526",
+  "description": "Set up and operate hosted Vessica workspaces, durable general agents, engineering runs, evidence, previews, harnesses, and knowledge through the ves CLI.",
   "author": {
     "name": "Vessica Labs",
     "url": "https://github.com/vessica-labs"
@@ -14,13 +14,14 @@
     "cli",
     "dark-factory",
     "linear",
-    "knowledge"
+    "knowledge",
+    "agents"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Vessica",
     "shortDescription": "Set up and operate hosted engineering workflows through ves.",
-    "longDescription": "Use the version-matched ves Go CLI to create or recover a Railway-hosted Vessica workspace, attach repositories, manage engineering harnesses, choose interactive or dispatched work, run and refine cloud coding workflows, restore ambiguity-safe shared knowledge, and review persisted evidence before approval or rollback.",
+    "longDescription": "Use the version-matched ves Go CLI to create or recover a Railway-hosted Vessica workspace, build and invoke durable general agents, attach repositories, manage engineering harnesses, run and refine cloud coding workflows, restore ambiguity-safe shared knowledge, and review persisted evidence before approval or rollback.",
     "developerName": "Vessica Labs",
     "category": "Productivity",
     "capabilities": [
@@ -34,6 +35,8 @@
       "Show me the status of my Vessica runs.",
       "Review the artifacts and receipt for this Vessica run.",
       "What does Vessica remember about this repository?",
+      "Create a persistent Vessica agent for this workflow.",
+      "Show me the available Vessica agents and invoke the best match.",
       "Help me configure or troubleshoot Vessica."
     ],
     "brandColor": "#6B46C1"
