@@ -26,8 +26,9 @@ const criticOutput = z.object({
 });
 type RuntimeContext = { client: ControlPlaneClient; runID: string; fence: string; toolOrdinal: number; batcher: EventBatcher };
 
-const artifactInput = z.object({ artifact_id: z.string().nullable().optional(), scope_id: z.string().nullable().optional(), type: z.string().nullable().optional(), title: z.string().nullable().optional(), content: z.string().nullable().optional(), status: z.string().nullable().optional(), metadata: z.record(z.string(), z.unknown()).nullable().optional() });
-const memoryInput = z.object({ memory_id: z.string().nullable().optional(), scope_id: z.string().nullable().optional(), type: z.string().nullable().optional(), title: z.string().nullable().optional(), content: z.string().nullable().optional(), subject: z.string().nullable().optional(), predicate: z.string().nullable().optional(), object: z.string().nullable().optional(), importance: z.number().nullable().optional(), confidence: z.number().nullable().optional(), metadata: z.record(z.string(), z.unknown()).nullable().optional() });
+const metadataInput = z.array(z.object({ key: z.string(), value: z.string() })).nullable().optional();
+const artifactInput = z.object({ artifact_id: z.string().nullable().optional(), scope_id: z.string().nullable().optional(), type: z.string().nullable().optional(), title: z.string().nullable().optional(), content: z.string().nullable().optional(), status: z.string().nullable().optional(), metadata: metadataInput });
+const memoryInput = z.object({ memory_id: z.string().nullable().optional(), scope_id: z.string().nullable().optional(), type: z.string().nullable().optional(), title: z.string().nullable().optional(), content: z.string().nullable().optional(), subject: z.string().nullable().optional(), predicate: z.string().nullable().optional(), object: z.string().nullable().optional(), importance: z.number().nullable().optional(), confidence: z.number().nullable().optional(), metadata: metadataInput });
 export const typedToolSchemas: Record<string, z.ZodObject<any>> = {
   "repository.list": z.object({}),
   "knowledge.retrieve": z.object({ query: z.string(), scopes: z.array(z.string()).default([]), entities: z.array(z.string()).nullable().optional(), artifact_selectors: z.array(z.object({ type: z.string().nullable().optional(), status: z.string().nullable().optional(), id: z.string().nullable().optional(), version: z.number().nullable().optional() })).nullable().optional(), token_budget: z.number().int().positive().default(8000) }),
@@ -46,7 +47,7 @@ export const typedToolSchemas: Record<string, z.ZodObject<any>> = {
   "memory.archive": z.object({ memory_id: z.string() }),
   "entity.get": z.object({ entity_id: z.string() }),
   "entity.resolve": z.object({ query: z.string(), scopes: z.array(z.string()).default([]) }),
-  "entity.create": z.object({ scope_id: z.string(), type: z.string(), display_name: z.string(), aliases: z.array(z.string()).default([]), metadata: z.record(z.string(), z.unknown()).nullable().optional() }),
+  "entity.create": z.object({ scope_id: z.string(), type: z.string(), display_name: z.string(), aliases: z.array(z.string()).default([]), metadata: metadataInput }),
   "epic.list": z.object({}),
   "epic.view": z.object({ epic_id: z.string() }),
   "epic.create": z.object({ repository_id: z.string(), title: z.string(), body: z.string() }),
@@ -54,6 +55,17 @@ export const typedToolSchemas: Record<string, z.ZodObject<any>> = {
   "coding_run.status": z.object({ run_id: z.string() }),
   "coding_run.events": z.object({ run_id: z.string(), after: z.number().int().min(0).default(0) }),
 };
+
+export function normalizeToolArguments(args: unknown): unknown {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return args;
+  const input = args as Record<string, unknown>;
+  if (!Array.isArray(input.metadata)) return args;
+  const metadata = Object.fromEntries(input.metadata.map((entry) => {
+    const item = entry as { key: string; value: string };
+    return [item.key, item.value];
+  }));
+  return { ...input, metadata };
+}
 
 export class ExecutionFailure extends Error {
   constructor(message: string, readonly usage: Usage, readonly cost: number) {
@@ -233,7 +245,7 @@ export class OpenAIAgentsExecutor implements Executor {
       return tool({
         name: id.replaceAll(".", "_"), description: `Vessica typed tool ${id}.`,
         parameters,
-        execute: async (args) => this.invokeControlPlaneTool(context, id, args),
+        execute: async (args) => this.invokeControlPlaneTool(context, id, normalizeToolArguments(args)),
       });
     });
   }
