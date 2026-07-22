@@ -26,12 +26,12 @@ const criticOutput = z.object({
 });
 type RuntimeContext = { client: ControlPlaneClient; runID: string; fence: string; toolOrdinal: number; batcher: EventBatcher };
 
-const artifactInput = z.object({ artifact_id: z.string().optional(), scope_id: z.string().optional(), type: z.string().optional(), title: z.string().optional(), content: z.string().optional(), status: z.string().optional(), metadata: z.record(z.string(), z.unknown()).optional() });
-const memoryInput = z.object({ memory_id: z.string().optional(), scope_id: z.string().optional(), type: z.string().optional(), title: z.string().optional(), content: z.string().optional(), subject: z.string().optional(), predicate: z.string().optional(), object: z.string().optional(), importance: z.number().optional(), confidence: z.number().optional(), metadata: z.record(z.string(), z.unknown()).optional() });
-const typedToolSchemas: Record<string, z.ZodObject<any>> = {
+const artifactInput = z.object({ artifact_id: z.string().nullable().optional(), scope_id: z.string().nullable().optional(), type: z.string().nullable().optional(), title: z.string().nullable().optional(), content: z.string().nullable().optional(), status: z.string().nullable().optional(), metadata: z.record(z.string(), z.unknown()).nullable().optional() });
+const memoryInput = z.object({ memory_id: z.string().nullable().optional(), scope_id: z.string().nullable().optional(), type: z.string().nullable().optional(), title: z.string().nullable().optional(), content: z.string().nullable().optional(), subject: z.string().nullable().optional(), predicate: z.string().nullable().optional(), object: z.string().nullable().optional(), importance: z.number().nullable().optional(), confidence: z.number().nullable().optional(), metadata: z.record(z.string(), z.unknown()).nullable().optional() });
+export const typedToolSchemas: Record<string, z.ZodObject<any>> = {
   "repository.list": z.object({}),
-  "knowledge.retrieve": z.object({ query: z.string(), scopes: z.array(z.string()).default([]), entities: z.array(z.string()).optional(), artifact_selectors: z.array(z.object({ type: z.string().optional(), status: z.string().optional(), id: z.string().optional(), version: z.number().optional() })).optional(), token_budget: z.number().int().positive().default(8000) }),
-  "artifact.list": z.object({ type: z.string().optional(), status: z.string().optional(), scopes: z.array(z.string()).default([]) }),
+  "knowledge.retrieve": z.object({ query: z.string(), scopes: z.array(z.string()).default([]), entities: z.array(z.string()).nullable().optional(), artifact_selectors: z.array(z.object({ type: z.string().nullable().optional(), status: z.string().nullable().optional(), id: z.string().nullable().optional(), version: z.number().nullable().optional() })).nullable().optional(), token_budget: z.number().int().positive().default(8000) }),
+  "artifact.list": z.object({ type: z.string().nullable().optional(), status: z.string().nullable().optional(), scopes: z.array(z.string()).default([]) }),
   "artifact.get": z.object({ artifact_id: z.string() }),
   "artifact.create": artifactInput,
   "artifact.version": artifactInput.extend({ artifact_id: z.string() }),
@@ -46,7 +46,7 @@ const typedToolSchemas: Record<string, z.ZodObject<any>> = {
   "memory.archive": z.object({ memory_id: z.string() }),
   "entity.get": z.object({ entity_id: z.string() }),
   "entity.resolve": z.object({ query: z.string(), scopes: z.array(z.string()).default([]) }),
-  "entity.create": z.object({ scope_id: z.string(), type: z.string(), display_name: z.string(), aliases: z.array(z.string()).default([]), metadata: z.record(z.string(), z.unknown()).optional() }),
+  "entity.create": z.object({ scope_id: z.string(), type: z.string(), display_name: z.string(), aliases: z.array(z.string()).default([]), metadata: z.record(z.string(), z.unknown()).nullable().optional() }),
   "epic.list": z.object({}),
   "epic.view": z.object({ epic_id: z.string() }),
   "epic.create": z.object({ repository_id: z.string(), title: z.string(), body: z.string() }),
