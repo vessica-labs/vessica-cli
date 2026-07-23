@@ -83,7 +83,7 @@ export class OpenAIAgentsExecutor implements Executor {
   private readonly runner: Runner;
   constructor(private readonly client: ControlPlaneClient, private readonly leaseFactory: LeaseFactory = intervalLeaseFactory) {
     setTracingDisabled(true);
-    this.runner = new Runner({ tracingDisabled: true, traceIncludeSensitiveData: false, reasoningItemIdPolicy: "omit" });
+    this.runner = new Runner({ tracingDisabled: true, traceIncludeSensitiveData: false, reasoningItemIdPolicy: "preserve" });
   }
 
   async build(task: ClaimedTask, signal?: AbortSignal) {
