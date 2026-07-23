@@ -33,6 +33,9 @@ func TestAgentKnowledgeWritesUseRepositoryScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if scope.CanonicalKey != "repo:https://github.com/vessica-labs/vessica-cos" {
+		t.Fatalf("scope canonical key=%q", scope.CanonicalKey)
+	}
 
 	result, err := service.ExecuteAgentTool(ctx, "memory.create", "memory-test", scope.ID, json.RawMessage(`{
 		"scope_id":"ws_invalid",

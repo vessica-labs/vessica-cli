@@ -23,7 +23,10 @@ func (s *Service) EnsureRepositoryKnowledgeScope(ctx context.Context, repository
 		return knowledge.Scope{}, err
 	}
 	defer g.Close()
-	canonical := knowledgegateway.CanonicalRepository(repository.CanonicalRemote, s.Root)
+	// Match the CLI's repository scope key exactly. The canonical_remote field
+	// omits the URL scheme, while CLI knowledge commands derive their scope
+	// from the configured remote URL.
+	canonical := knowledgegateway.CanonicalRepository(repository.Remote, s.Root)
 	return g.EnsureRepositoryScope(ctx, canonical, repository.DisplayName)
 }
 

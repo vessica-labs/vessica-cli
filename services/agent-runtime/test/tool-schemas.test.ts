@@ -47,6 +47,14 @@ describe("typed Vessica tool schemas", () => {
       confidence: -1,
       confidence_source: "maybe",
     })).toThrow();
+    expect(() => typedToolSchemas["memory.create"]?.parse({
+      type: "fact",
+      content: "date-only values are not RFC3339 timestamps",
+      importance: 0.5,
+      confidence: 1,
+      confidence_source: "human_confirmed",
+      valid_from: "2026-07-23",
+    })).toThrow();
   });
 
   it("suppresses the SDK success-shaped output after a failed tool call", () => {
