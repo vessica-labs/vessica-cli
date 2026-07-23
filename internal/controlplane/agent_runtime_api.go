@@ -417,7 +417,29 @@ func (s *Server) executeAgentTool(r *http.Request, toolID, key string, args json
 		}
 		return map[string]any{"run": run, "job": job}, nil
 	default:
-		return s.agentApp().ExecuteAgentTool(r.Context(), toolID, "agent-tool:"+key, args)
+		service := s.agentApp()
+		repositoryScopeID := ""
+		if agentToolNeedsRepositoryScope(toolID) {
+			run, err := s.DB.GetAgentRun(r.Context(), r.PathValue("id"))
+			if err != nil {
+				return nil, err
+			}
+			scope, err := service.EnsureRepositoryKnowledgeScope(r.Context(), run.OriginatingRepositoryID)
+			if err != nil {
+				return nil, err
+			}
+			repositoryScopeID = scope.ID
+		}
+		return service.ExecuteAgentTool(r.Context(), toolID, "agent-tool:"+key, repositoryScopeID, args)
+	}
+}
+
+func agentToolNeedsRepositoryScope(toolID string) bool {
+	switch toolID {
+	case "artifact.create", "artifact.version", "memory.create", "memory.version", "entity.create":
+		return true
+	default:
+		return false
 	}
 }
 

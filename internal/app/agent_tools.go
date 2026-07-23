@@ -6,12 +6,30 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/vessica-labs/vessica-cli/internal/knowledgegateway"
 	knowledge "github.com/vessica-labs/vessica-knowledge-server/knowledge"
 )
 
+// EnsureRepositoryKnowledgeScope returns the durable knowledge scope owned by
+// a repository. Agent runtimes use it so models never need to invent opaque
+// workspace or scope identifiers.
+func (s *Service) EnsureRepositoryKnowledgeScope(ctx context.Context, repositoryID string) (knowledge.Scope, error) {
+	repository, err := s.DB.GetRepository(ctx, repositoryID)
+	if err != nil {
+		return knowledge.Scope{}, err
+	}
+	g, err := s.knowledge(ctx)
+	if err != nil {
+		return knowledge.Scope{}, err
+	}
+	defer g.Close()
+	canonical := knowledgegateway.CanonicalRepository(repository.CanonicalRemote, s.Root)
+	return g.EnsureRepositoryScope(ctx, canonical, repository.DisplayName)
+}
+
 // ExecuteAgentTool keeps knowledge credentials inside the control plane. The
 // runtime supplies only a fenced, audited invocation and typed JSON input.
-func (s *Service) ExecuteAgentTool(ctx context.Context, toolID, key string, args json.RawMessage) (any, error) {
+func (s *Service) ExecuteAgentTool(ctx context.Context, toolID, key, repositoryScopeID string, args json.RawMessage) (any, error) {
 	g, err := s.knowledge(ctx)
 	knowledgeTool := toolID == "knowledge.retrieve" || strings.HasPrefix(toolID, "memory.") || strings.HasPrefix(toolID, "entity.") || strings.HasPrefix(toolID, "artifact.")
 	if knowledgeTool && err != nil {
@@ -50,6 +68,7 @@ func (s *Service) ExecuteAgentTool(ctx context.Context, toolID, key string, args
 		if err = json.Unmarshal(args, &v); err != nil {
 			return nil, err
 		}
+		v.ScopeID = repositoryScopeID
 		return g.CreateArtifact(ctx, key, v)
 	case "artifact.version":
 		var v knowledge.Artifact
@@ -61,6 +80,7 @@ func (s *Service) ExecuteAgentTool(ctx context.Context, toolID, key string, args
 		}
 		_ = json.Unmarshal(args, &ref)
 		v.ID = ref.ArtifactID
+		v.ScopeID = repositoryScopeID
 		return g.VersionArtifact(ctx, key, v)
 	case "artifact.activate":
 		return agentArtifactState(ctx, g, key, args, "active")
@@ -88,6 +108,7 @@ func (s *Service) ExecuteAgentTool(ctx context.Context, toolID, key string, args
 		if err = json.Unmarshal(args, &v); err != nil {
 			return nil, err
 		}
+		v.ScopeID = repositoryScopeID
 		return g.CreateMemory(ctx, key, v)
 	case "memory.version":
 		var v knowledge.Memory
@@ -99,6 +120,7 @@ func (s *Service) ExecuteAgentTool(ctx context.Context, toolID, key string, args
 		}
 		_ = json.Unmarshal(args, &ref)
 		v.ID = ref.MemoryID
+		v.ScopeID = repositoryScopeID
 		return g.VersionMemory(ctx, key, v)
 	case "memory.supersede":
 		return agentMemoryState(ctx, g, key, args, "superseded")
@@ -126,6 +148,7 @@ func (s *Service) ExecuteAgentTool(ctx context.Context, toolID, key string, args
 		if err = json.Unmarshal(args, &v); err != nil {
 			return nil, err
 		}
+		v.ScopeID = repositoryScopeID
 		return g.CreateEntity(ctx, key, v)
 	case "epic.list":
 		return s.DB.ListEpics(ctx)
