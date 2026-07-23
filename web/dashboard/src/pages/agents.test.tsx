@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { Agents } from "./agents";
+import { AgentDetail, Agents } from "./agents";
 
 const envelope = (data: unknown) => ({ schema: "vessica.dashboard/v1", data });
 let created = false;
@@ -64,5 +64,61 @@ describe("Agents management", () => {
     fireEvent.click(screen.getByLabelText("Review before activation"));
     fireEvent.click(screen.getByRole("button", { name: "Build agent" }));
     await waitFor(() => expect(created).toBe(true));
+  });
+
+  it("renders an agent detail when optional tool and knowledge arrays are omitted", async () => {
+    server.use(
+      http.get("/api/v1/agents/agent_1", () =>
+        HttpResponse.json(
+          envelope({
+            agent: {
+              id: "agent_1",
+              name: "VessicaChiefOfStaff",
+              purpose: "Keep priorities organized.",
+              state: "active",
+            },
+            version: { version: 1 },
+            definition: {
+              model: {
+                id: "gpt-5.6-terra",
+                reasoning_effort: "medium",
+              },
+              system_prompt: "Help thoughtfully.",
+            },
+            schedule: null,
+            budget: {
+              spent_microusd: 0,
+              daily_limit_microusd: 5_000_000,
+            },
+            versions: [],
+            evaluations: [],
+            runs: [],
+          }),
+        ),
+      ),
+    );
+
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({
+            defaultOptions: {
+              queries: { retry: false },
+              mutations: { retry: false },
+            },
+          })
+        }
+      >
+        <MemoryRouter initialEntries={["/agents/agent_1"]}>
+          <Routes>
+            <Route path="/agents/:id" element={<AgentDetail />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("VessicaChiefOfStaff")).toBeInTheDocument();
+    expect(screen.getByText("No knowledge references.")).toBeInTheDocument();
+    expect(screen.getByText("None")).toBeInTheDocument();
   });
 });
