@@ -40,8 +40,8 @@ const memoryDetails = {
   subject: z.string().nullable().optional(),
   predicate: z.string().nullable().optional(),
   object: z.string().nullable().optional(),
-  valid_from: z.string().nullable().optional(),
-  valid_until: z.string().nullable().optional(),
+  valid_from: z.string().datetime({ offset: true }).nullable().optional(),
+  valid_until: z.string().datetime({ offset: true }).nullable().optional(),
   metadata: metadataInput,
 };
 const memoryCreateInput = z.object({
