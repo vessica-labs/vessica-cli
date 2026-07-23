@@ -286,6 +286,8 @@ export function AgentDetail() {
   if (q.isLoading) return <Loading label="Loading agent" />;
   if (q.error) return <ErrorState error={q.error} />;
   const d = q.data;
+  const tools = d.definition.tools ?? [];
+  const knowledge = d.definition.knowledge ?? [];
   return (
     <>
       <PageHeader
@@ -467,12 +469,12 @@ export function AgentDetail() {
       <Card id="tools-knowledge">
         <h2>Tools &amp; knowledge</h2>
         <h3>Enabled tools</h3>
-        <p>{d.definition.tools.map((t: any) => t.id).join(", ") || "None"}</p>
+        <p>{tools.map((t: any) => t.id).join(", ") || "None"}</p>
         <h3>Knowledge references</h3>
-        {d.definition.knowledge.length === 0 ? (
+        {knowledge.length === 0 ? (
           <p className="muted">No knowledge references.</p>
         ) : (
-          d.definition.knowledge.map((k: any) => (
+          knowledge.map((k: any) => (
             <p key={`${k.artifact_id}-${k.version}`}>
               <strong>{k.artifact_id}@{k.version}</strong>
               <small>{k.description}</small>
