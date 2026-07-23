@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const sdk = vi.hoisted(() => ({
   agents: [] as Array<Record<string, unknown>>,
+  runnerConfigs: [] as Array<Record<string, unknown>>,
   run: vi.fn(),
 }));
 
@@ -10,6 +11,7 @@ vi.mock("@openai/agents", () => ({
     constructor(config: Record<string, unknown>) { sdk.agents.push(config); }
   },
   Runner: class {
+    constructor(config: Record<string, unknown>) { sdk.runnerConfigs.push(config); }
     run(...args: unknown[]) { return sdk.run(...args); }
   },
   codeInterpreterTool: (config: unknown) => ({ name: "code_interpreter", config }),
@@ -38,7 +40,18 @@ const definition: AgentDefinition = {
 describe("OpenAIAgentsExecutor", () => {
   beforeEach(() => {
     sdk.agents.length = 0;
+    sdk.runnerConfigs.length = 0;
     sdk.run.mockReset();
+  });
+
+  it("preserves reasoning items across function-tool turns", () => {
+    new OpenAIAgentsExecutor({} as ControlPlaneClient);
+
+    expect(sdk.runnerConfigs).toEqual([expect.objectContaining({
+      tracingDisabled: true,
+      traceIncludeSensitiveData: false,
+      reasoningItemIdPolicy: "preserve",
+    })]);
   });
 
   it("builds with structured output and the supplied catalogs and timezone", async () => {
