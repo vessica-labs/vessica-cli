@@ -66,7 +66,7 @@ describe("Agents management", () => {
     await waitFor(() => expect(created).toBe(true));
   });
 
-  it("renders an agent detail when optional tool and knowledge arrays are omitted", async () => {
+  it("renders an agent detail when optional collections are omitted or null", async () => {
     server.use(
       http.get("/api/v1/agents/agent_1", () =>
         HttpResponse.json(
@@ -90,9 +90,9 @@ describe("Agents management", () => {
               spent_microusd: 0,
               daily_limit_microusd: 5_000_000,
             },
-            versions: [],
-            evaluations: [],
-            runs: [],
+            versions: null,
+            evaluations: null,
+            runs: null,
           }),
         ),
       ),

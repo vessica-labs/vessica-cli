@@ -286,8 +286,13 @@ export function AgentDetail() {
   if (q.isLoading) return <Loading label="Loading agent" />;
   if (q.error) return <ErrorState error={q.error} />;
   const d = q.data;
-  const tools = d.definition.tools ?? [];
-  const knowledge = d.definition.knowledge ?? [];
+  const tools = Array.isArray(d.definition.tools) ? d.definition.tools : [];
+  const knowledge = Array.isArray(d.definition.knowledge)
+    ? d.definition.knowledge
+    : [];
+  const versions = Array.isArray(d.versions) ? d.versions : [];
+  const evaluations = Array.isArray(d.evaluations) ? d.evaluations : [];
+  const runs = Array.isArray(d.runs) ? d.runs : [];
   return (
     <>
       <PageHeader
@@ -485,13 +490,13 @@ export function AgentDetail() {
       <div className="detail-grid">
         <Card id="versions">
           <h2>Version history</h2>
-          {d.versions.map((v: any, index: number) => (
+          {versions.map((v: any, index: number) => (
             <details key={v.version}>
               <summary>
                 Version {v.version} · {fmtTime(v.created_at)}
               </summary>
               <p className="muted">
-                Changed: {changedDefinitionFields(v.definition_json, d.versions[index + 1]?.definition_json).join(", ")}
+                Changed: {changedDefinitionFields(v.definition_json, versions[index + 1]?.definition_json).join(", ")}
               </p>
               <pre>{v.definition_json}</pre>
             </details>
@@ -499,10 +504,10 @@ export function AgentDetail() {
         </Card>
         <Card id="evaluations">
           <h2>Evaluations</h2>
-          {d.evaluations.length === 0 ? (
+          {evaluations.length === 0 ? (
             <p className="muted">No critic evaluations yet.</p>
           ) : (
-            d.evaluations.map((e: any) => (
+            evaluations.map((e: any) => (
               <p key={e.id}>
                 <Link to={`/agent-runs/${e.evaluated_run_id}`}>
                   {e.evaluated_run_id}
@@ -518,7 +523,7 @@ export function AgentDetail() {
       </div>
       <Card className="table-card" id="runs">
         <h2>Runs</h2>
-        {d.runs.length === 0 ? (
+        {runs.length === 0 ? (
           <Empty title="No runs" detail="Start an ad-hoc run above." />
         ) : (
           <div className="table-wrap">
@@ -532,7 +537,7 @@ export function AgentDetail() {
                 </tr>
               </thead>
               <tbody>
-                {d.runs.map((r: AgentRunRecord) => (
+                {runs.map((r: AgentRunRecord) => (
                   <tr key={r.id}>
                     <td>
                       <Link className="entity-link" to={`/agent-runs/${r.id}`}>
