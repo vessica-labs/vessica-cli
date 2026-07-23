@@ -99,7 +99,7 @@ describe("OpenAIAgentsExecutor", () => {
     } as unknown as ControlPlaneClient;
     const executor = new OpenAIAgentsExecutor(client);
     const append = vi.fn().mockResolvedValue(undefined);
-    const context = { client, runID: "arun_parent", fence: "fence_1", toolOrdinal: 0, batcher: { append } };
+    const context = { client, runID: "arun_parent", fence: "fence_1", toolOrdinal: 0, batcher: { append }, failedToolCallIDs: new Set<string>() };
     const configured = { ...definition, tools: [
       { id: "openai.web_search", config: { search_context_size: "low" } },
       { id: "artifact.get", config: {} },
@@ -124,9 +124,39 @@ describe("OpenAIAgentsExecutor", () => {
     });
   });
 
+  it("associates control-plane tool failures with the SDK call id", async () => {
+    const client = {
+      tool: vi.fn().mockRejectedValue(new Error("invalid memory")),
+    } as unknown as ControlPlaneClient;
+    const executor = new OpenAIAgentsExecutor(client);
+    const append = vi.fn().mockResolvedValue(undefined);
+    const context = {
+      client,
+      runID: "arun_parent",
+      fence: "fence_1",
+      toolOrdinal: 0,
+      batcher: { append },
+      failedToolCallIDs: new Set<string>(),
+    };
+    const configured = { ...definition, tools: [{ id: "memory.get", config: {} }] } satisfies AgentDefinition;
+    const tools = (executor as unknown as { mapTools(d: AgentDefinition, c: typeof context): Array<Record<string, unknown>> }).mapTools(configured, context);
+    const memory = tools[0] as {
+      execute(args: unknown, runContext?: unknown, details?: { toolCall?: { callId: string } }): Promise<unknown>;
+    };
+
+    await expect(memory.execute({ memory_id: "mem_missing" }, undefined, { toolCall: { callId: "call_failed" } })).rejects.toThrow("invalid memory");
+
+    expect(context.failedToolCallIDs).toEqual(new Set(["call_failed"]));
+    expect(append).toHaveBeenCalledWith("agent.tool.failed", {
+      tool: "memory.get",
+      call_id: "call_failed",
+      message: "invalid memory",
+    });
+  });
+
   it("rejects unsupported function-tool configuration", () => {
     const executor = new OpenAIAgentsExecutor({} as ControlPlaneClient);
-    const context = { client: {} as ControlPlaneClient, runID: "arun_1", fence: "fence_1", toolOrdinal: 0, batcher: { append: vi.fn() } };
+    const context = { client: {} as ControlPlaneClient, runID: "arun_1", fence: "fence_1", toolOrdinal: 0, batcher: { append: vi.fn() }, failedToolCallIDs: new Set<string>() };
     const configured = { ...definition, tools: [{ id: "artifact.get", config: { unexpected: true } }] } as AgentDefinition;
     expect(() => (executor as unknown as { mapTools(d: AgentDefinition, c: typeof context): unknown }).mapTools(configured, context)).toThrow();
   });

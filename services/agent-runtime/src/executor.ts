@@ -24,11 +24,43 @@ const criticOutput = z.object({
   summary: z.string(),
   findings: z.array(z.object({ severity: z.enum(["info", "warning", "error"]), message: z.string() })),
 });
-type RuntimeContext = { client: ControlPlaneClient; runID: string; fence: string; toolOrdinal: number; batcher: EventBatcher };
+type RuntimeContext = {
+  client: ControlPlaneClient;
+  runID: string;
+  fence: string;
+  toolOrdinal: number;
+  batcher: EventBatcher;
+  failedToolCallIDs: Set<string>;
+};
 
 const metadataInput = z.array(z.object({ key: z.string(), value: z.string() })).nullable().optional();
-const artifactInput = z.object({ artifact_id: z.string().nullable().optional(), scope_id: z.string().nullable().optional(), type: z.string().nullable().optional(), title: z.string().nullable().optional(), content: z.string().nullable().optional(), status: z.string().nullable().optional(), metadata: metadataInput });
-const memoryInput = z.object({ memory_id: z.string().nullable().optional(), scope_id: z.string().nullable().optional(), type: z.string().nullable().optional(), title: z.string().nullable().optional(), content: z.string().nullable().optional(), subject: z.string().nullable().optional(), predicate: z.string().nullable().optional(), object: z.string().nullable().optional(), importance: z.number().nullable().optional(), confidence: z.number().nullable().optional(), metadata: metadataInput });
+const artifactInput = z.object({ artifact_id: z.string().nullable().optional(), type: z.string().nullable().optional(), title: z.string().nullable().optional(), content: z.string().nullable().optional(), status: z.string().nullable().optional(), metadata: metadataInput });
+const memoryDetails = {
+  title: z.string().nullable().optional(),
+  subject: z.string().nullable().optional(),
+  predicate: z.string().nullable().optional(),
+  object: z.string().nullable().optional(),
+  valid_from: z.string().nullable().optional(),
+  valid_until: z.string().nullable().optional(),
+  metadata: metadataInput,
+};
+const memoryCreateInput = z.object({
+  type: z.enum(["instruction", "fact", "decision", "episode"]),
+  content: z.string().min(1),
+  importance: z.number().min(0).max(1),
+  confidence: z.number().min(0).max(1),
+  confidence_source: z.enum(["human_confirmed", "agent_inferred", "imported", "external_system", "observed"]),
+  ...memoryDetails,
+});
+const memoryVersionInput = z.object({
+  memory_id: z.string(),
+  type: z.enum(["instruction", "fact", "decision", "episode"]).nullable().optional(),
+  content: z.string().min(1).nullable().optional(),
+  importance: z.number().min(0).max(1).nullable().optional(),
+  confidence: z.number().min(0).max(1).nullable().optional(),
+  confidence_source: z.enum(["human_confirmed", "agent_inferred", "imported", "external_system", "observed"]).nullable().optional(),
+  ...memoryDetails,
+});
 export const typedToolSchemas: Record<string, z.ZodObject<any>> = {
   "repository.list": z.object({}),
   "knowledge.retrieve": z.object({ query: z.string(), scopes: z.array(z.string()).default([]), entities: z.array(z.string()).nullable().optional(), artifact_selectors: z.array(z.object({ type: z.string().nullable().optional(), status: z.string().nullable().optional(), id: z.string().nullable().optional(), version: z.number().nullable().optional() })).nullable().optional(), token_budget: z.number().int().positive().default(8000) }),
@@ -41,13 +73,13 @@ export const typedToolSchemas: Record<string, z.ZodObject<any>> = {
   "memory.list": z.object({ query: z.string().default(""), scopes: z.array(z.string()).default([]) }),
   "memory.search": z.object({ query: z.string(), scopes: z.array(z.string()).default([]) }),
   "memory.get": z.object({ memory_id: z.string() }),
-  "memory.create": memoryInput,
-  "memory.version": memoryInput.extend({ memory_id: z.string() }),
+  "memory.create": memoryCreateInput,
+  "memory.version": memoryVersionInput,
   "memory.supersede": z.object({ memory_id: z.string() }),
   "memory.archive": z.object({ memory_id: z.string() }),
   "entity.get": z.object({ entity_id: z.string() }),
   "entity.resolve": z.object({ query: z.string(), scopes: z.array(z.string()).default([]) }),
-  "entity.create": z.object({ scope_id: z.string(), type: z.string(), display_name: z.string(), aliases: z.array(z.string()).default([]), metadata: metadataInput }),
+  "entity.create": z.object({ type: z.string(), display_name: z.string(), aliases: z.array(z.string()).default([]), metadata: metadataInput }),
   "epic.list": z.object({}),
   "epic.view": z.object({ epic_id: z.string() }),
   "epic.create": z.object({ repository_id: z.string(), title: z.string(), body: z.string() }),
@@ -65,6 +97,10 @@ export function normalizeToolArguments(args: unknown): unknown {
     return [item.key, item.value];
   }));
   return { ...input, metadata };
+}
+
+export function consumeFailedToolOutput(failedToolCallIDs: Set<string>, callID?: string): boolean {
+  return !!callID && failedToolCallIDs.delete(callID);
 }
 
 export class ExecutionFailure extends Error {
@@ -138,7 +174,14 @@ export class OpenAIAgentsExecutor implements Executor {
     if (!task.run || !task.definition) throw new Error("run task is incomplete");
     const definition = task.definition;
     const batcher = new EventBatcher(this.client, task.run.id, task.fence_token);
-    const context: RuntimeContext = { client: this.client, runID: task.run.id, fence: task.fence_token, toolOrdinal: 0, batcher };
+    const context: RuntimeContext = {
+      client: this.client,
+      runID: task.run.id,
+      fence: task.fence_token,
+      toolOrdinal: 0,
+      batcher,
+      failedToolCallIDs: new Set(),
+    };
     const tools = this.mapTools(definition, context);
     const registry = (task.agent_registry ?? []).map((a) => `${a.id} ${a.name}: ${a.purpose}`).join("\n");
     const repositories = (task.repositories ?? []).map((repository) => `${repository.id}: ${repository.display_name ?? repository.canonical_remote ?? "repository"}`).join("\n");
@@ -182,7 +225,10 @@ export class OpenAIAgentsExecutor implements Executor {
         } else if (event.type === "run_item_stream_event") {
           const item = event.item.toJSON().rawItem as { name?: string; callId?: string; status?: string };
           if (event.name === "tool_called") await batcher.append("agent.tool.started", { tool: item.name, call_id: item.callId });
-          if (event.name === "tool_output") await batcher.append(item.status === "failed" ? "agent.tool.failed" : "agent.tool.completed", { tool: item.name, call_id: item.callId, status: item.status });
+          if (event.name === "tool_output") {
+            if (consumeFailedToolOutput(context.failedToolCallIDs, item.callId)) continue;
+            await batcher.append(item.status === "failed" ? "agent.tool.failed" : "agent.tool.completed", { tool: item.name, call_id: item.callId, status: item.status });
+          }
         }
       }
       await stream.completed;
@@ -245,16 +291,17 @@ export class OpenAIAgentsExecutor implements Executor {
       return tool({
         name: id.replaceAll(".", "_"), description: `Vessica typed tool ${id}.`,
         parameters,
-        execute: async (args) => this.invokeControlPlaneTool(context, id, normalizeToolArguments(args)),
+        execute: async (args, _runContext, details) => this.invokeControlPlaneTool(context, id, normalizeToolArguments(args), details?.toolCall?.callId),
       });
     });
   }
 
-  private async invokeControlPlaneTool(context: RuntimeContext, id: string, args: unknown) {
+  private async invokeControlPlaneTool(context: RuntimeContext, id: string, args: unknown, callID?: string) {
     try {
       return (await context.client.tool(context.runID, context.fence, id, ++context.toolOrdinal, args)).result;
     } catch (error) {
-      await context.batcher.append("agent.tool.failed", { tool: id, message: error instanceof Error ? error.message : "tool failed" });
+      if (callID) context.failedToolCallIDs.add(callID);
+      await context.batcher.append("agent.tool.failed", { tool: id, call_id: callID, message: error instanceof Error ? error.message : "tool failed" });
       throw error;
     }
   }
