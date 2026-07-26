@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -156,6 +157,41 @@ func newEntityCmd(app *App) *cobra.Command {
 	create.Flags().StringVar(&externalID, "external-id", "", "external identifier")
 	create.Flags().StringVar(&externalURL, "external-url", "", "external URL")
 	cmd.AddCommand(create)
+	var mergeTarget string
+	merge := &cobra.Command{
+		Use:   "merge <source-entity-id>",
+		Short: "Merge a duplicate entity into a canonical entity",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if mergeTarget == "" {
+				return app.Printer.Fail("missing_target", "--into is required", "pass the canonical entity ID with --into")
+			}
+			if args[0] == mergeTarget {
+				return app.Printer.Fail("invalid_merge", "source and target entities must be different", "")
+			}
+			if err := app.loadWorkspace(cmd.Context()); err != nil {
+				return err
+			}
+			defer app.closeDB()
+			g, err := app.openKnowledge(cmd.Context())
+			if err != nil {
+				return err
+			}
+			defer g.Close()
+			if !app.Flags.DryRun {
+				if err := app.requireYes(fmt.Sprintf("merge entity %s into %s", args[0], mergeTarget)); err != nil {
+					return err
+				}
+			}
+			result, err := g.MergeEntity(cmd.Context(), app.knowledgeKey("entity.merge"), args[0], mergeTarget, app.Flags.DryRun)
+			if err != nil {
+				return err
+			}
+			return app.Printer.Success(result)
+		},
+	}
+	merge.Flags().StringVar(&mergeTarget, "into", "", "canonical target entity ID")
+	cmd.AddCommand(merge)
 	for _, verb := range []string{"resolve", "search"} {
 		v := verb
 		cmd.AddCommand(&cobra.Command{Use: v + " <query>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {

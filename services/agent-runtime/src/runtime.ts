@@ -22,7 +22,7 @@ export class Runtime {
         "openai.web_search", "openai.code_interpreter", "repository.list", "knowledge.retrieve",
         "artifact.list", "artifact.get", "artifact.create", "artifact.version", "artifact.activate", "artifact.supersede",
         "memory.list", "memory.get", "memory.search", "memory.create", "memory.version", "memory.supersede", "memory.archive",
-        "entity.get", "entity.resolve", "entity.create", "epic.list", "epic.view", "epic.create",
+        "entity.get", "entity.resolve", "entity.create", "entity.merge", "epic.list", "epic.view", "epic.create",
         "coding_run.start", "coding_run.status", "coding_run.events", "agent.invoke",
       ],
       concurrency,

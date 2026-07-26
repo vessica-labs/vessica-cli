@@ -76,4 +76,45 @@ func TestAgentKnowledgeWritesUseRepositoryScope(t *testing.T) {
 	if entity.ScopeID != scope.ID {
 		t.Fatalf("entity scope=%q, want %q", entity.ScopeID, scope.ID)
 	}
+	duplicateResult, err := service.ExecuteAgentTool(ctx, "entity.create", "entity-duplicate", scope.ID, json.RawMessage(`{
+		"type":"organization",
+		"display_name":"Boston Consulting Group",
+		"aliases":["BCG"]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate := duplicateResult.(knowledge.Entity)
+	previewArgs, _ := json.Marshal(map[string]any{
+		"source_entity_id": duplicate.ID,
+		"target_entity_id": entity.ID,
+		"dry_run":          true,
+	})
+	previewResult, err := service.ExecuteAgentTool(ctx, "entity.merge", "entity-merge-preview", scope.ID, previewArgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview := previewResult.(knowledge.EntityMergeResult)
+	if preview.Applied || !preview.DryRun {
+		t.Fatalf("merge preview=%#v", preview)
+	}
+	if _, err := service.ExecuteAgentTool(ctx, "entity.merge", "entity-merge-unconfirmed", scope.ID, json.RawMessage(`{
+		"source_entity_id":"source",
+		"target_entity_id":"target"
+	}`)); err == nil {
+		t.Fatal("unconfirmed agent merge should fail")
+	}
+	mergeArgs, _ := json.Marshal(map[string]any{
+		"source_entity_id": duplicate.ID,
+		"target_entity_id": entity.ID,
+		"confirm":          true,
+	})
+	mergeResult, err := service.ExecuteAgentTool(ctx, "entity.merge", "entity-merge", scope.ID, mergeArgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	merged := mergeResult.(knowledge.EntityMergeResult)
+	if !merged.Applied || merged.Source.State != "archived" {
+		t.Fatalf("merge result=%#v", merged)
+	}
 }

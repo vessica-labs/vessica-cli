@@ -442,4 +442,4 @@ func ensureRailwayPreviewDomain(ctx context.Context, workDir string, cfg config.
 	return err
 }
 
-const knowledgeServerVersion = "0.5.4"
+const knowledgeServerVersion = "0.5.5"

@@ -436,7 +436,7 @@ func (s *Server) executeAgentTool(r *http.Request, toolID, key string, args json
 
 func agentToolNeedsRepositoryScope(toolID string) bool {
 	switch toolID {
-	case "artifact.create", "artifact.version", "memory.create", "memory.version", "entity.create":
+	case "artifact.create", "artifact.version", "memory.create", "memory.version", "entity.create", "entity.merge":
 		return true
 	default:
 		return false

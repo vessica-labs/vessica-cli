@@ -22,7 +22,7 @@ var toolCatalog = map[string]bool{
 	"artifact.version": true, "artifact.activate": true, "artifact.supersede": true,
 	"memory.list": true, "memory.get": true, "memory.search": true,
 	"memory.create": true, "memory.version": true, "memory.supersede": true, "memory.archive": true,
-	"entity.get": true, "entity.resolve": true, "entity.create": true,
+	"entity.get": true, "entity.resolve": true, "entity.create": true, "entity.merge": true,
 	"epic.list": true, "epic.view": true, "epic.create": true,
 	"coding_run.start": true, "coding_run.status": true, "coding_run.events": true,
 	"agent.invoke": true,

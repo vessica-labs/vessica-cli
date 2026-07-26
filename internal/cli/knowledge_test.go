@@ -52,3 +52,46 @@ func TestMemoryReadersReturnEmptyArrays(t *testing.T) {
 		}
 	}
 }
+
+func TestEntityMergeCLIReportsPreviewAndReceipt(t *testing.T) {
+	dir := t.TempDir()
+	runCLI(t, dir, "dev", "up", "--profile", "solo", "--json")
+	create := func(name, key string) knowledge.Entity {
+		raw := runCLI(t, dir, "entity", "create", "--type", "person", "--name", name, "--yes", "--idempotency-key", key, "--json")
+		var env struct {
+			Data knowledge.Entity `json:"data"`
+		}
+		if err := json.Unmarshal([]byte(raw), &env); err != nil {
+			t.Fatal(err)
+		}
+		return env.Data
+	}
+	target := create("Matthew Kropp", "entity-target")
+	source := create("Matthew", "entity-source")
+
+	previewRaw := runCLI(t, dir, "entity", "merge", source.ID, "--into", target.ID, "--dry-run", "--idempotency-key", "entity-preview", "--json")
+	var previewEnv struct {
+		Data knowledge.EntityMergeResult `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(previewRaw), &previewEnv); err != nil {
+		t.Fatal(err)
+	}
+	if previewEnv.Data.Applied || !previewEnv.Data.DryRun || previewEnv.Data.Source.State != "archived" {
+		t.Fatalf("preview=%s", previewRaw)
+	}
+
+	receiptRaw := runCLI(t, dir, "entity", "merge", source.ID, "--into", target.ID, "--yes", "--idempotency-key", "entity-merge", "--json")
+	var receiptEnv struct {
+		Data knowledge.EntityMergeResult `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(receiptRaw), &receiptEnv); err != nil {
+		t.Fatal(err)
+	}
+	if !receiptEnv.Data.Applied || receiptEnv.Data.Target.ID != target.ID || receiptEnv.Data.Source.State != "archived" {
+		t.Fatalf("receipt=%s", receiptRaw)
+	}
+	resolved := runCLI(t, dir, "entity", "resolve", "Matthew", "--json")
+	if strings.Count(resolved, `"display_name"`) != 1 || !strings.Contains(resolved, target.ID) {
+		t.Fatalf("resolve=%s", resolved)
+	}
+}
