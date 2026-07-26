@@ -153,6 +153,31 @@ func (s *Service) ExecuteAgentTool(ctx context.Context, toolID, key, repositoryS
 		}
 		v.ScopeID = repositoryScopeID
 		return g.CreateEntity(ctx, key, v)
+	case "entity.merge":
+		var v struct {
+			SourceEntityID string `json:"source_entity_id"`
+			TargetEntityID string `json:"target_entity_id"`
+			DryRun         bool   `json:"dry_run"`
+			Confirm        bool   `json:"confirm"`
+		}
+		if err = json.Unmarshal(args, &v); err != nil {
+			return nil, err
+		}
+		if !v.DryRun && !v.Confirm {
+			return nil, fmt.Errorf("entity.merge requires dry_run=true for a preview or confirm=true to apply")
+		}
+		source, err := g.GetEntity(ctx, v.SourceEntityID)
+		if err != nil {
+			return nil, err
+		}
+		target, err := g.GetEntity(ctx, v.TargetEntityID)
+		if err != nil {
+			return nil, err
+		}
+		if source.ScopeID != repositoryScopeID || target.ScopeID != repositoryScopeID {
+			return nil, fmt.Errorf("entity.merge is limited to the agent repository scope")
+		}
+		return g.MergeEntity(ctx, key, v.SourceEntityID, v.TargetEntityID, v.DryRun)
 	case "epic.list":
 		return s.DB.ListEpics(ctx)
 	case "epic.view":

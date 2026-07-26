@@ -86,6 +86,8 @@ confirmation boundaries.
 ves knowledge status --json
 ves knowledge context --query "authentication decisions" --token-budget 4000 --json
 ves entity resolve "OAuth" --json
+ves entity merge ent_duplicate --into ent_canonical --dry-run --json
+ves entity merge ent_duplicate --into ent_canonical --yes --json
 ves artifact list --status active --json
 ves memory retrieve "previous migration" --limit 20 --rerank auto --json
 ves memory search "previous migration" --json
@@ -99,6 +101,13 @@ Knowledge objects:
 - **Relationships** are immutable assertions connecting knowledge and external references.
 
 `memory retrieve` is the restoration path. It uses retrieval v2 and returns ranking explanations, ambiguity state, index freshness, and reranker metadata. Use repeatable `--entity <id>` flags when a project, person, or account has been resolved. `memory search` remains the compatibility and administrative lexical path.
+
+When two entities represent the same identity, preview `entity merge` first. The
+preview reports the canonical target, archived source, and exact counts of
+entity, artifact, memory, and relationship references that will be rewritten.
+Applying the merge requires `--yes`, is idempotent, versions every affected
+record in one transaction, and returns the same structured receipt in `--json`
+mode for Codex and automation.
 
 Context responses expose the ranking version, weights, artifact selection policy, component scores, artifact reasons, typed omissions, provenance, and source references. Explicit artifact IDs and versions remain authoritative; ordinary artifacts must be query- or entity-relevant and have a separate budget from durable memory. Hosted workspaces report `lexical` until the owner explicitly enables embeddings; during and after backfill they report `semantic_hybrid` with backlog status.
 

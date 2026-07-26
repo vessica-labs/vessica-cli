@@ -207,6 +207,18 @@ func (g *Gateway) CreateEntity(ctx context.Context, key string, v ks.Entity) (ks
 	}
 	return g.remote.CreateEntity(ctx, key, v)
 }
+func (g *Gateway) MergeEntity(ctx context.Context, key, sourceEntityID, targetEntityID string, dryRun bool) (ks.EntityMergeResult, error) {
+	request := ks.EntityMergeRequest{
+		WorkspaceID:    g.workspace,
+		SourceEntityID: sourceEntityID,
+		TargetEntityID: targetEntityID,
+		DryRun:         dryRun,
+	}
+	if g.local != nil {
+		return g.local.MergeEntity(ctx, g.opts(key), request)
+	}
+	return g.remote.MergeEntity(ctx, key, request)
+}
 func (g *Gateway) ResolveEntities(ctx context.Context, q string, scopes []string) ([]ks.Entity, error) {
 	if g.local != nil {
 		return g.store.ResolveEntities(ctx, g.workspace, scopes, q)

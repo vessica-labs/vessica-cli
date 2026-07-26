@@ -80,6 +80,12 @@ export const typedToolSchemas: Record<string, z.ZodObject<any>> = {
   "entity.get": z.object({ entity_id: z.string() }),
   "entity.resolve": z.object({ query: z.string(), scopes: z.array(z.string()).default([]) }),
   "entity.create": z.object({ type: z.string(), display_name: z.string(), aliases: z.array(z.string()).default([]), metadata: metadataInput }),
+  "entity.merge": z.object({
+    source_entity_id: z.string(),
+    target_entity_id: z.string(),
+    dry_run: z.boolean().default(true),
+    confirm: z.boolean().default(false),
+  }),
   "epic.list": z.object({}),
   "epic.view": z.object({ epic_id: z.string() }),
   "epic.create": z.object({ repository_id: z.string(), title: z.string(), body: z.string() }),

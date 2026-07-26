@@ -211,7 +211,7 @@ flowchart TB
 
 ### Durable knowledge
 
-`ves memory retrieve` is the retrieval-v2 restoration path, with weighted lexical and optional semantic rank fusion, entity constraints, ambiguity detection, and component explanations. `ves knowledge context` assembles relevant active artifacts, instructions, entities, decisions, facts, and work episodes under separate type budgets. `ves memory search` remains available for compatible administrative lexical inspection. `ves prime --for codex` includes the same bounded context for coding agents.
+`ves memory retrieve` is the retrieval-v2 restoration path, with weighted lexical and optional semantic rank fusion, entity constraints, ambiguity detection, and component explanations. `ves entity merge <duplicate> --into <canonical> --dry-run` previews an atomic identity consolidation before `--yes` applies it and emits a structured receipt. `ves knowledge context` assembles relevant active artifacts, instructions, entities, decisions, facts, and work episodes under separate type budgets. `ves memory search` remains available for compatible administrative lexical inspection. `ves prime --for codex` includes the same bounded context for coding agents.
 
 The hosted [Vessica Knowledge Server](https://github.com/vessica-labs/vessica-knowledge-server) starts in lexical mode on Postgres without an embeddings key. Enable semantic-hybrid retrieval later with `ves knowledge embeddings enable --api-key-env OPENAI_API_KEY --yes`; the key is stored directly as a Railway secret and existing memories backfill asynchronously. Conditional model reranking has a separate key and enable/disable control but remains off by default because retrieval v2 cleared the current quality gate without it.
 
