@@ -34,7 +34,7 @@ Vessica provides that operating layer through one CLI, `ves`.
 | A final diff is the only evidence | Runs retain events, raw agent output, previews, PRs, and receipts |
 | Agent prompts are fixed by a tool vendor | The engineering harness is versioned, pinned, and forkable |
 
-Vessica orchestrates coding tools; it is not a model provider or a replacement for them. The current production execution path uses the [Codex CLI](https://github.com/openai/codex). Managed guidance is also available for Claude Code, Cursor, Pi, and MCP-oriented clients; those runners currently require simulation mode when used as execution backends.
+Vessica orchestrates coding tools; it is not a model provider or a replacement for them. The current production execution path uses the [Codex CLI](https://github.com/openai/codex). First-party operating plugins are available for Codex and Claude Code, while Cursor, Pi, and MCP-oriented clients receive managed guidance. Codex remains the only production execution backend; the other runner names require simulation mode when selected for execution.
 
 ## Quick start
 
@@ -205,7 +205,7 @@ flowchart TB
 | Observability | Human streams, interactive TUI, versioned JSONL, raw Codex logs, traces, receipts |
 | Dashboard | Hosted React UI for repositories, runs, sandboxes, review, knowledge, and access |
 | Integrations | GitHub authentication and PRs, best-effort Linear synchronization, Railway hosting |
-| Agent ergonomics | `ves prime`, stable JSON envelopes, idempotency keys, managed runner guidance, and the first-party Codex plugin |
+| Agent ergonomics | `ves prime`, stable JSON envelopes, idempotency keys, managed runner guidance, and first-party Codex and Claude Code plugins |
 | Knowledge | Retrieval v2, ambiguity-safe entity constraints, zero-key lexical retrieval, optional semantic retrieval, immutable versions, and workflow episodes |
 | Runtime acceleration | Verified multi-stack repository checkpoints, dependency projection, bounded context packets, and engine-owned gates |
 
@@ -593,25 +593,28 @@ ves setup pi
 ves setup mcp
 ```
 
-### Codex plugin and agent-safe CLI
+### Codex and Claude Code plugins
 
-Install the first-party Codex plugin and managed repository guidance:
+Install either first-party plugin and its managed repository guidance:
 
 ```bash
 ves setup codex --plugin
 ves setup codex --check --json
+ves setup claude --plugin
+ves setup claude --check --json
 ves capabilities --json
 ```
 
-The plugin drives the `ves` Go CLI through shell commands; it does not add an MCP runtime or bypass Vessica state. It includes skills for setup, workflow selection, epic creation, dispatch, monitoring, refinement, review, harness management, knowledge, and operations. Agent-facing JSON responses use the versioned `vessica.cli/v1` envelope, while run streams use `vessica.stream/v1` JSONL. Mutating JSON workflows return `confirmation_required` until repeated with `--yes`; use `--idempotency-key` for retryable writes.
+Both plugins drive the `ves` Go CLI through shell commands; neither adds an MCP runtime nor bypasses Vessica state. They share skills for setup, workflow selection, epic creation, dispatch, monitoring, refinement, review, harness management, knowledge, durable agents, and operations. The Claude plugin additionally packages a read-only Outlook ingestion skill for environments with an authorized Outlook or Microsoft 365 connector. Agent-facing JSON responses use the versioned `vessica.cli/v1` envelope, while run streams use `vessica.stream/v1` JSONL. Mutating JSON workflows return `confirmation_required` until repeated with `--yes`; use `--idempotency-key` for retryable writes.
 
 Plugin-only installations use the packaged `ensure-ves.sh` bootstrap to install
 the matching release archive under `~/.vessica/bin`, verify it against the
 published checksum, and keep plugin and CLI versions compatible. See the
-[Codex plugin guide](docs/Codex_Plugin.md) for installation, skill routing,
-confirmation boundaries, knowledge restoration, and troubleshooting.
+[Codex plugin guide](docs/Codex_Plugin.md) or [Claude Code plugin guide](docs/Claude_Code_Plugin.md)
+for installation, skill routing, confirmation boundaries, knowledge restoration,
+and troubleshooting.
 
-For a local source checkout, use `make install` after pulling changes. It builds and installs the version in `VERSION`, refreshes the plugin source, forces Codex to replace its cached plugin copy, and verifies that the installed CLI and cached plugin versions match. Use `make install-cli` only when intentionally updating the standalone CLI without changing the Codex plugin. Normal builds never change `VERSION`; update that file deliberately when preparing a new version.
+For a local source checkout, use `make install` after pulling changes. It builds and installs the version in `VERSION`, refreshes both plugin sources, updates their local plugin registrations, and verifies their manifests. Use `make install-cli` only when intentionally updating the standalone CLI without changing either plugin. Normal builds never change `VERSION`; update that file deliberately when preparing a new version.
 
 Conversational epic specifications can be validated before they are persisted:
 
@@ -941,9 +944,9 @@ the project remains pre-1.0.
 - Hosted execution is isolated behind an unprivileged agent user, an environment
   allowlist, protected Git metadata, locked migrations, bounded database pools,
   atomic coordination, and a single-control-plane lease.
-- The Codex plugin bootstrap verifies compatible release artifacts and
-  checksums. Local `make install` also refreshes and verifies the installed CLI
-  and Codex plugin together.
+- The Codex and Claude Code plugin bootstraps verify compatible release
+  artifacts and checksums. Local `make install` refreshes the installed CLI and
+  both first-party plugins together.
 - Linear can be connected after onboarding to a project selected by ID, slug,
   or name, and the default project can be switched by redeploying only the
   control plane.
@@ -982,9 +985,10 @@ Implemented today:
 - Persistent hosted Railway control plane
 - Embedded dashboard with repository switching, live run streams, retained
   previews, knowledge exploration, and GitHub-based workspace access
-- First-party Codex plugin with checksum-verified CLI bootstrap and skills for
-  setup, interactive/dispatch/hybrid routing, knowledge, run operations, and
-  evidence review
+- First-party Codex and Claude Code plugins with checksum-verified CLI bootstrap
+  and shared skills for setup, interactive/dispatch/hybrid routing, knowledge,
+  run operations, and evidence review; the Claude bundle also includes safe
+  read-only Outlook ingestion
 
 Current boundaries:
 
@@ -1001,6 +1005,7 @@ Current boundaries:
 - [Vessica Operator Guide](docs/Vessica_Operator_Guide.md)
 - [CLI reference](docs/CLI_Reference.md)
 - [Codex plugin guide](docs/Codex_Plugin.md)
+- [Claude Code plugin guide](docs/Claude_Code_Plugin.md)
 - [Streaming protocol](docs/Vessica_stream_v1.md)
 - [Hosted Railway control plane](docs/Hosted_Railway.md)
 - [Default engineering harness](https://github.com/vessica-labs/engineering-harness)

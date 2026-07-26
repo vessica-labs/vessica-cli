@@ -16,6 +16,18 @@ import (
 //go:embed all:assets
 var assets embed.FS
 
+// BundleFS exposes the existing workflow bundle as a read-only filesystem so
+// other coding-agent plugins can reuse the same safety and lifecycle guidance.
+// The Codex installer remains the owner of the source layout for backward
+// compatibility with release packaging.
+func BundleFS() fs.FS {
+	bundle, err := fs.Sub(assets, "assets")
+	if err != nil {
+		panic(err)
+	}
+	return bundle
+}
+
 type installResult struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`

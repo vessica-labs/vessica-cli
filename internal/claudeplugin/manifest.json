@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "vessica",
+  "displayName": "Vessica",
+  "version": "0.0.0",
+  "description": "Set up and operate hosted Vessica workspaces, engineering runs, durable agents, knowledge, and safe Outlook ingestion through the ves CLI.",
+  "author": {
+    "name": "Vessica Labs",
+    "url": "https://github.com/vessica-labs"
+  },
+  "homepage": "https://github.com/vessica-labs/vessica-cli",
+  "repository": "https://github.com/vessica-labs/vessica-cli",
+  "license": "Apache-2.0",
+  "keywords": [
+    "coding-agents",
+    "cli",
+    "dark-factory",
+    "linear",
+    "knowledge",
+    "agents",
+    "outlook"
+  ],
+  "skills": "./skills/"
+}

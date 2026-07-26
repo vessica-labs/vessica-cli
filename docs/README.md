@@ -17,6 +17,9 @@ and architecture records.
 - [`Codex_Plugin.md`](Codex_Plugin.md): plugin installation/versioning, skill
   routing, confirmation and authority boundaries, knowledge restoration, run
   review, and troubleshooting.
+- [`Claude_Code_Plugin.md`](Claude_Code_Plugin.md): Claude Code marketplace
+  installation, shared skill behavior, version-matched CLI bootstrap, runner
+  boundary, and troubleshooting.
 - [`Hosted_Railway.md`](Hosted_Railway.md): hosted topology, provisioning,
   OAuth, operations, previews, and secrets.
 - [`Vessica_stream_v1.md`](Vessica_stream_v1.md): stable JSONL streaming

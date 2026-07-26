@@ -45,7 +45,7 @@ keeping the human approval boundary explicit.
 | Durable knowledge with provenance | Vessica retrieves active artifacts, decisions, facts, instructions, and prior work with source references and ranking explanations, reducing repeated discovery and context loss. |
 | Ambiguity-safe retrieval v2 | Entity constraints, lifecycle/temporal filtering, typed omissions, and a hard ambiguity stop restore the right project or persona without silently applying the nearest match. |
 | Zero-key lexical retrieval | Useful hosted knowledge works immediately without requiring an embeddings API key; semantic-hybrid retrieval is an optional, reversible upgrade funded by the user. |
-| First-party Codex plugin | Conversational setup, workflow choice, epic creation, monitoring, refinement, knowledge, and evidence review all use a checksum-matched `ves` binary and preserve explicit confirmation boundaries. |
+| First-party Codex and Claude Code plugins | Conversational setup, workflow choice, epic creation, monitoring, refinement, knowledge, and evidence review use a checksum-matched `ves` binary and preserve explicit confirmation boundaries. The Claude bundle also supports minimized, read-only Outlook ingestion through an authorized connector. Codex remains the production execution runner. |
 | Focused Linear integration | Teams can select a Linear project by ID, slug, or name, project Vessica-created work there, and switch the default project without rebuilding the workspace or knowledge service. |
 | Recovery-oriented operations | Stage-based onboarding, durable resume, typed errors, attachment-only forget, locked migrations, and readiness verification make partial setup and deployment failures recoverable. |
 
@@ -66,7 +66,7 @@ describe these as product qualities, not as a changelog dump:
   harness and repository documentation.
 - **Verified installation paths.** Plugin bootstrap verifies compatible release
   archives and checksums; local installation refreshes and verifies the CLI and
-  Codex plugin together.
+  both first-party operating plugins together.
 - **Truthful run outcomes.** Human output and the dashboard preserve useful agent
   messages, but a persisted failed run is reported as failed across terminal,
   JSON, dashboard, and receipt surfaces.

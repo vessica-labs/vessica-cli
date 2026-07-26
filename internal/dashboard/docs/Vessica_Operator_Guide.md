@@ -2,12 +2,12 @@
 
 ## Overview
 
-Vessica has one user-facing control surface: `ves`. The CLI owns repository access, workplans, authentication, the engineering harness, runs, Linear synchronization, Railway provisioning, and routing to the knowledge authority. The Codex plugin teaches these workflows but contains no Vessica business logic.
+Vessica has one user-facing control surface: `ves`. The CLI owns repository access, workplans, authentication, the engineering harness, runs, Linear synchronization, Railway provisioning, and routing to the knowledge authority. The Codex and Claude Code plugins teach these workflows but contain no Vessica business logic.
 
 ## Choose a workflow
 
-- **Interactive:** Codex edits the current working tree directly. Use Vessica only for context and durable knowledge.
-- **Dispatch:** Persist an approved epic/ticket graph and start a Vessica run.
+- **Interactive:** The current coding client edits the working tree directly. Use Vessica only for context and durable knowledge.
+- **Dispatch:** Persist an approved epic/ticket graph and start a Codex-backed Vessica run.
 - **Hybrid:** Discover and plan interactively, then dispatch the approved implementation.
 
 Never infer permission to dispatch from task size. Confirm harness changes, persistent work objects, run lifecycle changes, refinement prompts, approval, rollback, and merge.
@@ -64,21 +64,28 @@ ves toolchain verify --profile workstation --json
 
 Use `--dry-run --json` before mutations. Do not scrape human output or echo secret values into arguments.
 
-## Codex plugin
+## Codex and Claude Code plugins
 
-Install or update the first-party plugin and managed `AGENTS.md` guidance with:
+Install or update a first-party operating plugin and its managed repository
+guidance with:
 
 ```bash
 ves setup codex --plugin
 ves setup codex --check --json
+ves setup claude --plugin
+ves setup claude --check --json
 ```
 
-The plugin is a guidance and checksum-verified CLI-bootstrap layer. It routes
+The plugins are guidance and checksum-verified CLI-bootstrap layers. They route
 setup, workflow choice, epic creation, dispatch, monitoring, refinement,
 evidence review, harness operations, knowledge, and troubleshooting through the
-version-matched `ves` binary. It does not contain Vessica lifecycle logic or an
-MCP runtime. See the [Codex plugin guide](Codex_Plugin.md) for skill routing and
-confirmation boundaries.
+version-matched `ves` binary. They do not contain Vessica lifecycle logic or an
+MCP runtime. See the [Codex plugin guide](Codex_Plugin.md) or
+[Claude Code plugin guide](Claude_Code_Plugin.md) for skill routing and
+confirmation boundaries. Both can operate Vessica, but Codex remains the only
+production execution runner. The Claude plugin also packages a read-only
+Outlook ingestion skill that requires an authorized Outlook or Microsoft 365
+connector in Claude Desktop; Vessica never receives mailbox credentials.
 
 ## Knowledge
 

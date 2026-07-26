@@ -1,0 +1,21 @@
+{
+  "name": "vessica",
+  "owner": {
+    "name": "Vessica Labs"
+  },
+  "description": "First-party Claude Code plugins for operating Vessica through the ves CLI",
+  "plugins": [
+    {
+      "name": "vessica",
+      "source": "./plugins/vessica",
+      "description": "Operate hosted Vessica workflows and safe Outlook ingestion through the version-matched ves CLI",
+      "category": "productivity",
+      "tags": [
+        "coding-agents",
+        "engineering",
+        "knowledge",
+        "outlook"
+      ]
+    }
+  ]
+}

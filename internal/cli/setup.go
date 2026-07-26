@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/vessica-labs/vessica-cli/internal/claudeplugin"
 	"github.com/vessica-labs/vessica-cli/internal/codexplugin"
 )
 
@@ -28,8 +29,13 @@ func newSetupCmd(app *App) *cobra.Command {
 					status["ves_available"] = commandAvailable("ves")
 					return app.Printer.Success(status)
 				}
+				if r == "claude" && check {
+					status := claudeplugin.Status()
+					status["ves_available"] = commandAvailable("ves")
+					return app.Printer.Success(status)
+				}
 				workspaceLoaded := app.loadWorkspace(cmd.Context()) == nil
-				if !workspaceLoaded && !(r == "codex" && installPlugin) {
+				if !workspaceLoaded && !((r == "codex" || r == "claude") && installPlugin) {
 					return fmt.Errorf("repository is not attached; run ves up first")
 				}
 				if workspaceLoaded {
@@ -54,6 +60,13 @@ func newSetupCmd(app *App) *cobra.Command {
 					}
 					result["plugin"] = installed
 				}
+				if r == "claude" && installPlugin {
+					installed, err := claudeplugin.Install()
+					if err != nil {
+						return err
+					}
+					result["plugin"] = installed
+				}
 				result["next_actions"] = []string{"ves up --dry-run --json", "ves up --yes --stream jsonl"}
 				return app.Printer.Success(result)
 			},
@@ -61,6 +74,10 @@ func newSetupCmd(app *App) *cobra.Command {
 		if r == "codex" {
 			setupCmd.Flags().BoolVar(&installPlugin, "plugin", false, "install or update the Vessica Codex plugin")
 			setupCmd.Flags().BoolVar(&check, "check", false, "check Codex and plugin installation without writing")
+		}
+		if r == "claude" {
+			setupCmd.Flags().BoolVar(&installPlugin, "plugin", false, "install or update the Vessica Claude Code plugin")
+			setupCmd.Flags().BoolVar(&check, "check", false, "check Claude Code and plugin installation without writing")
 		}
 		cmd.AddCommand(setupCmd)
 	}

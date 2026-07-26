@@ -26,9 +26,10 @@ the release `checksums.txt`, and then executes that managed binary. It does not
 trust an unrelated same-version `ves` elsewhere on `PATH`.
 
 For a source checkout, `make install` builds the version declared in `VERSION`,
-refreshes the plugin source and cachebuster, reinstalls it in Codex, and verifies
-that the cached plugin and CLI versions match. Use `make install-cli` only when
-you intentionally do not want to refresh the plugin.
+refreshes the Codex and Claude Code plugin sources, reinstalls them in their
+respective clients when available, and verifies their manifests. Use
+`make install-cli` only when you intentionally do not want to refresh either
+plugin.
 
 ## Skill routing
 

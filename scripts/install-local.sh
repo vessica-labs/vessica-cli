@@ -28,9 +28,17 @@ fi
 plugin_workspace="$(mktemp -d)"
 trap 'rm -rf "$plugin_workspace"' EXIT
 "$installed_binary" --cwd "$plugin_workspace" setup codex --plugin --json >/dev/null
+"$installed_binary" --cwd "$plugin_workspace" setup claude --plugin --json >/dev/null
+
+claude_plugin_version="$(python3 -c 'import json,pathlib; print(json.loads((pathlib.Path.home()/".vessica/claude-marketplace/plugins/vessica/.claude-plugin/plugin.json").read_text())["version"])')"
+if command -v claude >/dev/null 2>&1; then
+  claude plugin validate "$HOME/.vessica/claude-marketplace" --strict >/dev/null
+else
+  echo "Installed ves $installed_version and prepared Claude plugin $claude_plugin_version; Claude Code is not on PATH, so the marketplace was not registered." >&2
+fi
 
 if ! command -v codex >/dev/null 2>&1; then
-  echo "Installed ves $installed_version and refreshed the plugin source; Codex is not on PATH, so its plugin cache was not refreshed." >&2
+  echo "Installed ves $installed_version and refreshed both plugin sources; Codex is not on PATH, so its plugin cache was not refreshed." >&2
   exit 0
 fi
 
@@ -46,4 +54,4 @@ if [ "$cached_version" != "$plugin_version" ]; then
   exit 1
 fi
 
-printf 'Installed ves %s and Codex plugin %s\n' "$installed_version" "$cached_version"
+printf 'Installed ves %s, Codex plugin %s, and Claude plugin %s\n' "$installed_version" "$cached_version" "$claude_plugin_version"

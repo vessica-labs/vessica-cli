@@ -39,14 +39,14 @@ stderr. Do not parse pretty output.
 | `ves config` | `list`, `get`, `set`, `unset` | Inspect or modify explicit developer-mode configuration. |
 | `ves auth` | `login`, `logout`, `status` | Manage GitHub, Linear, Railway, Codex, and knowledge credentials. |
 | `ves agent` | `create`, `list`, `view`, `update`, `pause`, `resume`, `archive`, `draft view`, `draft approve`, `budget set`, `heartbeat set`, `heartbeat disable`, `registry`, `run` | Build and manage workspace-wide general agents, operational settings, and ad-hoc cloud runs. |
-| `ves setup` | `codex`, `claude`, `cursor`, `pi`, `mcp` | Install managed repository guidance. `ves setup codex --plugin` also installs or updates the first-party Codex plugin; `--check` is read-only. |
+| `ves setup` | `codex`, `claude`, `cursor`, `pi`, `mcp` | Install managed repository guidance. `ves setup codex --plugin` and `ves setup claude --plugin` install or update their first-party operating plugins; `--check` is read-only for those two targets. |
 | `ves prime` | — | Assemble workspace guidance, ready work, and bounded authoritative/durable context for a human or agent. |
 | `ves completion` | `bash`, `fish`, `powershell`, `zsh` | Generate shell completion. |
 | `ves version` | — | Print the CLI version. |
 
-Codex is the current production execution backend. Claude, Cursor, Pi, and MCP
-setup commands install guidance only; those runner names require simulation
-mode when selected as execution backends.
+Codex is the current production execution backend. The Claude plugin can operate
+Vessica through `ves`, but Claude, Cursor, Pi, and MCP runner names still require
+simulation mode when selected as execution backends.
 
 ## Harnesses and packs
 
