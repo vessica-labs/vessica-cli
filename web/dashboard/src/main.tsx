@@ -6,6 +6,16 @@ import { api, bootstrapSession, setCSRF } from "@/lib/api";
 import { Button, ErrorState, Loading } from "@/components/ui";
 import "./styles.css";
 
+try {
+  const theme = localStorage.getItem("vessica-theme") || "system";
+  const dark =
+    theme === "dark" ||
+    (theme === "system" &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches);
+  document.documentElement.classList.toggle("dark", dark);
+  document.documentElement.dataset.theme = theme;
+} catch {}
+
 type AuthConfig = { mode: "local" | "hosted"; github_configured: boolean };
 type Device = {
   id: string;

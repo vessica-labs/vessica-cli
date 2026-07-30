@@ -27,6 +27,7 @@ export function Knowledge() {
     queryKey: ["knowledge-status"],
     queryFn: () => api<any>("/api/v1/knowledge/status"),
   });
+  const items = result.data?.items ?? [];
   return (
     <>
       <PageHeader
@@ -65,7 +66,7 @@ export function Knowledge() {
         <ErrorState error={result.error} />
       ) : (
         <div className="result-list">
-          {result.data?.items.map((item) => (
+          {items.map((item) => (
             <Link
               to={`/knowledge/${item.object_type}/${item.id}`}
               key={`${item.object_type}-${item.id}`}
@@ -87,7 +88,7 @@ export function Knowledge() {
               <Badge status={item.state} />
             </Link>
           ))}
-          {result.data?.items.length === 0 && (
+          {items.length === 0 && (
             <Card>
               <Empty
                 title="No matching knowledge"
@@ -127,6 +128,8 @@ export function KnowledgeDetail() {
   if (detail.isLoading) return <Loading />;
   if (detail.error) return <ErrorState error={detail.error} />;
   const v = detail.data;
+  const relationshipItems = relationships.data?.items ?? [];
+  const versionItems = versions.data?.items ?? [];
   return (
     <>
       <PageHeader
@@ -157,7 +160,7 @@ export function KnowledgeDetail() {
         <div>
           <Card>
             <h2>Relationships</h2>
-            {relationships.data?.items.map((r) => (
+            {relationshipItems.map((r) => (
               <div className="relationship" key={r.id}>
                 <Badge status={r.state} />
                 <span>
@@ -165,14 +168,14 @@ export function KnowledgeDetail() {
                 </span>
               </div>
             ))}
-            {!relationships.data?.items.length && (
+            {relationshipItems.length === 0 && (
               <p className="muted">No relationships recorded.</p>
             )}
           </Card>
           {type !== "entity" && (
             <Card>
               <h2>Immutable versions</h2>
-              {versions.data?.items.map((item) => (
+              {versionItems.map((item) => (
                 <div className="version-row" key={item.version}>
                   <strong>v{item.version}</strong>
                   <span>{fmtTime(item.updated_at)}</span>

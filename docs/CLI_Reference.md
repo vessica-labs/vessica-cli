@@ -62,7 +62,7 @@ simulation mode when selected as execution backends.
 | `ves epic` | `draft`, `add`, `list`, `view`, `update`, `delete`, `plan`, `status` | Validate intent without persistence; create, inspect, edit, or delete canonical work; run planning through ticketization; and inspect lifecycle status. |
 | `ves ticket` | `add`, `list`, `ready`, `view`, `update`, `delete`, `claim`, `heartbeat`, `release`, `close`, `block`, `unblock` | Manage dependency-aware manual work, claims, leases, evidence, and blockers. Engine-managed runs own these lifecycle calls themselves. |
 | `ves wave` | `list`, `view`, `status` | Inspect dependency-ready execution waves. |
-| `ves artifact` | `add`/`create`, `list`, `view`/`get`, `update`, `activate`, `supersede` | Create immutable authoritative artifacts, version their content, and change active authority. |
+| `ves artifact` | `add`/`create`, `list`, `view`/`get`, `update`, `activate`, `supersede` | Create immutable authoritative artifacts, version their content, and change active authority. Trusted imports can create directly with `--status active` to avoid a redundant draft-to-active version. |
 
 Conversation-derived epics should normally contain only `title`, `body`, and an
 empty ticket list. `ves run epic` produces planning artifacts and ticket

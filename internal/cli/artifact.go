@@ -9,7 +9,7 @@ import (
 
 func newArtifactCmd(app *App) *cobra.Command {
 	cmd := &cobra.Command{Use: "artifact", Short: "Manage authoritative knowledge artifacts"}
-	var typ, title, body, bodyFile, status string
+	var typ, title, body, bodyFile, status, createStatus string
 	list := &cobra.Command{Use: "list", RunE: func(cmd *cobra.Command, args []string) error {
 		if err := app.loadWorkspace(cmd.Context()); err != nil {
 			return err
@@ -53,6 +53,9 @@ func newArtifactCmd(app *App) *cobra.Command {
 		if typ == "" || title == "" {
 			return app.Printer.Fail("missing_fields", "--type and --title required", "")
 		}
+		if createStatus != "draft" && createStatus != "active" {
+			return app.Printer.Fail("invalid_status", "--status must be draft or active", "")
+		}
 		b := body
 		if bodyFile != "" {
 			raw, err := os.ReadFile(bodyFile)
@@ -66,7 +69,7 @@ func newArtifactCmd(app *App) *cobra.Command {
 			return err
 		}
 		defer g.Close()
-		v := ks.Artifact{ScopeID: scope.ID, Type: typ, Title: title, Status: "draft", Content: b}
+		v := ks.Artifact{ScopeID: scope.ID, Type: typ, Title: title, Status: createStatus, Content: b}
 		if app.Flags.DryRun {
 			return app.dryRun("artifact.add", v)
 		}
@@ -83,6 +86,7 @@ func newArtifactCmd(app *App) *cobra.Command {
 	add.Flags().StringVar(&title, "title", "", "title")
 	add.Flags().StringVar(&body, "body", "", "body")
 	add.Flags().StringVar(&bodyFile, "body-file", "", "body file")
+	add.Flags().StringVar(&createStatus, "status", "draft", "initial status: draft|active (use active for trusted imports)")
 	cmd.AddCommand(add)
 	update := &cobra.Command{Use: "update <artifact_id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if err := app.loadWorkspace(cmd.Context()); err != nil {

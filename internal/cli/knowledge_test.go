@@ -53,6 +53,21 @@ func TestMemoryReadersReturnEmptyArrays(t *testing.T) {
 	}
 }
 
+func TestArtifactCreateCanImportDirectlyAsActive(t *testing.T) {
+	dir := t.TempDir()
+	runCLI(t, dir, "dev", "up", "--profile", "solo", "--json")
+	raw := runCLI(t, dir, "artifact", "create", "--type", "reference", "--title", "Imported reference", "--body", "Trusted imported content", "--status", "active", "--yes", "--idempotency-key", "artifact-import-active", "--json")
+	var env struct {
+		Data knowledge.Artifact `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(raw), &env); err != nil {
+		t.Fatal(err)
+	}
+	if env.Data.Status != "active" || env.Data.Version != 1 {
+		t.Fatalf("artifact=%s", raw)
+	}
+}
+
 func TestEntityMergeCLIReportsPreviewAndReceipt(t *testing.T) {
 	dir := t.TempDir()
 	runCLI(t, dir, "dev", "up", "--profile", "solo", "--json")

@@ -9,7 +9,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/spf13/cobra v1.9.1
-	github.com/vessica-labs/vessica-knowledge-server v0.5.5
+	github.com/vessica-labs/vessica-knowledge-server v0.5.6
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.37.0
 )

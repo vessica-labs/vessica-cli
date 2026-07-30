@@ -18,7 +18,7 @@ Choose the narrowest retrieval path:
 Use these JSON-only workflows:
 
 - Entity identity: `ves entity resolve "<name>" --json`; create only after preview and confirmation with `ves entity create --type <type> --name "<name>" --dry-run --json`, then `--yes --idempotency-key <unique> --json`.
-- Authoritative work: `ves artifact list --status active --json`, `ves artifact get <id> --json`, and confirmed `artifact create|update|activate|supersede` mutations.
+- Authoritative work: `ves artifact list --status active --json`, `ves artifact get <id> --json`, and confirmed `artifact create|update|activate|supersede` mutations. For a trusted bulk import, create once with `ves artifact create ... --status active`; do not create a draft and immediately activate identical content.
 - Durable understanding: `ves memory retrieve "<query>" --limit 5 --rerank auto --json`, `ves memory get <id> --json`, and confirmed `memory add|update|supersede|archive` mutations. Keep `ves memory search` for administrative lexical inspection. Create an `instruction` only when the user explicitly requests durable guidance.
 - Work history: query for the task, run, epic, ticket, PR, receipt, or commit. Cite the returned artifact IDs, external references, and provenance in the answer.
 - Embeddings: quickstart is healthy in lexical mode. Enable semantic retrieval later with `ves knowledge embeddings enable --provider openai --api-key-env <name> --yes`, and confirm before changing retrieval configuration.
