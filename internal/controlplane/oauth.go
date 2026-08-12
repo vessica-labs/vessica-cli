@@ -218,12 +218,15 @@ func (s *Server) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !rejectOAuthCredentialQuery(w, r) {
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, oauthMaxBodyBytes)
 	if err := r.ParseForm(); err != nil {
 		writeOAuthFormError(w, err)
 		return
 	}
-	switch r.Form.Get("grant_type") {
+	switch r.PostForm.Get("grant_type") {
 	case "authorization_code":
 		s.exchangeAuthorizationCode(w, r, resource)
 	case "refresh_token":
@@ -234,18 +237,18 @@ func (s *Server) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) exchangeAuthorizationCode(w http.ResponseWriter, r *http.Request, resource string) {
-	if r.Form.Get("resource") != resource {
+	if r.PostForm.Get("resource") != resource {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_target", "resource must exactly match the canonical MCP resource")
 		return
 	}
-	verifier := r.Form.Get("code_verifier")
+	verifier := r.PostForm.Get("code_verifier")
 	if !validPKCEValue(verifier, 43, 128) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "PKCE verification failed")
 		return
 	}
 	sum := sha256.Sum256([]byte(verifier))
 	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
-	code, err := s.agentApp().ExchangeOAuthAuthorizationCode(r.Context(), hashOAuthMaterial(r.Form.Get("code")), r.Form.Get("client_id"), r.Form.Get("redirect_uri"), challenge, resource)
+	code, err := s.agentApp().ExchangeOAuthAuthorizationCode(r.Context(), hashOAuthMaterial(r.PostForm.Get("code")), r.PostForm.Get("client_id"), r.PostForm.Get("redirect_uri"), challenge, resource)
 	if err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid or expired")
 		return
@@ -254,11 +257,11 @@ func (s *Server) exchangeAuthorizationCode(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) exchangeRefreshToken(w http.ResponseWriter, r *http.Request, resource string) {
-	if r.Form.Get("resource") != resource {
+	if r.PostForm.Get("resource") != resource {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_target", "resource must exactly match the canonical MCP resource")
 		return
 	}
-	refresh, err := s.agentApp().ConsumeOAuthRefreshToken(r.Context(), hashOAuthMaterial(r.Form.Get("refresh_token")), r.Form.Get("client_id"), resource)
+	refresh, err := s.agentApp().ConsumeOAuthRefreshToken(r.Context(), hashOAuthMaterial(r.PostForm.Get("refresh_token")), r.PostForm.Get("client_id"), resource)
 	if err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "refresh token is invalid or expired")
 		return
@@ -308,17 +311,31 @@ func (s *Server) handleOAuthRevoke(w http.ResponseWriter, r *http.Request) {
 	if _, _, ok := s.requireCanonicalMCP(w); !ok {
 		return
 	}
+	if !rejectOAuthCredentialQuery(w, r) {
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, oauthMaxBodyBytes)
 	if err := r.ParseForm(); err != nil {
 		writeOAuthFormError(w, err)
 		return
 	}
-	hash := hashOAuthMaterial(r.Form.Get("token"))
+	hash := hashOAuthMaterial(r.PostForm.Get("token"))
 	if hash != hashOAuthMaterial("") {
 		_ = s.agentApp().RevokeOAuthAccessToken(r.Context(), hash)
 		_ = s.agentApp().RevokeOAuthRefreshToken(r.Context(), hash)
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+func rejectOAuthCredentialQuery(w http.ResponseWriter, r *http.Request) bool {
+	query := r.URL.Query()
+	for _, key := range []string{"grant_type", "code", "refresh_token", "client_id", "client_secret", "redirect_uri", "code_verifier", "resource", "token", "token_type_hint"} {
+		if _, present := query[key]; present {
+			writeOAuthError(w, http.StatusBadRequest, "invalid_request", "OAuth credentials and grant parameters must be sent in the form body")
+			return false
+		}
+	}
+	return true
 }
 
 func requireOAuthForm(w http.ResponseWriter, r *http.Request) bool {

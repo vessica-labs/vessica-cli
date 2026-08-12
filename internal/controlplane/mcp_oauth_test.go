@@ -108,6 +108,10 @@ func TestMCPToolCallsDelegateAndWriteIdempotently(t *testing.T) {
 	if firstMessageBody.Message.ID == "" || secondMessageBody.Message.ID != firstMessageBody.Message.ID || firstMessageBody.Conversation == nil {
 		t.Fatalf("message replay first=%#v second=%#v", firstMessageBody, secondMessageBody)
 	}
+	var matchedConversationAction int
+	if err = db.QueryRow(ctx, `SELECT COUNT(*) FROM mcp_conversation_actions mca JOIN action_ledger al ON al.workspace_id=mca.workspace_id AND al.idempotency_key=mca.action_key WHERE al.tool='conversation_send'`).Scan(&matchedConversationAction); err != nil || matchedConversationAction != 1 {
+		t.Fatalf("conversation domain action did not use the hashed audit key: count=%d err=%v", matchedConversationAction, err)
+	}
 	messages, err := db.ListConversationMessages(ctx, firstMessageBody.Conversation.ID, 0)
 	if err != nil || len(messages) != 1 {
 		t.Fatalf("messages=%#v err=%v", messages, err)

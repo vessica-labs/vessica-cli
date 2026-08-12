@@ -127,8 +127,8 @@ The Task 3 security review was resolved before later task work began:
   hostile origins, unknown tools, SDK pre-handler schema denials, scope denials,
   and allowed calls are durably audited. Audit errors are returned rather than
   discarded.
-- Outlook contacts are persisted as normalized ingestion items and included in
-  full receipts. Validation now ports the approved Python v2 contract's unsafe
+- Outlook contacts are persisted as normalized ingestion items and deliberately
+  excluded from message/event receipt source-ID partitions. Validation now ports the approved Python v2 contract's unsafe
   full-batch scan, canonical accounts, nonempty bounded typed strings, nullable
   initial watermarks, due dates, recurrence and change semantics, warnings and
   count rules. Stored source IDs are trimmed. Independent expected-previous and
@@ -181,3 +181,75 @@ The Task 3 security review was resolved before later task work began:
 
 The attempted generic `make lint` command has no repository target; the
 authoritative `./scripts/lint-arch.sh` gate above passed. No push was performed.
+
+## Round 2 release-blocker remediation
+
+- Added explicit workspace-ID filters at the state boundary for agent and
+  agent-run list/get, plus scoped application methods used by every MCP agent
+  read tool. Two-workspace transport tests prove foreign agents and runs cannot
+  be enumerated, filtered by agent ID, or fetched by direct ID.
+- Added operation-specific conversation idempotency. The hashed MCP action key,
+  optional conversation creation, sequence increment, message insert, and
+  replay mapping commit in one transaction. A deterministic test performs the
+  real domain mutation, simulates failed audit finalization and lease expiry,
+  reclaims the audit, and proves replay returns the original IDs with one
+  conversation and one message. The same recovery path is covered by the
+  disposable PostgreSQL integration test.
+- Verified the remaining write primitives at their durable boundaries: agent
+  triggers replay one run, subscription upsert/disable preserve one record,
+  Outlook batch/item/outbox keys replay existing records, finalized Outlook
+  batches are safely repeatable, and the scheduled probe has no domain effect
+  beyond its already-atomic ledger claim.
+- Added transactional Outlook checkpoint reservations before batch creation.
+  A stale or concurrently reserved expected checkpoint rejects before any
+  batch, item, or outbox record exists. Finalization verifies the reservation,
+  advances both checkpoints and batch state atomically, releases reservations,
+  and safely recognizes a completed recovery.
+- Contact updates remain durable Outlook ingestion items/outbox work, but never
+  enter the Task 1 receipt partition. The server now validates that accepted,
+  deduplicated, and rejected IDs are mutually exclusive and exactly partition
+  submitted messages/events, with committed watermarks identical to the batch.
+- Expanded the shared unsafe-instruction corpus to the Task 1 forms for
+  ignore/disregard instructions and reveal/exfiltrate secrets or credentials.
+- Translated official-SDK pre-handler schema failures at the transport boundary
+  into the same stable typed `invalid_arguments` structured content returned by
+  handler-level errors, while preserving the durable denial audit.
+- Token and revocation endpoints reject credential/grant query parameters and
+  consume only `PostForm` values after bounded form parsing. Refresh-token
+  revocation now transactionally revokes its whole refresh family and every
+  access token in that family; an endpoint-level test proves both are invalid.
+- Hostile origins remain rejected before the request body is read. Their audit
+  is intentionally attributed to `mcp_transport`: reading an untrusted
+  cross-origin body merely to improve tool attribution would weaken the early
+  origin boundary.
+
+### Round 2 RED/GREEN evidence
+
+1. RED: state compilation failed because no workspace-scoped agent/read methods
+   existed. GREEN: state and MCP two-workspace enumeration/direct-ID tests pass.
+2. RED: conversation recovery had no domain action record. GREEN: simulated
+   finalize-failure/expired-lease recovery and hashed-key join tests pass with
+   one actual side effect.
+3. RED: stale Outlook checkpoints were detected only after item/outbox writes.
+   GREEN: reservation tests reject before all three durable record types.
+4. RED: contact IDs appeared in successful receipts. GREEN: receipt validation
+   and transport tests persist contacts while partitioning only messages/events.
+5. RED: SDK schema rejection was audited but lacked structured content. GREEN:
+   the raw JSON-RPC response now contains typed `invalid_arguments` content.
+6. RED: token/revoke query values were accepted through `r.Form`, and refresh
+   revoke affected one token only. GREEN: query-only and family-wide endpoint
+   revocation tests pass.
+
+### Round 2 verification
+
+- Focused state, application, control-plane, dashboard, CLI, and redaction
+  suites — passed.
+- Disposable PostgreSQL `TestPostgresHostedSchema`, including MCP conversation
+  recovery — passed.
+- `go test ./... -count=1` and the repository race gate — passed.
+- `go vet ./...`, `go build ./cmd/ves`, `./scripts/lint-arch.sh`, dashboard API
+  generation/unit/build/E2E, generated-asset reproducibility, asset budget, and
+  `git diff --check` — passed.
+
+Dashboard installation still reports the same 8 high-severity transitive npm
+audit findings described above. No push was performed.

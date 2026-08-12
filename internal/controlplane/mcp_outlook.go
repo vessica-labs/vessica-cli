@@ -68,8 +68,8 @@ type outlookRejected struct {
 type outlookIngestionOutput struct {
 	Schema              string            `json:"schema,omitempty"`
 	BatchID             string            `json:"batch_id,omitempty"`
-	AcceptedIDs         []string          `json:"accepted_ids,omitempty"`
-	DeduplicatedIDs     []string          `json:"deduplicated_ids,omitempty"`
+	AcceptedIDs         []string          `json:"accepted_ids"`
+	DeduplicatedIDs     []string          `json:"deduplicated_ids"`
 	Rejected            []outlookRejected `json:"rejected"`
 	CommittedWatermarks outlookWatermarks `json:"committed_watermarks"`
 	Error               *MCPToolError     `json:"error,omitempty"`
@@ -94,18 +94,13 @@ func (s *Server) registerOutlookIngestionTool(server *mcp.Server) {
 		if err != nil {
 			return &outlookIngestionOutput{}, err
 		}
-		batch, err := s.agentApp().SubmitOutlookIngestion(ctx, state.OutlookIngestionBatchInput{IdempotencyKey: durableKey, SubmittedBy: principal.ActorID, CheckpointJSON: checkpointJSON, WarningsJSON: mustMarshalJSON(in.Batch.BatchSummary.Warnings)})
+		batch, err := s.agentApp().ReserveOutlookIngestion(ctx, state.OutlookIngestionBatchInput{IdempotencyKey: durableKey, SubmittedBy: principal.ActorID, CheckpointJSON: checkpointJSON, WarningsJSON: mustMarshalJSON(in.Batch.BatchSummary.Warnings)},
+			outlookPrevious(in.Batch.Watermarks.Email), in.Batch.Watermarks.Email.Candidate, outlookPrevious(in.Batch.Watermarks.Calendar), in.Batch.Watermarks.Calendar.Candidate)
 		if err != nil {
 			return &outlookIngestionOutput{}, err
 		}
-		out := &outlookIngestionOutput{Schema: "vessica.outlook-ingestion-receipt/v2", BatchID: in.Batch.BatchID, Rejected: []outlookRejected{}, CommittedWatermarks: in.Batch.Watermarks}
+		out := &outlookIngestionOutput{Schema: "vessica.outlook-ingestion-receipt/v2", BatchID: in.Batch.BatchID, AcceptedIDs: []string{}, DeduplicatedIDs: []string{}, Rejected: []outlookRejected{}, CommittedWatermarks: in.Batch.Watermarks}
 		records := append(append([]map[string]any{}, in.Batch.Messages...), in.Batch.CalendarEvents...)
-		for _, contact := range in.Batch.ContactUpdates {
-			email := strings.ToLower(stringField(contact, "email"))
-			contact["email"] = email
-			contact["source_id"] = "contact:" + email
-			records = append(records, contact)
-		}
 		for _, record := range records {
 			sourceID := stringField(record, "source_id")
 			record["source_id"] = sourceID
@@ -126,9 +121,29 @@ func (s *Server) registerOutlookIngestionTool(server *mcp.Server) {
 			}
 			out.AcceptedIDs = append(out.AcceptedIDs, sourceID)
 		}
+		// Contacts are durable knowledge inputs but are not source records in the
+		// Task 1 receipt partition, which covers messages and calendar events only.
+		for _, contact := range in.Batch.ContactUpdates {
+			email := strings.ToLower(stringField(contact, "email"))
+			contact["email"] = email
+			contact["source_id"] = "contact:" + email
+			raw, _ := json.Marshal(contact)
+			item, duplicate, itemErr := s.agentApp().UpsertOutlookIngestionItem(ctx, state.OutlookIngestionItemInput{BatchID: batch.ID, SourceID: "contact:" + email, NormalizedJSON: string(raw)})
+			if itemErr != nil {
+				return &outlookIngestionOutput{}, itemErr
+			}
+			if !duplicate {
+				if _, itemErr = s.agentApp().EnqueueOutlookOutbox(ctx, batch.ID, item.ID, in.Batch.BatchID+":contact:"+email); itemErr != nil {
+					return &outlookIngestionOutput{}, itemErr
+				}
+			}
+		}
 		if err = s.agentApp().FinalizeOutlookIngestion(ctx, batch.ID,
 			outlookPrevious(in.Batch.Watermarks.Email), in.Batch.Watermarks.Email.Candidate, mustMarshalJSON(in.Batch.Watermarks.Email),
 			outlookPrevious(in.Batch.Watermarks.Calendar), in.Batch.Watermarks.Calendar.Candidate, mustMarshalJSON(in.Batch.Watermarks.Calendar)); err != nil {
+			return &outlookIngestionOutput{}, err
+		}
+		if err = validateOutlookReceipt(*out, in.Batch); err != nil {
 			return &outlookIngestionOutput{}, err
 		}
 		return out, nil
@@ -307,10 +322,11 @@ func validateOutlookRecord(record map[string]any, kind string, evidence map[stri
 }
 
 var (
-	htmlTagPattern      = regexp.MustCompile(`(?i)<\s*[a-z][^>]*>`)
-	mailHeaderPattern   = regexp.MustCompile(`(?im)^\s*(from|to|cc|bcc|subject|date|sent|reply-to|message-id):`)
-	jwtPattern          = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b`)
-	outlookEmailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
+	htmlTagPattern           = regexp.MustCompile(`(?i)<\s*[a-z][^>]*>`)
+	mailHeaderPattern        = regexp.MustCompile(`(?im)^\s*(from|to|cc|bcc|subject|date|sent|reply-to|message-id):`)
+	jwtPattern               = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b`)
+	outlookEmailPattern      = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
+	unsafeInstructionPattern = regexp.MustCompile(`(?i)\b(?:ignore|disregard)\s+(?:all\s+|previous\s+)?instructions\b|\b(?:reveal|exfiltrate)\s+(?:all\s+)?(?:secrets|credentials)\b`)
 )
 
 func rejectUnsafeOutlookValue(value any) error {
@@ -335,7 +351,7 @@ func rejectUnsafeOutlookValue(value any) error {
 		}
 	case string:
 		lower := strings.ToLower(typed)
-		if htmlTagPattern.MatchString(typed) || len(mailHeaderPattern.FindAllString(typed, -1)) >= 3 || jwtPattern.MatchString(typed) || redaction.Redact(typed) != typed || strings.Contains(lower, "ignore previous instructions") || strings.Contains(lower, "ignore all prior instructions") || strings.Contains(lower, "system prompt") || strings.Contains(lower, "-----begin") || strings.Contains(lower, "mime-version:") || strings.Contains(lower, "content-type:") || strings.Contains(lower, "cookie:") || strings.Contains(lower, "set-cookie:") {
+		if htmlTagPattern.MatchString(typed) || len(mailHeaderPattern.FindAllString(typed, -1)) >= 3 || jwtPattern.MatchString(typed) || redaction.Redact(typed) != typed || unsafeInstructionPattern.MatchString(typed) || strings.Contains(lower, "system prompt") || strings.Contains(lower, "-----begin") || strings.Contains(lower, "mime-version:") || strings.Contains(lower, "content-type:") || strings.Contains(lower, "cookie:") || strings.Contains(lower, "set-cookie:") {
 			return fmt.Errorf("prohibited sensitive or instruction-like string")
 		}
 	}

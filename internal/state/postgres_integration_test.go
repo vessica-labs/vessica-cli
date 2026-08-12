@@ -206,4 +206,24 @@ func TestPostgresHostedSchema(t *testing.T) {
 	if err != nil || pinned.DefinitionVersion != 1 {
 		t.Fatalf("Postgres pinned version=%d err=%v", pinned.DefinitionVersion, err)
 	}
+	mcpActionKey := unique + "-mcp-action"
+	mcpClaim, err := db.ClaimActionExecution(ctx, ActionLedgerInput{ActorID: "postgres-user", Tool: "conversation_send", IdempotencyKey: mcpActionKey}, time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conversation, message, _, err := db.SendConversationMessageIdempotent(ctx, mcpActionKey, "postgres-user", "", "Postgres", ConversationMessageInput{Role: "user", ContentJSON: `{"text":"once"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `UPDATE action_ledger SET lease_until=? WHERE id=?`, FormatTime(time.Now().Add(-time.Minute)), mcpClaim.Ledger.ID); err != nil {
+		t.Fatal(err)
+	}
+	reclaimed, err := db.ClaimActionExecution(ctx, ActionLedgerInput{ActorID: "postgres-user", Tool: "conversation_send", IdempotencyKey: mcpActionKey}, time.Minute)
+	if err != nil || !reclaimed.Acquired {
+		t.Fatalf("Postgres action reclaim=%#v err=%v", reclaimed, err)
+	}
+	conversationReplay, messageReplay, replay, err := db.SendConversationMessageIdempotent(ctx, mcpActionKey, "postgres-user", "", "Postgres", ConversationMessageInput{Role: "user", ContentJSON: `{"text":"once"}`})
+	if err != nil || !replay || conversationReplay.ID != conversation.ID || messageReplay.ID != message.ID {
+		t.Fatalf("Postgres domain replay conversation=%#v message=%#v replay=%v err=%v", conversationReplay, messageReplay, replay, err)
+	}
 }

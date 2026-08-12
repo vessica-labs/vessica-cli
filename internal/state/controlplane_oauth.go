@@ -222,15 +222,25 @@ func (db *DB) RevokeOAuthRefreshToken(ctx context.Context, materialHash string) 
 	if err != nil {
 		return err
 	}
-	result, err := db.Exec(ctx, `UPDATE oauth_refresh_tokens SET revoked_at=COALESCE(revoked_at,?) WHERE workspace_id=? AND material_hash=?`, Now(), ws.ID, materialHash)
+	var familyID string
+	if err = db.QueryRow(ctx, `SELECT family_id FROM oauth_refresh_tokens WHERE workspace_id=? AND material_hash=?`, ws.ID, materialHash).Scan(&familyID); err == sql.ErrNoRows {
+		return fmt.Errorf("oauth refresh token not found")
+	} else if err != nil {
+		return err
+	}
+	tx, err := db.SQL.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	n, _ := result.RowsAffected()
-	if n != 1 {
-		return fmt.Errorf("oauth refresh token not found")
+	defer tx.Rollback()
+	now := Now()
+	if _, err = tx.ExecContext(ctx, db.Rebind(`UPDATE oauth_refresh_tokens SET revoked_at=COALESCE(revoked_at,?) WHERE workspace_id=? AND family_id=?`), now, ws.ID, familyID); err != nil {
+		return err
 	}
-	return nil
+	if _, err = tx.ExecContext(ctx, db.Rebind(`UPDATE oauth_access_tokens SET revoked_at=COALESCE(revoked_at,?) WHERE workspace_id=? AND family_id=?`), now, ws.ID, familyID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (db *DB) RevokeOAuthAccessToken(ctx context.Context, tokenHash string) error {

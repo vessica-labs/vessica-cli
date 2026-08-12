@@ -140,6 +140,7 @@ func (s *Server) requireMCPAccess(next http.Handler) http.Handler {
 				writeMCPHTTPError(w, http.StatusServiceUnavailable, "audit_failed", "transport denial could not be recorded")
 				return
 			}
+			buffered.Body = bytes.NewBuffer(stableMCPToolDenial(buffered.Body.Bytes(), "invalid_arguments", "tool arguments did not match the published schema"))
 		}
 		for key, values := range buffered.Header() {
 			w.Header()[key] = append([]string(nil), values...)
@@ -147,6 +148,24 @@ func (s *Server) requireMCPAccess(next http.Handler) http.Handler {
 		w.WriteHeader(buffered.Code)
 		_, _ = w.Write(buffered.Body.Bytes())
 	})
+}
+
+func stableMCPToolDenial(body []byte, code, message string) []byte {
+	var response map[string]any
+	if json.Unmarshal(body, &response) != nil {
+		return body
+	}
+	errorEnvelope := map[string]any{"code": code, "message": message, "retryable": false}
+	response["result"] = map[string]any{
+		"content":           []any{map[string]any{"type": "text", "text": message}},
+		"structuredContent": map[string]any{"error": errorEnvelope},
+		"isError":           true,
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		return body
+	}
+	return encoded
 }
 
 func (s *Server) writeMCPUnauthorized(w http.ResponseWriter, r *http.Request) {

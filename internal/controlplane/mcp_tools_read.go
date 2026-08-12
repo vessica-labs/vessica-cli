@@ -146,20 +146,20 @@ func (s *Server) registerMCPReadTools(server *mcp.Server) {
 		}
 		return &latestBriefingOutput{Briefing: &latest}, nil
 	})
-	addMCPTool(s, server, &mcp.Tool{Name: "agents_list", Description: "List durable Vessica agents in the authorized workspace.", Annotations: closedReadAnnotations("List agents")}, mcpToolOptions{Scope: "agents:read"}, func() *agentsListOutput { return &agentsListOutput{} }, func(ctx context.Context, _ mcpPrincipal, _ emptyMCPInput) (*agentsListOutput, error) {
-		agents, err := s.agentApp().Agents(ctx)
+	addMCPTool(s, server, &mcp.Tool{Name: "agents_list", Description: "List durable Vessica agents in the authorized workspace.", Annotations: closedReadAnnotations("List agents")}, mcpToolOptions{Scope: "agents:read"}, func() *agentsListOutput { return &agentsListOutput{} }, func(ctx context.Context, principal mcpPrincipal, _ emptyMCPInput) (*agentsListOutput, error) {
+		agents, err := s.agentApp().AgentsForWorkspace(ctx, principal.WorkspaceID)
 		return &agentsListOutput{Agents: publicAgentSummaries(agents)}, err
 	})
-	addMCPTool(s, server, &mcp.Tool{Name: "agent_get", Description: "Get one durable Vessica agent and its active definition.", Annotations: closedReadAnnotations("Get agent")}, mcpToolOptions{Scope: "agents:read"}, func() *agentGetOutput { return &agentGetOutput{} }, func(ctx context.Context, _ mcpPrincipal, in agentGetInput) (*agentGetOutput, error) {
-		agent, err := s.agentApp().Agent(ctx, in.AgentID)
+	addMCPTool(s, server, &mcp.Tool{Name: "agent_get", Description: "Get one durable Vessica agent and its active definition.", Annotations: closedReadAnnotations("Get agent")}, mcpToolOptions{Scope: "agents:read"}, func() *agentGetOutput { return &agentGetOutput{} }, func(ctx context.Context, principal mcpPrincipal, in agentGetInput) (*agentGetOutput, error) {
+		agent, err := s.agentApp().AgentForWorkspace(ctx, principal.WorkspaceID, in.AgentID)
 		return &agentGetOutput{Agent: publicAgentDetail(agent)}, err
 	})
-	addMCPTool(s, server, &mcp.Tool{Name: "agent_runs_list", Description: "List durable Vessica agent runs, optionally for one agent.", Annotations: closedReadAnnotations("List agent runs")}, mcpToolOptions{Scope: "agents:read"}, func() *agentRunsListOutput { return &agentRunsListOutput{} }, func(ctx context.Context, _ mcpPrincipal, in agentRunsListInput) (*agentRunsListOutput, error) {
-		runs, err := s.agentApp().AgentRuns(ctx, in.AgentID)
+	addMCPTool(s, server, &mcp.Tool{Name: "agent_runs_list", Description: "List durable Vessica agent runs, optionally for one agent.", Annotations: closedReadAnnotations("List agent runs")}, mcpToolOptions{Scope: "agents:read"}, func() *agentRunsListOutput { return &agentRunsListOutput{} }, func(ctx context.Context, principal mcpPrincipal, in agentRunsListInput) (*agentRunsListOutput, error) {
+		runs, err := s.agentApp().AgentRunsForWorkspace(ctx, principal.WorkspaceID, in.AgentID)
 		return &agentRunsListOutput{Runs: publicAgentRuns(runs)}, err
 	})
-	addMCPTool(s, server, &mcp.Tool{Name: "agent_run_get", Description: "Get one durable Vessica agent run.", Annotations: closedReadAnnotations("Get agent run")}, mcpToolOptions{Scope: "agents:read"}, func() *agentRunGetOutput { return &agentRunGetOutput{} }, func(ctx context.Context, _ mcpPrincipal, in agentRunGetInput) (*agentRunGetOutput, error) {
-		run, err := s.agentApp().AgentRun(ctx, in.RunID)
+	addMCPTool(s, server, &mcp.Tool{Name: "agent_run_get", Description: "Get one durable Vessica agent run.", Annotations: closedReadAnnotations("Get agent run")}, mcpToolOptions{Scope: "agents:read"}, func() *agentRunGetOutput { return &agentRunGetOutput{} }, func(ctx context.Context, principal mcpPrincipal, in agentRunGetInput) (*agentRunGetOutput, error) {
+		run, err := s.agentApp().AgentRunForWorkspace(ctx, principal.WorkspaceID, in.RunID)
 		if run == nil {
 			return &agentRunGetOutput{}, err
 		}

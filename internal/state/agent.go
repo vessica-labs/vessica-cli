@@ -354,22 +354,7 @@ func insertAgentTask(ctx context.Context, db *DB, tx *sql.Tx, workspaceID, kind,
 }
 
 func (db *DB) GetAgentRun(ctx context.Context, runID string) (*AgentRun, error) {
-	var r AgentRun
-	var repo, parent, out, terminal, cancel, started, finished sql.NullString
-	var triggerID sql.NullString
-	err := db.QueryRow(ctx, `SELECT id,workspace_id,agent_id,definition_version,trigger,input_json,originating_repository_id,parent_run_id,trigger_id,root_run_id,nesting_depth,status,budget_period_start,reservation_microusd,rate_snapshot_json,resolved_knowledge_json,output_json,terminal_error,cancel_requested_at,created_at,updated_at,started_at,finished_at FROM agent_runs WHERE id=?`, runID).Scan(&r.ID, &r.WorkspaceID, &r.AgentID, &r.DefinitionVersion, &r.Trigger, &r.InputJSON, &repo, &parent, &triggerID, &r.RootRunID, &r.NestingDepth, &r.Status, &r.BudgetPeriodStart, &r.ReservationMicroUSD, &r.RateSnapshotJSON, &r.ResolvedKnowledgeJSON, &out, &terminal, &cancel, &r.CreatedAt, &r.UpdatedAt, &started, &finished)
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("agent run not found: %s", runID)
-	}
-	r.OriginatingRepositoryID = repo.String
-	r.ParentRunID = parent.String
-	r.TriggerID = triggerID.String
-	r.OutputJSON = out.String
-	r.TerminalError = terminal.String
-	r.CancelRequestedAt = cancel.String
-	r.StartedAt = started.String
-	r.FinishedAt = finished.String
-	return &r, err
+	return scanAgentRun(db.QueryRow(ctx, `SELECT id,workspace_id,agent_id,definition_version,trigger,input_json,originating_repository_id,parent_run_id,trigger_id,root_run_id,nesting_depth,status,budget_period_start,reservation_microusd,rate_snapshot_json,resolved_knowledge_json,output_json,terminal_error,cancel_requested_at,created_at,updated_at,started_at,finished_at FROM agent_runs WHERE id=?`, runID), runID)
 }
 
 func (db *DB) SetAgentRunResolvedKnowledge(ctx context.Context, runID, resolvedJSON string) error {

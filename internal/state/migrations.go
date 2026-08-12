@@ -50,6 +50,22 @@ ALTER TABLE action_ledger ADD COLUMN claim_token_hash TEXT NOT NULL DEFAULT '';
 ALTER TABLE action_ledger ADD COLUMN lease_until TEXT NOT NULL DEFAULT '';
 ALTER TABLE action_ledger ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
 ALTER TABLE source_checkpoints ADD COLUMN checkpoint_value TEXT NOT NULL DEFAULT '';
+`}, {version: 11, sql: `
+CREATE TABLE IF NOT EXISTS mcp_conversation_actions(
+  workspace_id TEXT NOT NULL, action_key TEXT NOT NULL, actor_id TEXT NOT NULL,
+  conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, created_at TEXT NOT NULL,
+  PRIMARY KEY(workspace_id,action_key),
+  FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+  FOREIGN KEY(message_id) REFERENCES conversation_messages(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS source_checkpoint_reservations(
+  workspace_id TEXT NOT NULL, source_type TEXT NOT NULL, source_id TEXT NOT NULL,
+  batch_id TEXT NOT NULL, expected_value TEXT NOT NULL, candidate_value TEXT NOT NULL, created_at TEXT NOT NULL,
+  PRIMARY KEY(workspace_id,source_type,source_id),
+  FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY(batch_id) REFERENCES outlook_ingestion_batches(id) ON DELETE CASCADE
+);
 `}}
 
 func latestMigrationVersion() int {

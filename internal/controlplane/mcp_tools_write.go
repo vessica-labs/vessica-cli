@@ -93,16 +93,12 @@ func (s *Server) registerMCPWriteTools(server *mcp.Server) {
 		if strings.TrimSpace(in.Message) == "" {
 			return &conversationSendOutput{}, fmt.Errorf("message is required")
 		}
-		var conversation *state.Conversation
-		var err error
-		if strings.TrimSpace(in.ConversationID) == "" {
-			conversation, err = s.agentApp().StartConversation(ctx, state.ConversationInput{ActorID: principal.ActorID, Title: in.Title})
-			if err != nil {
-				return &conversationSendOutput{}, err
-			}
-			in.ConversationID = conversation.ID
+		durableKey, err := durableMCPIdempotency(in.IdempotencyKey)
+		if err != nil {
+			return &conversationSendOutput{}, err
 		}
-		message, err := s.agentApp().AddConversationMessage(ctx, in.ConversationID, state.ConversationMessageInput{Role: "user", ContentJSON: mustMarshalJSON(map[string]string{"text": in.Message}), MetadataJSON: mustMarshalJSON(map[string]string{"source": "mcp"})})
+		actionKey := hashedAuditKey(principal, "conversation_send", durableKey)
+		conversation, message, _, err := s.agentApp().SendConversationMessageIdempotent(ctx, actionKey, principal.ActorID, in.ConversationID, in.Title, state.ConversationMessageInput{Role: "user", ContentJSON: mustMarshalJSON(map[string]string{"text": in.Message}), MetadataJSON: mustMarshalJSON(map[string]string{"source": "mcp"})})
 		return &conversationSendOutput{Conversation: conversation, Message: message}, err
 	})
 	addMCPTool(s, server, &mcp.Tool{Name: "subscription_upsert", Description: "Idempotently create or update a workspace source subscription.", Annotations: writeAnnotations("Upsert subscription", true, true)}, mcpToolOptions{Scope: "sources:manage", RequiresIdempotency: true}, func() *subscriptionOutput { return &subscriptionOutput{} }, func(ctx context.Context, _ mcpPrincipal, in subscriptionUpsertInput) (*subscriptionOutput, error) {

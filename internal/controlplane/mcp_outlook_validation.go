@@ -2,6 +2,7 @@ package controlplane
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -9,6 +10,41 @@ var canonicalOutlookClients = map[string]bool{
 	"Agilent": true, "Mastercard": true, "Pacific Life": true, "RBC": true,
 	"Western Digital": true, "Qualcomm": true, "Micron": true, "Cisco": true,
 	"AWS": true, "TD Bank": true, "CIBC": true,
+}
+
+func validateOutlookReceipt(receipt outlookIngestionOutput, batch outlookBatchV2) error {
+	if receipt.Schema != "vessica.outlook-ingestion-receipt/v2" || receipt.BatchID != batch.BatchID || !reflect.DeepEqual(receipt.CommittedWatermarks, batch.Watermarks) {
+		return fmt.Errorf("receipt identity or committed watermarks do not match the batch")
+	}
+	expected := map[string]bool{}
+	for _, records := range [][]map[string]any{batch.Messages, batch.CalendarEvents} {
+		for _, record := range records {
+			expected[stringField(record, "source_id")] = true
+		}
+	}
+	partition := map[string]bool{}
+	for _, sourceID := range receipt.AcceptedIDs {
+		if !expected[sourceID] || partition[sourceID] {
+			return fmt.Errorf("receipt accepted IDs are invalid or duplicated")
+		}
+		partition[sourceID] = true
+	}
+	for _, sourceID := range receipt.DeduplicatedIDs {
+		if !expected[sourceID] || partition[sourceID] {
+			return fmt.Errorf("receipt deduplicated IDs are invalid or duplicated")
+		}
+		partition[sourceID] = true
+	}
+	for _, rejected := range receipt.Rejected {
+		if !expected[rejected.SourceID] || partition[rejected.SourceID] || !boundedOutlookString(rejected.Reason, 500) {
+			return fmt.Errorf("receipt rejected IDs are invalid or duplicated")
+		}
+		partition[rejected.SourceID] = true
+	}
+	if len(partition) != len(expected) {
+		return fmt.Errorf("receipt IDs do not exactly partition submitted message and calendar source IDs")
+	}
+	return nil
 }
 
 func requireOutlookFields(value map[string]any, fields ...string) error {

@@ -58,6 +58,9 @@ func (s *Service) StartConversation(ctx context.Context, in state.ConversationIn
 func (s *Service) AddConversationMessage(ctx context.Context, conversationID string, in state.ConversationMessageInput) (*state.ConversationMessage, error) {
 	return s.DB.AppendConversationMessage(ctx, conversationID, in)
 }
+func (s *Service) SendConversationMessageIdempotent(ctx context.Context, actionKey, actorID, conversationID, title string, in state.ConversationMessageInput) (*state.Conversation, *state.ConversationMessage, bool, error) {
+	return s.DB.SendConversationMessageIdempotent(ctx, actionKey, actorID, conversationID, title, in)
+}
 func (s *Service) ConversationMessages(ctx context.Context, conversationID string, after int64) ([]state.ConversationMessage, error) {
 	return s.DB.ListConversationMessages(ctx, conversationID, after)
 }
@@ -81,6 +84,9 @@ func (s *Service) SourceCheckpoint(ctx context.Context, typ, sourceID string) (*
 }
 func (s *Service) SubmitOutlookIngestion(ctx context.Context, in state.OutlookIngestionBatchInput) (*state.OutlookIngestionBatch, error) {
 	return s.DB.CreateOutlookIngestionBatch(ctx, in)
+}
+func (s *Service) ReserveOutlookIngestion(ctx context.Context, in state.OutlookIngestionBatchInput, emailExpected, emailCandidate, calendarExpected, calendarCandidate string) (*state.OutlookIngestionBatch, error) {
+	return s.DB.CreateOutlookIngestionBatchWithCheckpoints(ctx, in, emailExpected, emailCandidate, calendarExpected, calendarCandidate)
 }
 func (s *Service) UpsertOutlookIngestionItem(ctx context.Context, in state.OutlookIngestionItemInput) (*state.OutlookIngestionItem, bool, error) {
 	return s.DB.UpsertOutlookIngestionItem(ctx, in)
@@ -115,8 +121,14 @@ func (s *Service) TriggerCloudAgentRun(ctx context.Context, in state.AgentRunTri
 func (s *Service) AgentRuns(ctx context.Context, agentID string) ([]state.AgentRun, error) {
 	return s.DB.ListAgentRuns(ctx, agentID)
 }
+func (s *Service) AgentRunsForWorkspace(ctx context.Context, workspaceID, agentID string) ([]state.AgentRun, error) {
+	return s.DB.ListAgentRunsForWorkspace(ctx, workspaceID, agentID)
+}
 func (s *Service) AgentRun(ctx context.Context, runID string) (*state.AgentRun, error) {
 	return s.DB.GetAgentRun(ctx, runID)
+}
+func (s *Service) AgentRunForWorkspace(ctx context.Context, workspaceID, runID string) (*state.AgentRun, error) {
+	return s.DB.GetAgentRunForWorkspace(ctx, workspaceID, runID)
 }
 func (s *Service) UpsertAgentTaskCheckpoint(ctx context.Context, in state.AgentTaskCheckpointInput) (*state.AgentTaskCheckpoint, error) {
 	return s.DB.UpsertAgentTaskCheckpoint(ctx, in)
