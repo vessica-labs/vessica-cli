@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +37,10 @@ type installResult struct {
 }
 
 func Install() (*installResult, error) {
+	mcpEndpoint, mcpConfigured, err := configuredMCPEndpoint(os.Getenv("VES_MCP_PUBLIC_URL"))
+	if err != nil {
+		return nil, err
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
@@ -86,11 +91,60 @@ func Install() (*installResult, error) {
 	if err := writeManifestVersion(filepath.Join(dest, ".codex-plugin", "plugin.json"), pluginVersion); err != nil {
 		return nil, err
 	}
+	if err := configureInstalledMCP(dest, mcpEndpoint, mcpConfigured); err != nil {
+		return nil, err
+	}
 	marketplace := filepath.Join(home, ".agents", "plugins", "marketplace.json")
 	if err := updateMarketplace(marketplace); err != nil {
 		return nil, err
 	}
 	return &installResult{Name: "vessica", Path: dest, Marketplace: marketplace, Installed: true}, nil
+}
+
+func configuredMCPEndpoint(raw string) (string, bool, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false, nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+		return "", false, fmt.Errorf("install Codex plugin: VES_MCP_PUBLIC_URL must be a canonical HTTPS origin without credentials, path, query, or fragment")
+	}
+	parsed.Path = "/mcp"
+	return parsed.String(), true, nil
+}
+
+func configureInstalledMCP(dest, endpoint string, configured bool) error {
+	manifestPath := filepath.Join(dest, ".codex-plugin", "plugin.json")
+	raw, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return err
+	}
+	var manifest map[string]any
+	if err = json.Unmarshal(raw, &manifest); err != nil {
+		return err
+	}
+	mcpPath := filepath.Join(dest, ".mcp.json")
+	if configured {
+		body, marshalErr := json.MarshalIndent(map[string]any{"mcpServers": map[string]any{"vessica": map[string]string{"type": "http", "url": endpoint}}}, "", "  ")
+		if marshalErr != nil {
+			return marshalErr
+		}
+		if err = os.WriteFile(mcpPath, append(body, '\n'), 0o644); err != nil {
+			return err
+		}
+		manifest["mcpServers"] = "./.mcp.json"
+	} else {
+		delete(manifest, "mcpServers")
+		if err = os.Remove(mcpPath); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	body, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(manifestPath, append(body, '\n'), 0o644)
 }
 
 func writeManifestVersion(path, pluginVersion string) error {

@@ -1,10 +1,10 @@
-import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, render, screen } from "@testing-library/react";
+import { HttpResponse, http } from "msw";
+import { setupServer } from "msw/node";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { http, HttpResponse } from "msw";
-import { setupServer } from "msw/node";
-import { KnowledgeDetail } from "./knowledge";
+import { Knowledge, KnowledgeDetail } from "./knowledge";
 
 const envelope = (data: unknown) => ({ schema: "vessica.dashboard/v1", data });
 const server = setupServer(
@@ -30,7 +30,10 @@ const server = setupServer(
 );
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  cleanup();
+  server.resetHandlers();
+});
 afterAll(() => server.close());
 
 describe("Knowledge detail", () => {
@@ -54,5 +57,48 @@ describe("Knowledge detail", () => {
     expect(await screen.findByText("Imported memory")).toBeInTheDocument();
     expect(screen.getByText("No relationships recorded.")).toBeInTheDocument();
     expect(screen.getByText("Immutable versions")).toBeInTheDocument();
+  });
+
+  it("uses the citation query for an exact evidence search", async () => {
+    let requested = "";
+    server.use(
+      http.get("/api/v1/knowledge/status", () =>
+        HttpResponse.json(
+          envelope({ index_fresh: true, retrieval_mode: "exact" }),
+        ),
+      ),
+      http.get("/api/v1/knowledge/search", ({ request }) => {
+        requested = new URL(request.url).searchParams.get("q") || "";
+        return HttpResponse.json(
+          envelope({
+            items: [
+              {
+                object_type: "artifact",
+                id: "art_123",
+                title: "Exact cited evidence",
+                summary: "Source details",
+                subtype: "briefing",
+                updated_at: "2026-08-12T00:00:00Z",
+                state: "active",
+              },
+            ],
+          }),
+        );
+      }),
+    );
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <MemoryRouter initialEntries={["/knowledge?citation=art_123"]}>
+          <Knowledge />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("Exact cited evidence")).toBeInTheDocument();
+    expect(requested).toBe("art_123");
+    expect(screen.getByDisplayValue("art_123")).toBeInTheDocument();
   });
 });

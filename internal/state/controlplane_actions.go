@@ -46,7 +46,7 @@ func (db *DB) ClaimActionExecution(ctx context.Context, in ActionLedgerInput, le
 	}
 	now := Now()
 	leaseUntil := FormatTime(time.Now().Add(lease))
-	result, err := db.Exec(ctx, `INSERT INTO action_ledger(id,workspace_id,actor_id,agent_id,agent_run_id,tool,policy_decision,redacted_arguments_json,result_json,latency_ms,idempotency_key,external_ids_json,created_at,execution_state,claim_token_hash,lease_until,updated_at,arguments_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'claimed',?,?,?,?) ON CONFLICT(workspace_id,idempotency_key) DO NOTHING`, id.New("act"), ws.ID, in.ActorID, nullStr(in.AgentID), nullStr(in.AgentRunID), in.Tool, "allowed", redactedArguments, "{}", 0, in.IdempotencyKey, defaultJSON(in.ExternalIDsJSON, "[]"), now, claimHash, leaseUntil, now, argumentsHash)
+	result, err := db.Exec(ctx, `INSERT INTO action_ledger(id,workspace_id,actor_id,agent_id,agent_run_id,tool,policy_decision,transport_source,redacted_arguments_json,result_json,latency_ms,idempotency_key,external_ids_json,created_at,execution_state,claim_token_hash,lease_until,updated_at,arguments_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'claimed',?,?,?,?) ON CONFLICT(workspace_id,idempotency_key) DO NOTHING`, id.New("act"), ws.ID, in.ActorID, nullStr(in.AgentID), nullStr(in.AgentRunID), in.Tool, "allowed", in.Source, redactedArguments, "{}", 0, in.IdempotencyKey, defaultJSON(in.ExternalIDsJSON, "[]"), now, claimHash, leaseUntil, now, argumentsHash)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func defaultJSON(value, fallback string) string {
 func scanActionLedger(row interface{ Scan(...any) error }) (*ActionLedger, error) {
 	var v ActionLedger
 	var agent, run sql.NullString
-	err := row.Scan(&v.ID, &v.WorkspaceID, &v.ActorID, &agent, &run, &v.Tool, &v.PolicyDecision, &v.RedactedArgumentsJSON, &v.ResultJSON, &v.LatencyMS, &v.IdempotencyKey, &v.ExternalIDsJSON, &v.CreatedAt, &v.ExecutionState, &v.ClaimTokenHash, &v.LeaseUntil, &v.UpdatedAt, &v.ArgumentsHash)
+	err := row.Scan(&v.ID, &v.WorkspaceID, &v.ActorID, &agent, &run, &v.Tool, &v.PolicyDecision, &v.Source, &v.RedactedArgumentsJSON, &v.ResultJSON, &v.LatencyMS, &v.IdempotencyKey, &v.ExternalIDsJSON, &v.CreatedAt, &v.ExecutionState, &v.ClaimTokenHash, &v.LeaseUntil, &v.UpdatedAt, &v.ArgumentsHash)
 	v.AgentID, v.AgentRunID = agent.String, run.String
 	return &v, err
 }

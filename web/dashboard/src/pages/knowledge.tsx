@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Search } from "lucide-react";
@@ -14,7 +14,9 @@ import {
   PageHeader,
 } from "@/components/ui";
 export function Knowledge() {
-  const [q, setQ] = useState("");
+  const [searchParams] = useSearchParams();
+  const citation = searchParams.get("citation")?.trim() || "";
+  const [q, setQ] = useState(citation);
   const [type, setType] = useState("");
   const result = useQuery({
     queryKey: ["knowledge", q, type],
@@ -41,6 +43,7 @@ export function Knowledge() {
         }
       />
       <Card>
+        {citation && <p className="retrieval-note">Citation evidence for <strong>{citation}</strong></p>}
         <div className="search-row">
           <Search size={18} />
           <input

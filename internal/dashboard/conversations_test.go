@@ -77,6 +77,12 @@ func TestConversationRoutesAuthorizeOrderRunAndIsolateWorkspace(t *testing.T) {
 			t.Fatalf("message %d=%d %s", index, rec.Code, rec.Body.String())
 		}
 	}
+	retryPath := "/api/v1/conversations/" + conversationID + "/messages"
+	firstAttempt := request(http.MethodPost, retryPath, `{"message":"Lost response"}`, "lost-response")
+	secondAttempt := request(http.MethodPost, retryPath, `{"message":"Lost response"}`, "lost-response")
+	if firstAttempt.Code != http.StatusOK || secondAttempt.Code != http.StatusOK || !strings.Contains(secondAttempt.Body.String(), `"replayed":true`) {
+		t.Fatalf("lost-response retry was not replayed: first=%d %s second=%d %s", firstAttempt.Code, firstAttempt.Body.String(), secondAttempt.Code, secondAttempt.Body.String())
+	}
 	detail := request(http.MethodGet, "/api/v1/conversations/"+conversationID, "", "")
 	if detail.Code != http.StatusOK {
 		t.Fatalf("detail=%d %s", detail.Code, detail.Body.String())
@@ -93,10 +99,10 @@ func TestConversationRoutesAuthorizeOrderRunAndIsolateWorkspace(t *testing.T) {
 	if err = json.Unmarshal(detail.Body.Bytes(), &detailBody); err != nil {
 		t.Fatal(err)
 	}
-	if len(detailBody.Data.Messages) != 2 || detailBody.Data.Messages[0].Sequence != 1 || detailBody.Data.Messages[1].Sequence != 2 {
+	if len(detailBody.Data.Messages) != 3 || detailBody.Data.Messages[0].Sequence != 1 || detailBody.Data.Messages[1].Sequence != 2 || detailBody.Data.Messages[2].Sequence != 3 {
 		t.Fatalf("messages are not ordered: %#v", detailBody.Data.Messages)
 	}
-	if len(detailBody.Data.Runs) != 2 || detailBody.Data.Runs[0].Status != "queued" {
+	if len(detailBody.Data.Runs) != 3 || detailBody.Data.Runs[0].Status != "queued" {
 		t.Fatalf("run status missing: %#v", detailBody.Data.Runs)
 	}
 	if detailBody.Data.Messages[0].Metadata["run_id"] != detailBody.Data.Runs[0].ID {

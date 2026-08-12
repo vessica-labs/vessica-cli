@@ -117,7 +117,7 @@ func (s *Server) requireMCPAccess(next http.Handler) http.Handler {
 		marker := &mcpAuditMarker{}
 		if tool != "" && !knownMCPTool(tool) {
 			_, auditErr := s.agentApp().RecordAction(r.Context(), state.ActionLedgerInput{
-				ActorID: principal.ActorID, Tool: tool, PolicyDecision: "denied",
+				ActorID: principal.ActorID, Tool: tool, PolicyDecision: "denied", Source: "mcp",
 				RedactedArgumentsJSON: redactMCPIdempotencyArgument(arguments), ResultJSON: `{"error":"unknown_tool"}`,
 				IdempotencyKey: hashedAuditKey(principal, tool, id.New("audit")), ExternalIDsJSON: "[]",
 			})
@@ -133,7 +133,7 @@ func (s *Server) requireMCPAccess(next http.Handler) http.Handler {
 		next.ServeHTTP(buffered, r.WithContext(ctx))
 		if tool != "" && !marker.recorded {
 			_, auditErr := s.agentApp().RecordAction(r.Context(), state.ActionLedgerInput{
-				ActorID: principal.ActorID, Tool: tool, PolicyDecision: "denied",
+				ActorID: principal.ActorID, Tool: tool, PolicyDecision: "denied", Source: "mcp",
 				RedactedArgumentsJSON: redactMCPIdempotencyArgument(arguments), ResultJSON: `{"error":"pre_handler_denied"}`,
 				IdempotencyKey: hashedAuditKey(principal, tool, id.New("audit")), ExternalIDsJSON: "[]",
 			})
@@ -191,7 +191,7 @@ func (s *Server) recordUnauthorizedMCPInvocation(r *http.Request, rawBody []byte
 	}
 	principal := mcpPrincipal{ActorID: "anonymous", WorkspaceID: "anonymous", ClientID: "anonymous"}
 	_, err := s.agentApp().RecordAction(r.Context(), state.ActionLedgerInput{
-		ActorID: "anonymous", Tool: tool, PolicyDecision: "denied",
+		ActorID: "anonymous", Tool: tool, PolicyDecision: "denied", Source: "mcp",
 		RedactedArgumentsJSON: redactMCPIdempotencyArgument(arguments), ResultJSON: mustMarshalJSON(map[string]string{"error": reason}),
 		IdempotencyKey: hashedAuditKey(principal, tool, id.New("audit")), ExternalIDsJSON: "[]",
 	})
@@ -298,7 +298,7 @@ func addMCPTool[In any, Out mcpToolOutput](s *Server, server *mcp.Server, tool *
 			out.setMCPError(toolErr)
 			resultJSON, _ := json.Marshal(out)
 			_, auditErr := s.agentApp().RecordAction(ctx, state.ActionLedgerInput{
-				ActorID: principal.ActorID, Tool: tool.Name, PolicyDecision: "denied",
+				ActorID: principal.ActorID, Tool: tool.Name, PolicyDecision: "denied", Source: "mcp",
 				RedactedArgumentsJSON: auditArguments, ResultJSON: string(resultJSON),
 				LatencyMS: time.Since(started).Milliseconds(), IdempotencyKey: auditKey, ExternalIDsJSON: "[]",
 			})
@@ -321,7 +321,7 @@ func addMCPTool[In any, Out mcpToolOutput](s *Server, server *mcp.Server, tool *
 		if options.RequiresIdempotency {
 			var claimErr error
 			claim, claimErr = s.agentApp().ClaimAction(ctx, state.ActionLedgerInput{
-				ActorID: principal.ActorID, Tool: tool.Name, PolicyDecision: "allowed",
+				ActorID: principal.ActorID, Tool: tool.Name, PolicyDecision: "allowed", Source: "mcp",
 				RedactedArgumentsJSON: auditArguments, ArgumentsHash: actionClaimHash(auditArguments), IdempotencyKey: auditKey, ExternalIDsJSON: "[]",
 			}, time.Minute)
 			if claimErr != nil {
@@ -364,7 +364,7 @@ func addMCPTool[In any, Out mcpToolOutput](s *Server, server *mcp.Server, tool *
 			}
 		} else {
 			_, auditErr = s.agentApp().RecordAction(ctx, state.ActionLedgerInput{
-				ActorID: principal.ActorID, Tool: tool.Name, PolicyDecision: "allowed",
+				ActorID: principal.ActorID, Tool: tool.Name, PolicyDecision: "allowed", Source: "mcp",
 				RedactedArgumentsJSON: auditArguments, ResultJSON: string(resultJSON),
 				LatencyMS: time.Since(started).Milliseconds(), IdempotencyKey: auditKey, ExternalIDsJSON: "[]",
 			})

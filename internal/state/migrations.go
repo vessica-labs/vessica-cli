@@ -91,6 +91,9 @@ CREATE INDEX IF NOT EXISTS idx_cloud_orchestration_ready ON cloud_orchestration_
 `}, {version: 14, sql: `
 ALTER TABLE conversations ADD COLUMN agent_id TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_conversations_workspace_updated ON conversations(workspace_id,updated_at);
+`}, {version: 15, sql: `
+ALTER TABLE action_ledger ADD COLUMN transport_source TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_action_ledger_workspace_source ON action_ledger(workspace_id,transport_source,created_at);
 `}}
 
 func latestMigrationVersion() int {

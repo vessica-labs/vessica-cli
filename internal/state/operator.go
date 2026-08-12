@@ -2,9 +2,17 @@ package state
 
 import (
 	"context"
-	"database/sql"
+	"fmt"
 	"time"
 )
+
+const briefingSlotGrace = 30 * time.Minute
+
+type expectedBriefingSlot struct {
+	Key   string
+	Date  string
+	DueAt time.Time
+}
 
 type StaleSourceCheckpoint struct {
 	SourceType string `json:"source_type"`
@@ -43,10 +51,13 @@ func (db *DB) OperatorSnapshot(ctx context.Context, now time.Time) (OperatorSnap
 	}
 	staleBefore := FormatTime(now.UTC().Add(-24 * time.Hour))
 	out := OperatorSnapshot{CheckpointStaleBefore: staleBefore, FailedAgents: []AgentRun{}, StaleCheckpoints: []StaleSourceCheckpoint{}, MissingBriefings: []string{}, Budgets: []AgentBudgetSignal{}, RecentActions: []ActionLedger{}}
-	if err = db.QueryRow(ctx, `SELECT COUNT(*) FROM action_ledger WHERE workspace_id=? AND (result_json LIKE '%invalid_token%' OR result_json LIKE '%missing_token%' OR result_json LIKE '%access_denied%')`, workspace.ID).Scan(&out.OAuthFailures); err != nil {
+	if err = db.QueryRow(ctx, `SELECT COUNT(*) FROM action_ledger WHERE workspace_id=? AND transport_source='mcp' AND (result_json LIKE '%invalid_token%' OR result_json LIKE '%missing_token%' OR result_json LIKE '%access_denied%')`, workspace.ID).Scan(&out.OAuthFailures); err != nil {
 		return out, err
 	}
-	if err = db.QueryRow(ctx, `SELECT COUNT(*),COALESCE(SUM(latency_ms),0),COALESCE(SUM(CASE WHEN policy_decision='denied' OR execution_state='failed' THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN policy_decision='denied' THEN 1 ELSE 0 END),0) FROM action_ledger WHERE workspace_id=?`, workspace.ID).Scan(&out.MCPCalls, &out.MCPLatencyMS, &out.MCPErrors, &out.DeniedActions); err != nil {
+	if err = db.QueryRow(ctx, `SELECT COUNT(*),COALESCE(SUM(latency_ms),0),COALESCE(SUM(CASE WHEN policy_decision='denied' OR execution_state='failed' THEN 1 ELSE 0 END),0) FROM action_ledger WHERE workspace_id=? AND transport_source='mcp'`, workspace.ID).Scan(&out.MCPCalls, &out.MCPLatencyMS, &out.MCPErrors); err != nil {
+		return out, err
+	}
+	if err = db.QueryRow(ctx, `SELECT COUNT(*) FROM action_ledger WHERE workspace_id=? AND policy_decision='denied'`, workspace.ID).Scan(&out.DeniedActions); err != nil {
 		return out, err
 	}
 	if err = db.QueryRow(ctx, `SELECT COUNT(*) FROM outlook_ingestion_receipts WHERE workspace_id=? AND state='rejected'`, workspace.ID).Scan(&out.RejectedRecords); err != nil {
@@ -93,14 +104,25 @@ func (db *DB) OperatorSnapshot(ctx context.Context, now time.Time) (OperatorSnap
 		return out, err
 	}
 
-	for _, key := range []string{"cos-briefing:morning", "cos-briefing:afternoon", "newsletter:daily"} {
+	expected, err := expectedBriefingSlots(now)
+	if err != nil {
+		return out, err
+	}
+	for _, slot := range expected {
 		var present int
-		if err = db.QueryRow(ctx, `SELECT COUNT(*) FROM canonical_knowledge_artifacts WHERE workspace_id=? AND canonical_key=?`, workspace.ID, key).Scan(&present); err != nil {
+		if err = db.QueryRow(ctx, `SELECT COUNT(*) FROM canonical_knowledge_artifacts WHERE workspace_id=? AND canonical_key=? AND updated_at>=?`, workspace.ID, slot.Key, FormatTime(slot.DueAt.UTC())).Scan(&present); err != nil {
 			return out, err
 		}
 		if present == 0 {
-			out.MissingBriefings = append(out.MissingBriefings, key)
+			out.MissingBriefings = append(out.MissingBriefings, slot.Key+":"+slot.Date)
 		}
+	}
+	var newsletterPresent int
+	if err = db.QueryRow(ctx, `SELECT COUNT(*) FROM canonical_knowledge_artifacts WHERE workspace_id=? AND canonical_key='newsletter:daily'`, workspace.ID).Scan(&newsletterPresent); err != nil {
+		return out, err
+	}
+	if newsletterPresent == 0 {
+		out.MissingBriefings = append(out.MissingBriefings, "newsletter:daily")
 	}
 
 	rows, err = db.Query(ctx, `SELECT a.id,a.name,p.limit_microusd,p.reserved_microusd,p.spent_microusd FROM agent_budget_periods p JOIN agents a ON a.id=p.agent_id WHERE a.workspace_id=? ORDER BY a.name`, workspace.ID)
@@ -119,7 +141,7 @@ func (db *DB) OperatorSnapshot(ctx context.Context, now time.Time) (OperatorSnap
 		return out, err
 	}
 
-	rows, err = db.Query(ctx, `SELECT id,workspace_id,actor_id,agent_id,agent_run_id,tool,policy_decision,redacted_arguments_json,result_json,latency_ms,idempotency_key,external_ids_json,created_at,execution_state,claim_token_hash,lease_until,updated_at,arguments_hash FROM action_ledger WHERE workspace_id=? ORDER BY created_at DESC LIMIT 100`, workspace.ID)
+	rows, err = db.Query(ctx, `SELECT id,workspace_id,actor_id,agent_id,agent_run_id,tool,policy_decision,transport_source,redacted_arguments_json,result_json,latency_ms,idempotency_key,external_ids_json,created_at,execution_state,claim_token_hash,lease_until,updated_at,arguments_hash FROM action_ledger WHERE workspace_id=? ORDER BY created_at DESC LIMIT 100`, workspace.ID)
 	if err != nil {
 		return out, err
 	}
@@ -131,8 +153,33 @@ func (db *DB) OperatorSnapshot(ctx context.Context, now time.Time) (OperatorSnap
 		}
 		out.RecentActions = append(out.RecentActions, *value)
 	}
-	if err = rows.Err(); err != nil && err != sql.ErrNoRows {
+	if err = rows.Err(); err != nil {
 		return out, err
 	}
 	return out, nil
+}
+
+func expectedBriefingSlots(now time.Time) ([]expectedBriefingSlot, error) {
+	location, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		return nil, fmt.Errorf("load briefing timezone: %w", err)
+	}
+	localNow := now.In(location)
+	return []expectedBriefingSlot{
+		mostRecentBriefingSlot(localNow, "cos-briefing:morning", 6, 30),
+		mostRecentBriefingSlot(localNow, "cos-briefing:afternoon", 16, 30),
+	}, nil
+}
+
+func mostRecentBriefingSlot(localNow time.Time, key string, hour, minute int) expectedBriefingSlot {
+	date := localNow
+	due := time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, localNow.Location())
+	if localNow.Before(due.Add(briefingSlotGrace)) {
+		date = date.AddDate(0, 0, -1)
+	}
+	for date.Weekday() == time.Saturday || date.Weekday() == time.Sunday {
+		date = date.AddDate(0, 0, -1)
+	}
+	due = time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, localNow.Location())
+	return expectedBriefingSlot{Key: key, Date: date.Format("2006-01-02"), DueAt: due}
 }

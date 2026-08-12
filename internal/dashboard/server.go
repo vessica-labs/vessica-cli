@@ -290,7 +290,15 @@ func (s *Server) authenticate(r *http.Request) (actor, error) {
 	if err != nil {
 		return actor{}, err
 	}
-	return actor{UserID: v.UserID, Role: v.Role, SessionID: v.ID}, nil
+	workspace, err := s.DB.GetWorkspace(r.Context())
+	if err != nil || v.WorkspaceID != workspace.ID {
+		return actor{}, errors.New("dashboard session is not valid for this workspace")
+	}
+	membership, err := s.DB.GetMembership(r.Context(), v.UserID)
+	if err != nil || membership.WorkspaceID != workspace.ID {
+		return actor{}, errors.New("current workspace membership required")
+	}
+	return actor{UserID: v.UserID, Role: membership.Role, SessionID: v.ID}, nil
 }
 
 // AuthorizeExternalRequest reuses dashboard session identity for sibling
@@ -307,15 +315,11 @@ func (s *Server) AuthorizeExternalRequest(r *http.Request, mutation bool) (Exter
 	if err != nil {
 		return ExternalIdentity{}, err
 	}
-	session, err := s.DB.GetDashboardSession(r.Context(), digest(cookieValue(r, sessionCookie)))
-	if err != nil || session.WorkspaceID != workspace.ID {
-		return ExternalIdentity{}, errors.New("dashboard session is not valid for this workspace")
-	}
-	membership, err := s.DB.GetMembership(r.Context(), a.UserID)
-	if err != nil || membership.WorkspaceID != workspace.ID {
-		return ExternalIdentity{}, errors.New("current workspace membership required")
-	}
 	if mutation {
+		session, sessionErr := s.DB.GetDashboardSession(r.Context(), digest(cookieValue(r, sessionCookie)))
+		if sessionErr != nil {
+			return ExternalIdentity{}, errors.New("dashboard session required")
+		}
 		if !same(session.CSRFHash, digest(r.Header.Get("X-CSRF-Token"))) {
 			return ExternalIdentity{}, errors.New("valid CSRF token required")
 		}
@@ -327,7 +331,7 @@ func (s *Server) AuthorizeExternalRequest(r *http.Request, mutation bool) (Exter
 			}
 		}
 	}
-	return ExternalIdentity{WorkspaceID: workspace.ID, UserID: a.UserID, Role: membership.Role}, nil
+	return ExternalIdentity{WorkspaceID: workspace.ID, UserID: a.UserID, Role: a.Role}, nil
 }
 
 func (s *Server) handleLocalExchange(w http.ResponseWriter, r *http.Request) {

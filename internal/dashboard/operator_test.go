@@ -24,7 +24,7 @@ func TestOperatorMetricsExposeWorkspaceScopedCloudAgentSignals(t *testing.T) {
 	if _, err = db.EnsureWorkspace(context.Background(), root, "hosted"); err != nil {
 		t.Fatal(err)
 	}
-	_, err = db.AppendActionLedger(context.Background(), state.ActionLedgerInput{ActorID: "user", Tool: "agents_list", PolicyDecision: "denied", ResultJSON: `{"error":"invalid_token"}`, LatencyMS: 25, IdempotencyKey: "denied-one"})
+	_, err = db.AppendActionLedger(context.Background(), state.ActionLedgerInput{ActorID: "user", Tool: "agents_list", PolicyDecision: "denied", Source: "mcp", ResultJSON: `{"error":"invalid_token"}`, LatencyMS: 25, IdempotencyKey: "denied-one"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestOperatorMetricsExposeWorkspaceScopedCloudAgentSignals(t *testing.T) {
 	if view.Code != http.StatusOK {
 		t.Fatalf("operator=%d %s", view.Code, view.Body.String())
 	}
-	for _, expected := range []string{`"oauth_failures":1`, `"denied_actions":1`, `"rejected_records":1`, `"source-one"`, `"cos-briefing:morning"`, `"newsletter:daily"`} {
+	for _, expected := range []string{`"oauth_failures":1`, `"denied_actions":1`, `"rejected_records":1`, `"source-one"`, `"cos-briefing:morning:`, `"newsletter:daily"`} {
 		if !strings.Contains(view.Body.String(), expected) {
 			t.Fatalf("operator response missing %s: %s", expected, view.Body.String())
 		}

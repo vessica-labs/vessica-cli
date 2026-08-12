@@ -1,7 +1,7 @@
 {
   "name": "vessica",
   "version": "0.4.0+codex.20260721205335",
-  "description": "Use remote Vessica knowledge, agents, conversations, sources, and briefings through MCP while retaining CLI-backed setup and engineering workflows.",
+  "description": "Use Vessica's CLI-backed setup and engineering workflows, with optional remote MCP when configured during installation.",
   "author": {
     "name": "Vessica Labs",
     "url": "https://github.com/vessica-labs"
@@ -18,11 +18,10 @@
     "agents"
   ],
   "skills": "./skills/",
-  "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Vessica",
-    "shortDescription": "Work with Vessica through remote MCP and its version-matched CLI.",
-    "longDescription": "Use OAuth-protected remote MCP for shared Vessica knowledge, briefings, conversations, sources, and durable agents. Keep the version-matched ves Go CLI for workspace setup, engineering runs, harnesses, previews, recovery, and operator workflows.",
+    "shortDescription": "Work with Vessica through its version-matched CLI and optional remote MCP.",
+    "longDescription": "Use the version-matched ves Go CLI for workspace setup, engineering runs, harnesses, previews, recovery, and operator workflows. A concrete OAuth-protected remote MCP connection is added only when VES_MCP_PUBLIC_URL is configured during installation.",
     "developerName": "Vessica Labs",
     "category": "Productivity",
     "capabilities": [

@@ -144,6 +144,64 @@ func TestExternalIdentityRequiresCurrentWorkspaceMembershipAndRole(t *testing.T)
 	}
 }
 
+func TestCookieRoutesRejectOwnerSessionFromAnotherWorkspaceAndRevalidateRole(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "state.db")
+	first, err := state.Open("sqlite", dbPath, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	if _, err = first.EnsureWorkspace(context.Background(), "workspace-one", "hosted"); err != nil {
+		t.Fatal(err)
+	}
+	user, _ := first.UpsertDashboardUser(context.Background(), "github-owner", "owner", "Owner", "")
+	if err = first.UpsertMembership(context.Background(), user.ID, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	const rawSession = "workspace-one-owner-session"
+	if _, err = first.CreateDashboardSession(context.Background(), user.ID, "owner", digest(rawSession), digest("csrf"), state.FormatTime(time.Now().Add(time.Hour))); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := state.Open("sqlite", dbPath, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	if _, err = second.EnsureWorkspace(context.Background(), "workspace-two", "hosted"); err != nil {
+		t.Fatal(err)
+	}
+	server := New(appservice.New(second, root, config.Defaults()), "hosted")
+	for _, route := range []string{"/auth/session", "/api/v1/system", "/api/v1/conversations", "/api/v1/operator", "/internal/dashboard/metrics"} {
+		req := httptest.NewRequest(http.MethodGet, route, nil)
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: rawSession})
+		rec := httptest.NewRecorder()
+		server.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("cross-workspace cookie route %s=%d %s", route, rec.Code, rec.Body.String())
+		}
+	}
+
+	const currentSession = "workspace-two-session"
+	if err = second.UpsertMembership(context.Background(), user.ID, "owner"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = second.CreateDashboardSession(context.Background(), user.ID, "owner", digest(currentSession), digest("csrf"), state.FormatTime(time.Now().Add(time.Hour))); err != nil {
+		t.Fatal(err)
+	}
+	if err = second.UpsertMembership(context.Background(), user.ID, "member"); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/operator", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookie, Value: currentSession})
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("stale owner role was trusted: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRunStreamResumesAfterLastEventAndTerminates(t *testing.T) {
 	root := t.TempDir()
 	db, err := state.Open("sqlite", filepath.Join(root, "state.db"), root)

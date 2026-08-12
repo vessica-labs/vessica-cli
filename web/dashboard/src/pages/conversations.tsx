@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { api, fmtTime } from "@/lib/api";
 import { Badge, Button, Card, Empty, ErrorState, Loading, PageHeader } from "@/components/ui";
 
@@ -17,6 +17,7 @@ export function Conversations() {
   const [title, setTitle] = useState("");
   const [agentID, setAgentID] = useState("");
   const [message, setMessage] = useState("");
+  const messageKey = useRef(crypto.randomUUID());
   const conversations = useQuery({ queryKey: ["conversations"], queryFn: () => api<{ conversations: Conversation[] }>("/api/v1/conversations") });
   const agents = useQuery({ queryKey: ["conversation-agents"], queryFn: () => api<{ agents: Agent[] }>("/api/v1/agents") });
   const detail = useQuery({ queryKey: ["conversation", id], queryFn: () => api<Detail>(`/api/v1/conversations/${id}`), enabled: !!id, refetchInterval: id ? 2500 : false });
@@ -25,8 +26,8 @@ export function Conversations() {
     onSuccess: (value) => { void client.invalidateQueries({ queryKey: ["conversations"] }); navigate(`/conversations/${value.id}`); },
   });
   const send = useMutation({
-    mutationFn: () => api(`/api/v1/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ message }) }),
-    onSuccess: () => { setMessage(""); void client.invalidateQueries({ queryKey: ["conversation", id] }); void client.invalidateQueries({ queryKey: ["conversations"] }); },
+    mutationFn: () => api(`/api/v1/conversations/${id}/messages`, { method: "POST", headers: { "Idempotency-Key": messageKey.current }, body: JSON.stringify({ message }) }),
+    onSuccess: () => { setMessage(""); messageKey.current = crypto.randomUUID(); void client.invalidateQueries({ queryKey: ["conversation", id] }); void client.invalidateQueries({ queryKey: ["conversations"] }); },
   });
   const submitCreate = (event: FormEvent) => { event.preventDefault(); create.mutate(); };
   const submitMessage = (event: FormEvent) => { event.preventDefault(); send.mutate(); };
@@ -70,10 +71,9 @@ export function Conversations() {
               {item.action_ledger_url && <Link className="entity-link" to={item.action_ledger_url}>View action ledger</Link>}
             </article>)}
           </div>
-          <form className="composer" onSubmit={submitMessage}><textarea value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Ask this agent…" />{send.error && <ErrorState error={send.error} />}<div className="composer-actions"><small>Creates one durable, traceable agent run.</small><Button disabled={!message.trim() || send.isPending}>{send.isPending ? "Sending…" : "Send"}</Button></div></form>
+          <form className="composer" onSubmit={submitMessage}><textarea value={message} onChange={(event) => { setMessage(event.target.value); messageKey.current = crypto.randomUUID(); }} placeholder="Ask this agent…" />{send.error && <ErrorState error={send.error} />}<div className="composer-actions"><small>Creates one durable, traceable agent run.</small><Button disabled={!message.trim() || send.isPending}>{send.isPending ? "Sending…" : "Send"}</Button></div></form>
         </>}
       </Card>
     </div>
   </>;
 }
-

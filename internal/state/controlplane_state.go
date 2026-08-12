@@ -27,8 +27,8 @@ func (db *DB) AppendActionLedger(ctx context.Context, in ActionLedgerInput) (*Ac
 	if in.ExternalIDsJSON == "" {
 		in.ExternalIDsJSON = "[]"
 	}
-	v := &ActionLedger{ID: id.New("act"), WorkspaceID: ws.ID, ActorID: in.ActorID, AgentID: in.AgentID, AgentRunID: in.AgentRunID, Tool: in.Tool, PolicyDecision: in.PolicyDecision, RedactedArgumentsJSON: redaction.Redact(in.RedactedArgumentsJSON), ResultJSON: redaction.Redact(in.ResultJSON), LatencyMS: in.LatencyMS, IdempotencyKey: in.IdempotencyKey, ExternalIDsJSON: in.ExternalIDsJSON, CreatedAt: Now()}
-	_, err = db.Exec(ctx, `INSERT INTO action_ledger(id,workspace_id,actor_id,agent_id,agent_run_id,tool,policy_decision,redacted_arguments_json,result_json,latency_ms,idempotency_key,external_ids_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(workspace_id,idempotency_key) DO NOTHING`, v.ID, v.WorkspaceID, v.ActorID, nullStr(v.AgentID), nullStr(v.AgentRunID), v.Tool, v.PolicyDecision, v.RedactedArgumentsJSON, v.ResultJSON, v.LatencyMS, v.IdempotencyKey, v.ExternalIDsJSON, v.CreatedAt)
+	v := &ActionLedger{ID: id.New("act"), WorkspaceID: ws.ID, ActorID: in.ActorID, AgentID: in.AgentID, AgentRunID: in.AgentRunID, Tool: in.Tool, PolicyDecision: in.PolicyDecision, Source: in.Source, RedactedArgumentsJSON: redaction.Redact(in.RedactedArgumentsJSON), ResultJSON: redaction.Redact(in.ResultJSON), LatencyMS: in.LatencyMS, IdempotencyKey: in.IdempotencyKey, ExternalIDsJSON: in.ExternalIDsJSON, CreatedAt: Now()}
+	_, err = db.Exec(ctx, `INSERT INTO action_ledger(id,workspace_id,actor_id,agent_id,agent_run_id,tool,policy_decision,transport_source,redacted_arguments_json,result_json,latency_ms,idempotency_key,external_ids_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(workspace_id,idempotency_key) DO NOTHING`, v.ID, v.WorkspaceID, v.ActorID, nullStr(v.AgentID), nullStr(v.AgentRunID), v.Tool, v.PolicyDecision, v.Source, v.RedactedArgumentsJSON, v.ResultJSON, v.LatencyMS, v.IdempotencyKey, v.ExternalIDsJSON, v.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func (db *DB) GetActionLedgerByKey(ctx context.Context, key string) (*ActionLedg
 	if e != nil {
 		return nil, e
 	}
-	v, e := scanActionLedger(db.QueryRow(ctx, `SELECT id,workspace_id,actor_id,agent_id,agent_run_id,tool,policy_decision,redacted_arguments_json,result_json,latency_ms,idempotency_key,external_ids_json,created_at,execution_state,claim_token_hash,lease_until,updated_at,arguments_hash FROM action_ledger WHERE workspace_id=? AND idempotency_key=?`, ws.ID, key))
+	v, e := scanActionLedger(db.QueryRow(ctx, `SELECT id,workspace_id,actor_id,agent_id,agent_run_id,tool,policy_decision,transport_source,redacted_arguments_json,result_json,latency_ms,idempotency_key,external_ids_json,created_at,execution_state,claim_token_hash,lease_until,updated_at,arguments_hash FROM action_ledger WHERE workspace_id=? AND idempotency_key=?`, ws.ID, key))
 	if e == sql.ErrNoRows {
 		return nil, fmt.Errorf("action ledger entry not found")
 	}

@@ -21,6 +21,7 @@ import (
 func TestInstallWritesPluginAndMarketplaceEntry(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("VES_MCP_PUBLIC_URL", "https://vessica.example")
 	result, err := Install()
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +82,7 @@ func TestInstallWritesPluginAndMarketplaceEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(mcpRaw), `"type": "http"`) || !strings.Contains(string(mcpRaw), `"url": "${VES_MCP_PUBLIC_URL}/mcp"`) {
+	if !strings.Contains(string(mcpRaw), `"type": "http"`) || !strings.Contains(string(mcpRaw), `"url": "https://vessica.example/mcp"`) || strings.Contains(string(mcpRaw), "${") {
 		t.Fatalf("remote MCP config is invalid: %s", mcpRaw)
 	}
 	raw, err := os.ReadFile(result.Marketplace)
@@ -106,6 +107,74 @@ func TestInstallWritesPluginAndMarketplaceEntry(t *testing.T) {
 	_ = json.Unmarshal(raw, &marketplace)
 	if len(marketplace.Plugins) != 1 {
 		t.Fatalf("duplicate entries: %s", raw)
+	}
+}
+
+func TestInstallWithoutMCPURLKeepsCLISkillsAndOmitsRemoteDescriptor(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("VES_MCP_PUBLIC_URL", "")
+	result, err := Install()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := os.ReadFile(filepath.Join(result.Path, ".codex-plugin", "plugin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(manifest), "mcpServers") {
+		t.Fatalf("unconfigured manifest claims MCP: %s", manifest)
+	}
+	if _, err = os.Stat(filepath.Join(result.Path, ".mcp.json")); !os.IsNotExist(err) {
+		t.Fatalf("unconfigured MCP descriptor exists: %v", err)
+	}
+	for _, skill := range []string{"setup-vessica", "dispatch-epic", "use-knowledge", "use-vessica-cloud"} {
+		if _, err = os.Stat(filepath.Join(result.Path, "skills", skill, "SKILL.md")); err != nil {
+			t.Fatalf("retained skill %s: %v", skill, err)
+		}
+	}
+}
+
+func TestInstallRejectsUnsafeMCPURLBeforeWriting(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("VES_MCP_PUBLIC_URL", "http://user:secret@vessica.example/base?token=secret")
+	if _, err := Install(); err == nil || !strings.Contains(err.Error(), "canonical HTTPS origin") {
+		t.Fatalf("unsafe URL error=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "plugins", "vessica")); !os.IsNotExist(err) {
+		t.Fatalf("invalid configuration wrote plugin files: %v", err)
+	}
+}
+
+func TestChatGPTRendererRequiresRegisteredAppIDAndBuildsSeparateManifest(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("VES_MCP_PUBLIC_URL", "https://vessica.example")
+	result, err := Install()
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(result.Path, "scripts", "render-chatgpt-plugin.sh")
+	invalidDest := filepath.Join(home, "invalid-chatgpt")
+	if output, runErr := exec.Command(script, "placeholder", invalidDest).CombinedOutput(); runErr == nil {
+		t.Fatalf("renderer accepted invented app ID: %s", output)
+	}
+	dest := filepath.Join(home, "vessica-chatgpt")
+	const registeredID = "plugin_asdk_app_abc123"
+	if output, runErr := exec.Command(script, registeredID, dest).CombinedOutput(); runErr != nil {
+		t.Fatalf("render ChatGPT plugin: %v\n%s", runErr, output)
+	}
+	manifest, _ := os.ReadFile(filepath.Join(dest, ".codex-plugin", "plugin.json"))
+	appManifest, _ := os.ReadFile(filepath.Join(dest, ".app.json"))
+	if !strings.Contains(string(manifest), `"apps": "./.app.json"`) || strings.Contains(string(manifest), "mcpServers") {
+		t.Fatalf("ChatGPT manifest=%s", manifest)
+	}
+	if !strings.Contains(string(appManifest), registeredID) || strings.Contains(string(appManifest), "secret") {
+		t.Fatalf("app manifest=%s", appManifest)
+	}
+	if _, err = os.Stat(filepath.Join(dest, ".mcp.json")); !os.IsNotExist(err) {
+		t.Fatalf("ChatGPT output retained local MCP config: %v", err)
 	}
 }
 

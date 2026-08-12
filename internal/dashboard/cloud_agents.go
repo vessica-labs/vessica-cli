@@ -164,7 +164,7 @@ func (s *Server) handleConversationMessage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	started := time.Now()
-	ledger, err := s.App.RecordAction(r.Context(), state.ActionLedgerInput{ActorID: currentActor(r).UserID, AgentID: conversation.AgentID, AgentRunID: trigger.AgentRunID, Tool: "conversation_send", PolicyDecision: "allowed", RedactedArgumentsJSON: string(input), ResultJSON: fmt.Sprintf(`{"run_id":%q}`, trigger.AgentRunID), LatencyMS: time.Since(started).Milliseconds(), IdempotencyKey: key, ExternalIDsJSON: fmt.Sprintf(`[%q]`, trigger.AgentRunID)})
+	ledger, err := s.App.RecordAction(r.Context(), state.ActionLedgerInput{ActorID: currentActor(r).UserID, AgentID: conversation.AgentID, AgentRunID: trigger.AgentRunID, Tool: "conversation_send", PolicyDecision: "allowed", Source: "dashboard", RedactedArgumentsJSON: string(input), ResultJSON: fmt.Sprintf(`{"run_id":%q}`, trigger.AgentRunID), LatencyMS: time.Since(started).Milliseconds(), IdempotencyKey: key, ExternalIDsJSON: fmt.Sprintf(`[%q]`, trigger.AgentRunID)})
 	if err != nil {
 		s.internal(w, r, err)
 		return

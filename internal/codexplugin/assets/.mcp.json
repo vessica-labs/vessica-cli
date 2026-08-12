@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "vessica": {
-      "type": "http",
-      "url": "${VES_MCP_PUBLIC_URL}/mcp"
-    }
-  }
-}

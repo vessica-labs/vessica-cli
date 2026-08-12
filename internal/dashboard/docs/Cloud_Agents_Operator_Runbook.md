@@ -28,12 +28,21 @@ metadata may name a credential environment variable but never its value.
    connectors. Do not add a Microsoft Graph application or copy mailbox
    credentials into Vessica.
 3. Add the packaged `vessica-outlook-ingestion` skill with its account scope,
-   v2 contract, and validator.
-4. Add `https://<canonical-control-plane-origin>/mcp`, complete interactive
-   OAuth consent, and grant only the scopes required by the task.
-5. Run `scheduled_write_probe` once with a stable idempotency key. Confirm one
+   v2 contract, and validator. This skill is a separate ChatGPT Work asset; it
+   is not supplied by `ves setup codex --plugin`.
+4. Enable ChatGPT developer mode if workspace policy permits it. In ChatGPT
+   Plugins, create a remote MCP connection for
+   `https://<canonical-control-plane-origin>/mcp`, complete interactive OAuth,
+   and grant only the scopes required by the task. See the
+   [official connection steps](https://developers.openai.com/plugins/deploy/connect-chatgpt).
+5. Copy the registered `plugin_asdk_app_...` technical ID. Use
+   `render-chatgpt-plugin.sh` to create the separate app-backed plugin candidate,
+   then have an administrator test and publish that candidate to the workspace.
+   Never invent an ID or claim that the local Codex marketplace install also
+   installs the plugin in ChatGPT web.
+6. Run `scheduled_write_probe` once with a stable idempotency key. Confirm one
    allowed action in Dashboard → Operations before enabling Outlook writes.
-6. Submit one minimized, narrow-window test batch. Confirm its batch ID,
+7. Submit one minimized, narrow-window test batch. Confirm its batch ID,
    receipt partition, independent committed email/calendar watermarks, action
    ledger, and resulting briefing.
 
@@ -115,4 +124,3 @@ batch. Never edit checkpoint rows.
 
 Restore the narrow failed boundary. Do not add Telegram, LinkedIn, Graph, local
 writable fallback state, or database repair scripts as an incident workaround.
-

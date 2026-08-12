@@ -20,7 +20,9 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body) headers.set("Content-Type", "application/json");
   if (!["GET", "HEAD"].includes(method)) {
     headers.set("X-CSRF-Token", csrfToken);
-    headers.set("Idempotency-Key", crypto.randomUUID());
+    if (!headers.has("Idempotency-Key")) {
+      headers.set("Idempotency-Key", crypto.randomUUID());
+    }
   }
   const response = await fetch(path, {
     ...init,

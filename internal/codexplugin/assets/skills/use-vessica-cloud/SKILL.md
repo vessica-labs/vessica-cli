@@ -5,10 +5,16 @@ description: Use the OAuth-protected Vessica remote MCP server for shared knowle
 
 # Use Vessica Cloud
 
-Use Vessica MCP tools for workspace-wide knowledge, briefings, conversations,
+First inspect whether the `vessica` MCP server and tools are available. When
+they are, use them for workspace-wide knowledge, briefings, conversations,
 durable-agent reads and runs, Outlook ingestion, and newsletter subscriptions.
-The configured server URL comes from `VES_MCP_PUBLIC_URL`; OAuth consent binds
-access to the current interactive Vessica workspace.
+OAuth consent binds access to the current interactive Vessica workspace.
+
+If the tools are absent, do not invent a server or silently call the HTTP API.
+Explain that Codex installation requires a canonical HTTPS
+`VES_MCP_PUBLIC_URL` before `ves setup codex --plugin`. ChatGPT web requires a
+separately registered remote MCP connection and registered app ID; the local
+Codex plugin is not itself a ChatGPT web installation.
 
 Prefer read tools immediately. Before a write, explain the exact effect and use
 a stable idempotency key. Never invent a checkpoint, source ID, citation, agent

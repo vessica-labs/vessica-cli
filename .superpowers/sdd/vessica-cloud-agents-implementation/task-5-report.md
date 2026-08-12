@@ -93,3 +93,43 @@ The task documents—but does not perform—the external ChatGPT Work project an
 Scheduled Task writes or live Railway enablement. Those are Task 6 actions and
 require real workspace/OAuth credentials plus explicit deployment authority.
 
+## Review corrections
+
+The Task 5 P1/P2 review findings were corrected in a follow-up TDD pass:
+
+- Every dashboard cookie route now rejects a session whose workspace differs
+  from the active database workspace, requires a current membership, and uses
+  the membership's current role instead of the session's cached role. Tests
+  cover an owner cookie crossing workspaces and an owner demoted to member.
+- The dashboard API accepts its existing caller-provided `Idempotency-Key`, and
+  the conversation composer now retains one key across an ambiguous network
+  failure. It rotates the key only after definitive success or when the user
+  edits the request as a new action. A lost-response retry test proves one
+  message and one durable run, with the second response replayed.
+- Knowledge citation links now seed an exact search from the `citation` query
+  and visibly identify the requested evidence. The React test follows a
+  citation link and proves that the cited ID is queried and rendered.
+- Missing briefing health now resolves the most recent expected weekday morning
+  and afternoon slots in `America/Los_Angeles`, applies a 30-minute grace
+  window, includes the expected local date in the signal, and treats an older
+  canonical mapping as stale. Tests cover pre/post morning grace, post-afternoon
+  grace, and weekend fallback.
+- Action-ledger records now carry an explicit transport source. MCP call/error/
+  latency and OAuth metrics count only `source=mcp`; dashboard conversation
+  actions remain in the general/denied action ledger but cannot inflate MCP
+  metrics. The regression test seeds both transports and proves the filter.
+- Codex plugin source and release archives no longer contain a literal
+  `${VES_MCP_PUBLIC_URL}` URL. `ves setup codex --plugin` validates a configured
+  canonical HTTPS origin and generates a concrete, token-free `.mcp.json`; when
+  absent it installs the complete CLI skill set without claiming MCP. Unsafe
+  URLs fail before installation writes. A separate renderer accepts only a real
+  registered `plugin_asdk_app_...` ID and emits an app-backed ChatGPT plugin
+  candidate; it never invents an ID or claims the local Codex install reaches
+  ChatGPT web. The runbook now follows the official OpenAI developer-mode,
+  connection, test, and administrator-publication flow.
+
+Follow-up verification passed: all Go tests, selected race suites, `go vet`,
+CLI build, architecture lint (same pre-existing 526-line soft warning), 5
+dashboard Vitest files / 9 tests, dashboard build, 2 Playwright tests, agent
+runtime 10 files / 34 tests plus typecheck/build, source and rendered ChatGPT
+plugin validation, and the 151,164-byte compressed dashboard asset budget.

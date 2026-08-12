@@ -1,10 +1,10 @@
 # Vessica Codex Plugin
 
-The first-party Vessica plugin combines the OAuth-protected remote MCP surface
-with the existing conversational operating layer over the `ves` Go CLI. MCP is
-used for shared knowledge, briefings, conversations, agents, and approved
-sources. The CLI remains the setup, engineering-run, harness, preview, recovery,
-and operator interface. Neither path connects directly to Postgres.
+The first-party Vessica plugin provides the conversational operating layer over
+the `ves` Go CLI and can add an OAuth-protected remote MCP surface for Codex
+when a concrete endpoint is configured during installation. The CLI remains
+the setup, engineering-run, harness, preview, recovery, and operator interface.
+Neither path connects directly to Postgres.
 
 ## Install or update
 
@@ -20,10 +20,32 @@ The first command updates the Vessica-managed section of repository
 or updates the plugin assets. The read-only check reports whether `ves`, Codex,
 and the plugin manifest are present.
 
-Set `VES_MCP_PUBLIC_URL` to the canonical HTTPS control-plane origin before
-installing or launching Codex. The bundled `.mcp.json` appends `/mcp`; OAuth
-discovery and interactive consent are handled by the control plane. Do not put
-an access or refresh token in the plugin bundle.
+To enable MCP in Codex, set `VES_MCP_PUBLIC_URL` to the canonical HTTPS
+control-plane origin before running the install command. The installer validates
+that it is an origin with no credentials, path, query, or fragment and writes a
+concrete `.mcp.json` URL ending in `/mcp`. It never serializes an environment
+placeholder or token. When the variable is absent, installation remains
+skills/CLI-only and omits both `.mcp.json` and `mcpServers`.
+
+ChatGPT web does not consume this local Codex installation. Following the
+[official OpenAI connection workflow](https://developers.openai.com/plugins/deploy/connect-chatgpt),
+a workspace administrator enables developer mode, registers the public HTTPS
+`/mcp` endpoint in ChatGPT Plugins, completes OAuth, and copies the resulting
+technical `plugin_asdk_app_...` ID. Only after that registration can a separate
+app-backed plugin be rendered:
+
+```bash
+~/plugins/vessica/scripts/render-chatgpt-plugin.sh \
+  plugin_asdk_app_<registered-id> \
+  /absolute/new/path/vessica-chatgpt-plugin
+```
+
+That command requires the real registered ID, writes it to `.app.json`, and
+points the separate manifest at `./.app.json`; it does not invent an app ID or
+reuse Codex's `.mcp.json`. An administrator reviews/tests this separate output
+before workspace publication. OpenAI's
+[plugin packaging documentation](https://developers.openai.com/plugins/build/plugins)
+describes `.app.json` as the mapping to a registered server connection.
 
 The released plugin archive also contains `scripts/ensure-ves.sh`. This is the
 plugin-only bootstrap path: it reads the CLI pin packaged with the plugin,
@@ -52,7 +74,7 @@ plugin.
 | `use-knowledge` | Resolve entities; retrieve, version, or diagnose artifacts and memories; and manage optional retrieval features. |
 | `use-agents` | Discover the active registry; build or edit durable agents; invoke them; and resume `arun_` streams from the greatest sequence. |
 | `operate-vessica` | Explain commands, diagnose setup/hosted state, operate Railway preview forwarding, and maintain the knowledge service. |
-| `use-vessica-cloud` | Use OAuth-protected MCP for knowledge, cited briefings, conversations, agents, Outlook ingestion, and newsletter subscriptions. |
+| `use-vessica-cloud` | Use OAuth-protected MCP, when installed, for knowledge, cited briefings, conversations, agents, Outlook ingestion, and newsletter subscriptions. |
 
 ## Confirmation and authority boundaries
 

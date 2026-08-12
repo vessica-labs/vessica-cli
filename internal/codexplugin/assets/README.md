@@ -1,9 +1,10 @@
 # Vessica for Codex
 
-This plugin connects Codex to the OAuth-protected Vessica remote MCP surface
-and teaches it to operate setup and engineering workflows through the
-version-matched `ves` CLI. It contains no database, Railway, Linear, or
-knowledge-service implementation. The hosted control plane and `ves` remain authoritative.
+This plugin teaches Codex to operate setup and engineering workflows through
+the version-matched `ves` CLI. When `VES_MCP_PUBLIC_URL` is a canonical HTTPS
+origin during `ves setup codex --plugin`, the installer also writes a concrete
+OAuth-protected remote MCP descriptor. It contains no database, Railway,
+Linear, or knowledge-service implementation. The hosted control plane and `ves` remain authoritative.
 
 ## Included workflows
 
@@ -16,8 +17,8 @@ knowledge-service implementation. The hosted control plane and `ves` remain auth
   memories with provenance and ambiguity safeguards.
 - Diagnose hosted state, Railway preview forwarding, knowledge retrieval, and
   plugin/CLI compatibility.
-- Read cited briefings, share ordered conversations with durable agents, and
-  manage approved sources through remote MCP.
+- When remote MCP is configured, read cited briefings, share ordered
+  conversations with durable agents, and manage approved sources.
 
 The `skills/` directory contains the exact workflow contracts. Operational
 questions route through `operate-vessica`, whose reference documents the

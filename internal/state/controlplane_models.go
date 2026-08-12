@@ -65,22 +65,22 @@ type OAuthRefreshToken struct {
 }
 
 type ActionLedgerInput struct {
-	ActorID, AgentID, AgentRunID, Tool, PolicyDecision string
-	RedactedArgumentsJSON, ResultJSON                  string
-	ArgumentsHash                                      string
-	LatencyMS                                          int64
-	IdempotencyKey, ExternalIDsJSON                    string
+	ActorID, AgentID, AgentRunID, Tool, PolicyDecision, Source string
+	RedactedArgumentsJSON, ResultJSON                          string
+	ArgumentsHash                                              string
+	LatencyMS                                                  int64
+	IdempotencyKey, ExternalIDsJSON                            string
 }
 type ActionLedger struct {
-	ID, WorkspaceID, ActorID, AgentID, AgentRunID, Tool, PolicyDecision string
-	RedactedArgumentsJSON, ResultJSON                                   string
-	LatencyMS                                                           int64
-	IdempotencyKey, ExternalIDsJSON, CreatedAt                          string
-	ExecutionState                                                      string
-	ClaimTokenHash                                                      string `json:"-"`
-	ArgumentsHash                                                       string `json:"-"`
-	LeaseUntil                                                          string `json:"-"`
-	UpdatedAt                                                           string
+	ID, WorkspaceID, ActorID, AgentID, AgentRunID, Tool, PolicyDecision, Source string
+	RedactedArgumentsJSON, ResultJSON                                           string
+	LatencyMS                                                                   int64
+	IdempotencyKey, ExternalIDsJSON, CreatedAt                                  string
+	ExecutionState                                                              string
+	ClaimTokenHash                                                              string `json:"-"`
+	ArgumentsHash                                                               string `json:"-"`
+	LeaseUntil                                                                  string `json:"-"`
+	UpdatedAt                                                                   string
 }
 type ActionExecutionClaim struct {
 	Ledger     *ActionLedger
