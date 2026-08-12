@@ -382,6 +382,15 @@ func (s *Server) authorizeAgentTool(r *http.Request, runID, toolID string) error
 	}
 	for _, t := range d.Tools {
 		if t.ID == toolID {
+			if !d.AllowsAction(toolID) {
+				return errors.New("action is denied by the immutable definition policy")
+			}
+			if d.RequiresApproval(toolID) {
+				return errors.New("action requires an approval channel that is not enabled")
+			}
+			if namespace := generalagent.ToolWriteNamespace(toolID); namespace != "" && !d.AllowsKnowledgeWrite(namespace) {
+				return errors.New("knowledge namespace is not writable by this definition")
+			}
 			return nil
 		}
 	}

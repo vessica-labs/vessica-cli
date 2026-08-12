@@ -3,9 +3,124 @@ package state
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"net/url"
+	"regexp"
+	"strings"
 	"time"
+
+	"github.com/vessica-labs/vessica-cli/internal/id"
 )
+
+var newsletterCredentialRefPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{2,127}$`)
+
+func (db *DB) UpsertNewsletterSubscription(ctx context.Context, in NewsletterSubscriptionInput) (*NewsletterSubscription, error) {
+	ws, err := db.GetWorkspace(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if in.SourceKey == "" || in.SourceURL == "" {
+		return nil, fmt.Errorf("newsletter source key and url are required")
+	}
+	if err = validateNewsletterSubscriptionInput(in.SourceURL, in.MetadataJSON); err != nil {
+		return nil, err
+	}
+	if in.Status == "" {
+		in.Status = "active"
+	}
+	if in.RetentionDays <= 0 {
+		in.RetentionDays = 30
+	}
+	if in.MetadataJSON == "" {
+		in.MetadataJSON = "{}"
+	}
+	now := Now()
+	_, err = db.Exec(ctx, `INSERT INTO newsletter_subscriptions(id,workspace_id,source_key,source_url,title,status,retention_days,metadata_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(workspace_id,source_key) DO UPDATE SET source_url=excluded.source_url,title=excluded.title,status=excluded.status,retention_days=excluded.retention_days,metadata_json=excluded.metadata_json,updated_at=excluded.updated_at`, id.New("nsource"), ws.ID, in.SourceKey, in.SourceURL, in.Title, in.Status, in.RetentionDays, in.MetadataJSON, now, now)
+	if err != nil {
+		return nil, err
+	}
+	var subscription NewsletterSubscription
+	err = db.QueryRow(ctx, `SELECT id,workspace_id,source_key,source_url,title,status,retention_days,metadata_json,created_at,updated_at FROM newsletter_subscriptions WHERE workspace_id=? AND source_key=?`, ws.ID, in.SourceKey).Scan(&subscription.ID, &subscription.WorkspaceID, &subscription.SourceKey, &subscription.SourceURL, &subscription.Title, &subscription.Status, &subscription.RetentionDays, &subscription.MetadataJSON, &subscription.CreatedAt, &subscription.UpdatedAt)
+	return &subscription, err
+}
+
+func validateNewsletterSubscriptionInput(sourceURL, metadataJSON string) error {
+	parsed, err := url.Parse(sourceURL)
+	if err != nil || parsed.Scheme == "" || parsed.Hostname() == "" || parsed.User != nil {
+		return fmt.Errorf("newsletter source URL is invalid or contains credentials")
+	}
+	if strings.TrimSpace(metadataJSON) == "" {
+		return nil
+	}
+	var metadata any
+	if err = json.Unmarshal([]byte(metadataJSON), &metadata); err != nil {
+		return fmt.Errorf("newsletter metadata must be valid JSON")
+	}
+	return validateNewsletterCredentialMetadata(metadata)
+}
+
+func validateNewsletterCredentialMetadata(value any) error {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			normalized := strings.ToLower(strings.TrimSpace(key))
+			if normalized == "credential_env" {
+				ref, ok := child.(string)
+				if !ok || !newsletterCredentialRefPattern.MatchString(ref) {
+					return fmt.Errorf("newsletter credential_env must be an environment variable reference")
+				}
+				continue
+			}
+			if strings.Contains(normalized, "token") || strings.Contains(normalized, "secret") || strings.Contains(normalized, "password") || strings.Contains(normalized, "api_key") || strings.Contains(normalized, "apikey") || strings.Contains(normalized, "credential") {
+				return fmt.Errorf("newsletter metadata may store credential references only")
+			}
+			if err := validateNewsletterCredentialMetadata(child); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if err := validateNewsletterCredentialMetadata(child); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (db *DB) ListNewsletterItemsSince(ctx context.Context, since string) ([]NewsletterItem, error) {
+	workspace, err := db.GetWorkspace(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.Query(ctx, `SELECT id,workspace_id,subscription_id,source_item_id,normalized_json,COALESCE(published_at,''),COALESCE(retain_until,''),created_at,updated_at FROM newsletter_items WHERE workspace_id=? AND ((published_at IS NOT NULL AND published_at!='' AND published_at>=?) OR ((published_at IS NULL OR published_at='') AND created_at>=?)) ORDER BY COALESCE(published_at,created_at),source_item_id`, workspace.ID, since, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NewsletterItem
+	for rows.Next() {
+		var item NewsletterItem
+		if err = rows.Scan(&item.ID, &item.WorkspaceID, &item.SubscriptionID, &item.SourceItemID, &item.NormalizedJSON, &item.PublishedAt, &item.RetainUntil, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (db *DB) DeleteExpiredNewsletterItems(ctx context.Context, before string) (int64, error) {
+	workspace, err := db.GetWorkspace(ctx)
+	if err != nil {
+		return 0, err
+	}
+	result, err := db.Exec(ctx, `DELETE FROM newsletter_items WHERE workspace_id=? AND retain_until IS NOT NULL AND retain_until!='' AND retain_until<?`, workspace.ID, before)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
 
 func (db *DB) ListNewsletterSubscriptions(ctx context.Context) ([]NewsletterSubscription, error) {
 	ws, err := db.GetWorkspace(ctx)

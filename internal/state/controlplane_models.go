@@ -143,3 +143,10 @@ type AgentRunTrigger struct {
 	CreatedAt        string `json:"created_at"`
 	UpdatedAt        string `json:"updated_at"`
 }
+
+type CloudOrchestrationTask struct {
+	ID, WorkspaceID, Kind, SubjectID, State, PayloadJSON, RunID, ArtifactID string
+	Attempts                                                                int
+	AvailableAt, LeaseOwner, LeaseUntil, LastError                          string
+	CreatedAt, UpdatedAt, CompletedAt                                       string
+}

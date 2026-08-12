@@ -71,6 +71,23 @@ ALTER TABLE action_ledger ADD COLUMN arguments_hash TEXT NOT NULL DEFAULT '';
 ALTER TABLE source_checkpoint_reservations ADD COLUMN claim_token_hash TEXT NOT NULL DEFAULT '';
 ALTER TABLE source_checkpoint_reservations ADD COLUMN lease_until TEXT NOT NULL DEFAULT '';
 ALTER TABLE source_checkpoint_reservations ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+`}, {version: 13, sql: `
+CREATE TABLE IF NOT EXISTS cloud_orchestration_tasks(
+  id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, kind TEXT NOT NULL, subject_id TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'pending', payload_json TEXT NOT NULL DEFAULT '{}', run_id TEXT, artifact_id TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0, available_at TEXT NOT NULL, lease_owner TEXT, lease_until TEXT,
+  last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT,
+  UNIQUE(workspace_id,kind,subject_id),
+  FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+  FOREIGN KEY(run_id) REFERENCES agent_runs(id) ON DELETE SET NULL
+);
+CREATE TABLE IF NOT EXISTS canonical_knowledge_artifacts(
+  workspace_id TEXT NOT NULL, canonical_key TEXT NOT NULL, artifact_id TEXT NOT NULL,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+  PRIMARY KEY(workspace_id,canonical_key),
+  FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_cloud_orchestration_ready ON cloud_orchestration_tasks(state,available_at,lease_until,created_at);
 `}}
 
 func latestMigrationVersion() int {

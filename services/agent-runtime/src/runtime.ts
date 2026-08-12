@@ -7,7 +7,16 @@ import { intervalLeaseFactory, type LeaseFactory } from "./lease.js";
 const emptyUsage = (): Usage => ({ requests: 0, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, reasoning_tokens: 0, total_tokens: 0, response_ids: [] });
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-export class Runtime {
+// Runtime lifecycle is intentionally provider-neutral. Future runtimes can
+// implement this boundary without moving model execution into the Go control
+// plane. Codex Sandbox is deliberately not implemented.
+export interface AgentRuntimeLifecycle {
+  start(): Promise<void>;
+  stop(): void;
+  execute(task: ClaimedTask): Promise<void>;
+}
+
+export class Runtime implements AgentRuntimeLifecycle {
   readonly workerID = `agent-runtime-${randomUUID()}`;
   readonly capabilities: RuntimeCapabilities;
   private active = 0;
@@ -62,7 +71,8 @@ export class Runtime {
   }
   async execute(task: ClaimedTask) {
     const abort = new AbortController();
-    const timeout = setTimeout(() => abort.abort(new Error("run exceeded 60 minute limit")), 60 * 60 * 1000);
+    const timeoutSeconds = task.definition?.kind === "vessica.agent/v2" ? task.definition.timeout_seconds ?? 60 * 60 : 60 * 60;
+    const timeout = setTimeout(() => abort.abort(new Error(`run exceeded ${timeoutSeconds} second limit`)), timeoutSeconds * 1000);
     const lease = this.leaseFactory(this.client, task, (reason) => abort.abort(reason));
     let usage = emptyUsage();
     try {

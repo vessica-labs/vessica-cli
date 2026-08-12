@@ -9,12 +9,12 @@ import {
 } from "@openai/agents";
 import { z } from "zod";
 import type { ControlPlaneClient } from "./control-plane.js";
-import { DEFAULT_MODEL, definitionSchema, parseToolConfig, type AgentDefinition, type ClaimedTask, type Usage } from "./contracts.js";
+import { DEFAULT_MODEL, definitionV2Schema, normalizeDefinition, parseToolConfig, type AgentDefinition, type ClaimedTask, type Usage } from "./contracts.js";
 import { EventBatcher } from "./events.js";
 import { intervalLeaseFactory, type LeaseFactory } from "./lease.js";
 import { estimateCost, normalizeUsage } from "./usage.js";
 
-const builderDefinitionSchema = definitionSchema.omit({ tools: true }).extend({
+const builderDefinitionSchema = definitionV2Schema.omit({ tools: true }).extend({
   tools: z.array(z.object({ id: z.string(), config_json: z.string() })),
 });
 const builderOutput = z.object({ definition: builderDefinitionSchema, warnings: z.array(z.string()) });
@@ -133,10 +133,13 @@ export class OpenAIAgentsExecutor implements Executor {
     const builder = new Agent({
       name: "Vessica Agent Builder",
       instructions: [
-        "Convert the user's request into one safe vessica.agent/v1 definition.",
+        "Convert the user's request into one safe vessica.agent/v2 definition using the TypeScript Agents SDK runtime.",
         "Use only models and tools in the supplied catalogs. Do not invent credentials or channels.",
         "For an update, apply only the requested changes to current_definition and preserve all unspecified fields.",
         "Default model to gpt-5.6-terra with medium reasoning and budget to $5.00/day in the supplied client timezone (or UTC if absent).",
+        "Default runtime.kind to typescript_agents_sdk, concurrency to 1, timeout_seconds to 3600, conversations to disabled with max_turns 25, and checkpoints to enabled every 30 seconds.",
+        "Default action_policy to deny and list every selected tool in allowed_actions. Add memories, artifacts, or entities to writable_knowledge_namespaces only when selected write tools need them.",
+        "Default sources.network to none. Use public or allowlist only when selected tools require network access and record only credential environment-variable references.",
         "Each tool uses config_json containing a JSON object string. Use {} unless the request needs a supported tool option.",
         "Return unsupported requests as concise warnings. Names contain no whitespace.",
       ].join(" "),
@@ -178,7 +181,7 @@ export class OpenAIAgentsExecutor implements Executor {
 
   async run(task: ClaimedTask, signal: AbortSignal) {
     if (!task.run || !task.definition) throw new Error("run task is incomplete");
-    const definition = task.definition;
+    const definition = normalizeDefinition(task.definition);
     const batcher = new EventBatcher(this.client, task.run.id, task.fence_token);
     const context: RuntimeContext = {
       client: this.client,
@@ -211,7 +214,10 @@ export class OpenAIAgentsExecutor implements Executor {
     await batcher.append("agent.run.started", { attempt: task.attempt?.attempt_number ?? 1, trigger: task.run.trigger });
     const parsed = JSON.parse(task.run.input_json) as { prompt?: string };
     const modelInput = task.task.kind === "eval" ? task.run.input_json : parsed.prompt ?? task.run.input_json;
-    const stream = await this.runner.run(agent, modelInput, { stream: true, maxTurns: 25, context, signal });
+    const maxTurns = definition.kind === "vessica.agent/v2" && definition.conversations.enabled
+      ? definition.conversations.max_turns
+      : 25;
+    const stream = await this.runner.run(agent, modelInput, { stream: true, maxTurns, context, signal });
     const responseIDs: string[] = [];
     let completedText = "";
     try {
@@ -256,14 +262,31 @@ export class OpenAIAgentsExecutor implements Executor {
 
   private mapTools(definition: AgentDefinition, context: RuntimeContext): Tool<RuntimeContext>[] {
     return (definition.tools ?? []).map(({ id, config }) => {
+      if (definition.kind === "vessica.agent/v2") {
+        const allowed = definition.action_policy.default === "allow" || definition.action_policy.allowed_actions.includes(id);
+        if (!allowed) throw new Error(`tool ${id} is denied by action_policy`);
+        if (definition.action_policy.approval_required.includes(id)) throw new Error(`tool ${id} requires an unavailable approval channel`);
+        const writeNamespace = id.startsWith("memory.") && !["memory.list", "memory.get", "memory.search"].includes(id) ? "memories"
+          : id.startsWith("artifact.") && !["artifact.list", "artifact.get"].includes(id) ? "artifacts"
+          : ["entity.create", "entity.merge"].includes(id) ? "entities" : "";
+        if (writeNamespace && !definition.writable_knowledge_namespaces.includes(writeNamespace)) {
+          throw new Error(`tool ${id} is denied for knowledge namespace ${writeNamespace}`);
+        }
+        if (id === "openai.web_search" && definition.sources.network === "none") {
+          throw new Error("web search is denied by sources.network");
+        }
+      }
       const parsed = parseToolConfig(id, config ?? {});
       if (id === "openai.web_search") {
-        const web = parsed as {
+        const configured = parsed as {
           search_context_size?: "low" | "medium" | "high";
           allowed_domains?: string[];
           external_web_access?: boolean;
           user_location?: { type?: "approximate"; city?: string | null; country?: string | null; region?: string | null; timezone?: string | null };
         };
+        const web = definition.kind === "vessica.agent/v2" && definition.sources.network === "allowlist"
+          ? { ...configured, allowed_domains: definition.sources.allowed_domains }
+          : configured;
         return webSearchTool({
           searchContextSize: web.search_context_size,
           filters: web.allowed_domains ? { allowedDomains: web.allowed_domains } : undefined,

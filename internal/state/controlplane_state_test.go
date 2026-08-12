@@ -81,6 +81,26 @@ func TestNewsletterItemAndCheckpointAreIdempotent(t *testing.T) {
 	}
 }
 
+func TestNewsletterSubscriptionStoresOnlyCredentialReferences(t *testing.T) {
+	db := agentTestDB(t)
+	ctx := context.Background()
+	if _, err := db.UpsertNewsletterSubscription(ctx, NewsletterSubscriptionInput{SourceKey: "reddit", SourceURL: "https://oauth.reddit.com/r/golang/new", MetadataJSON: `{"type":"reddit","credential_env":"REDDIT_ACCESS_TOKEN"}`}); err != nil {
+		t.Fatal(err)
+	}
+	for _, metadata := range []string{
+		`{"type":"reddit","access_token":"raw-secret"}`,
+		`{"type":"x","credential_env":"raw-secret"}`,
+		`{"type":"x","nested":{"api_key":"raw-secret"}}`,
+	} {
+		if _, err := db.UpsertNewsletterSubscription(ctx, NewsletterSubscriptionInput{SourceKey: "unsafe-" + metadata, SourceURL: "https://example.test", MetadataJSON: metadata}); err == nil {
+			t.Fatalf("unsafe metadata accepted: %s", metadata)
+		}
+	}
+	if _, err := db.UpsertNewsletterSubscription(ctx, NewsletterSubscriptionInput{SourceKey: "userinfo", SourceURL: "https://user:secret@example.test", MetadataJSON: `{}`}); err == nil {
+		t.Fatal("credential-bearing source URL accepted")
+	}
+}
+
 // Break caught: an Outlook retry duplicates a message or loses the durable
 // processing marker that protects downstream effects.
 func TestOutlookBatchDeduplicatesSourceItemsAndOutbox(t *testing.T) {

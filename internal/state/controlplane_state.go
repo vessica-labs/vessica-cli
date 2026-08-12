@@ -141,32 +141,6 @@ func (db *DB) GetSourceCheckpoint(ctx context.Context, typ, sourceID string) (*S
 	}
 	return &v, e
 }
-func (db *DB) UpsertNewsletterSubscription(ctx context.Context, in NewsletterSubscriptionInput) (*NewsletterSubscription, error) {
-	ws, e := db.GetWorkspace(ctx)
-	if e != nil {
-		return nil, e
-	}
-	if in.SourceKey == "" || in.SourceURL == "" {
-		return nil, fmt.Errorf("newsletter source key and url are required")
-	}
-	if in.Status == "" {
-		in.Status = "active"
-	}
-	if in.RetentionDays <= 0 {
-		in.RetentionDays = 30
-	}
-	if in.MetadataJSON == "" {
-		in.MetadataJSON = "{}"
-	}
-	now := Now()
-	_, e = db.Exec(ctx, `INSERT INTO newsletter_subscriptions(id,workspace_id,source_key,source_url,title,status,retention_days,metadata_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(workspace_id,source_key) DO UPDATE SET source_url=excluded.source_url,title=excluded.title,status=excluded.status,retention_days=excluded.retention_days,metadata_json=excluded.metadata_json,updated_at=excluded.updated_at`, id.New("nsource"), ws.ID, in.SourceKey, in.SourceURL, in.Title, in.Status, in.RetentionDays, in.MetadataJSON, now, now)
-	if e != nil {
-		return nil, e
-	}
-	var v NewsletterSubscription
-	e = db.QueryRow(ctx, `SELECT id,workspace_id,source_key,source_url,title,status,retention_days,metadata_json,created_at,updated_at FROM newsletter_subscriptions WHERE workspace_id=? AND source_key=?`, ws.ID, in.SourceKey).Scan(&v.ID, &v.WorkspaceID, &v.SourceKey, &v.SourceURL, &v.Title, &v.Status, &v.RetentionDays, &v.MetadataJSON, &v.CreatedAt, &v.UpdatedAt)
-	return &v, e
-}
 func (db *DB) UpsertNewsletterItem(ctx context.Context, in NewsletterItemInput) (*NewsletterItem, error) {
 	ws, e := db.GetWorkspace(ctx)
 	if e != nil {
@@ -419,6 +393,11 @@ func (db *DB) CompleteOutlookOutboxAtomically(ctx context.Context, outboxID, own
 	}
 	if _, err = tx.ExecContext(ctx, db.Rebind(`UPDATE outlook_ingestion_batches SET state=?,completed_at=?,error=NULL,updated_at=? WHERE id=? AND workspace_id=?`), batchState, nullStr(completedAt), now, batchID, ws.ID); err != nil {
 		return err
+	}
+	if remaining == 0 {
+		if err = db.enqueueCloudOrchestrationTaskTx(ctx, tx, ws.ID, "cos_briefing", batchID, "{}", now); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

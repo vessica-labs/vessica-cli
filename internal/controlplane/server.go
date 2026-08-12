@@ -45,6 +45,10 @@ type Server struct {
 	MCPPublicURL         string
 	MCPAllowedOrigins    []string
 	MCPDashboardIdentity func(*http.Request, bool) (MCPDashboardActor, error)
+	CloudAgentsEnabled   bool
+	COSAgentID           string
+	NewsletterAgentID    string
+	CloudAgentTimezone   string
 	BinaryPath           string
 	Logger               *log.Logger
 	PreviewBroker        *PreviewBroker
@@ -259,6 +263,10 @@ func (s *Server) Run(ctx context.Context, addr string) error {
 	go s.reconciliationLoop(workerCtx)
 	go s.sandboxCleanupLoop(workerCtx)
 	go s.agentScheduleLoop(workerCtx)
+	if s.CloudAgentsEnabled {
+		go s.cloudAgentLoop(workerCtx)
+		go s.newsletterScheduleLoop(workerCtx)
+	}
 
 	httpServer := &http.Server{Addr: addr, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	errCh := make(chan error, 1)

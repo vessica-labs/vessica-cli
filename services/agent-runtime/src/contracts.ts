@@ -34,8 +34,7 @@ export function parseToolConfig(toolID: string, value: unknown): Record<string, 
   return emptyToolConfigSchema.parse(value);
 }
 
-export const definitionSchema = z.object({
-  kind: z.literal("vessica.agent/v1"),
+const definitionCore = {
   name: z.string().min(1).max(64),
   purpose: z.string().min(1).max(2000),
   system_prompt: z.string().min(1).max(65536),
@@ -52,9 +51,57 @@ export const definitionSchema = z.object({
   }).nullable(),
   budget: z.object({ daily_usd: z.string(), timezone: z.string() }).nullable(),
   eval_critic_agent_id: z.string().nullable(),
+};
+
+export const definitionV1Schema = z.object({
+  kind: z.literal("vessica.agent/v1"),
+  ...definitionCore,
 });
 
+export const definitionV2Schema = z.object({
+  kind: z.literal("vessica.agent/v2"),
+  ...definitionCore,
+  runtime: z.object({ kind: z.literal("typescript_agents_sdk") }).default({ kind: "typescript_agents_sdk" }),
+  action_policy: z.object({
+    default: z.enum(["allow", "deny"]),
+    allowed_actions: z.array(z.string()).default([]),
+    approval_required: z.array(z.string()).default([]),
+  }),
+  writable_knowledge_namespaces: z.array(z.string()).default([]),
+  sources: z.object({
+    network: z.enum(["none", "allowlist", "public"]),
+    allowed_domains: z.array(z.string()).default([]),
+    allowed_source_types: z.array(z.enum(["rss", "atom", "web", "reddit", "x"])).default([]),
+  }).default({ network: "none", allowed_domains: [], allowed_source_types: [] }),
+  concurrency: z.number().int().min(1).max(20).default(1),
+  timeout_seconds: z.number().int().min(1).max(86400).default(3600),
+  conversations: z.object({ enabled: z.boolean(), max_turns: z.number().int().min(1).max(200) }).default({ enabled: false, max_turns: 25 }),
+  checkpoints: z.object({ enabled: z.boolean(), interval_seconds: z.number().int().min(0).max(3600) }).default({ enabled: true, interval_seconds: 30 }),
+});
+
+export const definitionSchema = z.union([definitionV1Schema, definitionV2Schema]);
+
 export type AgentDefinition = z.infer<typeof definitionSchema>;
+export type NormalizedAgentDefinition = AgentDefinition & {
+  runtime: { kind: "typescript_agents_sdk" };
+  concurrency: number;
+  timeout_seconds: number;
+  conversations: { enabled: boolean; max_turns: number };
+  checkpoints: { enabled: boolean; interval_seconds: number };
+};
+
+export function normalizeDefinition(value: unknown): NormalizedAgentDefinition {
+  const parsed = definitionSchema.parse(value);
+  if (parsed.kind === "vessica.agent/v2") return parsed;
+  return {
+    ...parsed,
+    runtime: { kind: "typescript_agents_sdk" },
+    concurrency: 1,
+    timeout_seconds: 3600,
+    conversations: { enabled: false, max_turns: 25 },
+    checkpoints: { enabled: true, interval_seconds: 30 },
+  };
+}
 
 export type RuntimeCapabilities = {
   runtime_version: string;

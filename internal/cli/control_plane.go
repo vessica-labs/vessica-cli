@@ -158,6 +158,10 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 				MCPEnabled:          strings.EqualFold(strings.TrimSpace(os.Getenv("VES_MCP_ENABLED")), "true"),
 				MCPPublicURL:        firstNonEmpty(os.Getenv("VES_MCP_PUBLIC_URL"), cfg.Hosted.ControlPlaneURL),
 				MCPAllowedOrigins:   commaValues(os.Getenv("VES_MCP_ALLOWED_ORIGINS")),
+				CloudAgentsEnabled:  strings.EqualFold(strings.TrimSpace(os.Getenv("VES_CLOUD_AGENTS_ENABLED")), "true"),
+				COSAgentID:          strings.TrimSpace(os.Getenv("VES_COS_AGENT_ID")),
+				NewsletterAgentID:   strings.TrimSpace(os.Getenv("VES_NEWSLETTER_AGENT_ID")),
+				CloudAgentTimezone:  firstNonEmpty(strings.TrimSpace(os.Getenv("VES_CLOUD_AGENT_TIMEZONE")), "America/Los_Angeles"),
 			}
 			if !strings.EqualFold(strings.TrimSpace(os.Getenv("VES_DASHBOARD_ENABLED")), "false") {
 				dash := dashboard.New(appservice.New(db, root, cfg), "hosted")

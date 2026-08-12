@@ -92,17 +92,20 @@ func (g *Gateway) Close() error {
 func (g *Gateway) Mode() string      { return g.mode }
 func (g *Gateway) Workspace() string { return g.workspace }
 func (g *Gateway) EnsureRepositoryScope(ctx context.Context, canonical, name string) (ks.Scope, error) {
-	key := "repo:" + canonical
+	return g.EnsureNamedScope(ctx, "repository", "repo:"+canonical, name)
+}
+
+func (g *Gateway) EnsureNamedScope(ctx context.Context, scopeType, key, name string) (ks.Scope, error) {
 	if strings.TrimSpace(name) == "" {
-		name = canonical
+		name = key
 	}
 	if g.local != nil {
 		if got, err := g.store.GetScope(ctx, g.workspace, key); err == nil {
 			return got, nil
 		}
-		return g.local.CreateScope(ctx, g.opts("scope:"+key), ks.Scope{Type: "repository", Name: name, CanonicalKey: key})
+		return g.local.CreateScope(ctx, g.opts("scope:"+key), ks.Scope{Type: scopeType, Name: name, CanonicalKey: key})
 	}
-	return g.remote.CreateScope(ctx, "scope:"+key, ks.Scope{WorkspaceID: g.workspace, Type: "repository", Name: name, CanonicalKey: key})
+	return g.remote.CreateScope(ctx, "scope:"+key, ks.Scope{WorkspaceID: g.workspace, Type: scopeType, Name: name, CanonicalKey: key})
 }
 func (g *Gateway) opts(key string) ks.WriteOptions {
 	return ks.WriteOptions{WorkspaceID: g.workspace, IdempotencyKey: key, Actor: ks.Actor{ID: "ves-cli", Type: "user"}, Provenance: ks.Provenance{Source: "vessica_cli"}}
