@@ -53,12 +53,20 @@ func TestOutlookWorkerRetriesKnowledgeAndTriggersExactlyOneCOSRun(t *testing.T) 
 	if worked, err := worker.ProcessCOSBriefing(ctx, "worker"); err != nil || !worked {
 		t.Fatalf("worked=%v err=%v", worked, err)
 	}
-	if worked, err := worker.ProcessCOSBriefing(ctx, "worker"); err != nil || worked {
-		t.Fatalf("pending run should reschedule without completing: worked=%v err=%v", worked, err)
-	}
 	var runID string
 	if err = db.QueryRow(ctx, `SELECT agent_run_id FROM agent_run_triggers WHERE workspace_id=(SELECT id FROM workspaces LIMIT 1) AND agent_id=? AND idempotency_key=?`, agent.ID, "cos:"+batch.ID).Scan(&runID); err != nil {
 		t.Fatal(err)
+	}
+	triggeredRun, err := service.AgentRun(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cosInput map[string]any
+	if json.Unmarshal([]byte(triggeredRun.InputJSON), &cosInput) != nil || cosInput["batch_id"] != batch.ID || cosInput["coverage"] == nil {
+		t.Fatalf("COS durable input=%s", triggeredRun.InputJSON)
+	}
+	if worked, err := worker.ProcessCOSBriefing(ctx, "worker"); err != nil || worked {
+		t.Fatalf("pending run should reschedule without completing: worked=%v err=%v", worked, err)
 	}
 	if _, err = db.Exec(ctx, `UPDATE agent_runs SET status='completed',output_json='{"briefing":"Today: follow up."}',finished_at=?,updated_at=? WHERE id=?`, state.Now(), state.Now(), runID); err != nil {
 		t.Fatal(err)
@@ -83,16 +91,6 @@ type fixedCollector struct {
 
 func (c fixedCollector) Collect(context.Context, newsletter.Source, newsletter.Checkpoint) (newsletter.Collection, error) {
 	return c.result, c.err
-}
-
-type fixedSynthesizer struct{ calls int }
-
-func (s *fixedSynthesizer) Synthesize(_ context.Context, request NewsletterSynthesisRequest) (NewsletterSynthesisResult, error) {
-	s.calls++
-	if len(request.Items) != 1 || request.Items[0].Trust != newsletter.UntrustedSourceData {
-		return NewsletterSynthesisResult{}, errors.New("untrusted items were not structurally isolated")
-	}
-	return NewsletterSynthesisResult{Title: "Daily brief", Content: "Cited finding [good-1].", Citations: []string{"good-1"}, Observations: []KnowledgeObservation{{Namespace: "newsletter.topic", SubjectType: "topic", Subject: "agents", Content: "Agent orchestration is advancing."}}}, nil
 }
 
 func TestNewsletterCollectionIsolatesSourcesAndCommitsSafeCheckpoints(t *testing.T) {
@@ -127,25 +125,6 @@ func TestNewsletterCollectionIsolatesSourcesAndCommitsSafeCheckpoints(t *testing
 	}
 }
 
-func TestNewsletterSynthesisPublishesCitedArtifactAndObservations(t *testing.T) {
-	service, _ := cloudAgentService(t)
-	ctx := context.Background()
-	metadata, _ := json.Marshal(newsletter.Source{Type: "rss"})
-	sub, _ := service.UpsertNewsletterSubscription(ctx, state.NewsletterSubscriptionInput{SourceKey: "good", SourceURL: "https://example.test/feed", MetadataJSON: string(metadata), RetentionDays: 7})
-	item, _ := json.Marshal(newsletter.Item{SourceItemID: "good-1", Title: "Good", URL: "https://example.test/1", Content: "source data", Trust: newsletter.UntrustedSourceData, Provenance: newsletter.Provenance{SourceKey: "good", SourceType: "rss", URL: "https://example.test/1"}})
-	_, _ = service.UpsertNewsletterItem(ctx, state.NewsletterItemInput{SubscriptionID: sub.ID, SourceItemID: "good-1", NormalizedJSON: string(item), PublishedAt: "2026-08-12T10:00:00Z", RetainUntil: "2026-08-19T12:00:00Z"})
-	sink := &recordingKnowledgeSink{}
-	synth := &fixedSynthesizer{}
-	orchestrator := &NewsletterOrchestrator{Service: service, Knowledge: sink, Synthesizer: synth, Now: func() time.Time { return time.Date(2026, 8, 12, 12, 0, 0, 0, time.UTC) }}
-	artifactID, err := orchestrator.Synthesize(ctx, time.Date(2026, 8, 12, 0, 0, 0, 0, time.UTC))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if artifactID == "" || synth.calls != 1 || len(sink.artifacts) != 1 || len(sink.observations) != 1 || sink.observations[0].Namespace != "newsletter.topic" {
-		t.Fatalf("artifact=%q synth=%d sink=%#v", artifactID, synth.calls, sink)
-	}
-}
-
 func TestNewsletterAgentSynthesisUsesDurableTaskAndStructuredOutput(t *testing.T) {
 	service, db := cloudAgentService(t)
 	ctx := context.Background()
@@ -170,6 +149,14 @@ func TestNewsletterAgentSynthesisUsesDurableTaskAndStructuredOutput(t *testing.T
 	linked, err := db.GetCloudOrchestrationTask(ctx, task.Kind, task.SubjectID)
 	if err != nil || linked.RunID == "" {
 		t.Fatalf("linked=%#v err=%v", linked, err)
+	}
+	triggeredRun, err := service.AgentRun(ctx, linked.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var newsletterInput map[string]any
+	if json.Unmarshal([]byte(triggeredRun.InputJSON), &newsletterInput) != nil || newsletterInput["date"] != task.SubjectID || newsletterInput["items"] == nil || newsletterInput["output_contract"] == nil {
+		t.Fatalf("newsletter durable input=%s", triggeredRun.InputJSON)
 	}
 	output := `{"title":"Daily","content":"Finding [good-1].","citations":["good-1"],"observations":[{"subject_type":"company","subject":"Vessica","content":"Vessica shipped orchestration."}]}`
 	if _, err = db.Exec(ctx, `UPDATE agent_runs SET status='completed',output_json=?,finished_at=?,updated_at=? WHERE id=?`, output, state.Now(), state.Now(), linked.RunID); err != nil {

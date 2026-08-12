@@ -45,6 +45,9 @@ type Checkpoint struct {
 	Cursor       string `json:"cursor,omitempty"`
 	ETag         string `json:"etag,omitempty"`
 	LastModified string `json:"last_modified,omitempty"`
+	Fullname     string `json:"fullname,omitempty"`
+	NewestAt     string `json:"newest_at,omitempty"`
+	NewestID     string `json:"newest_id,omitempty"`
 }
 
 type Provenance struct {
@@ -162,128 +165,6 @@ func (c *WebCollector) Collect(ctx context.Context, source Source, checkpoint Ch
 	id := stableID(source.URL, response.Header.Get("ETag"), response.Header.Get("Last-Modified"), visible)
 	item := Item{SourceItemID: id, Title: title, URL: source.URL, Content: visible, Trust: UntrustedSourceData, Provenance: provenance(source, source.URL, collected)}
 	return Collection{Items: []Item{item}, Checkpoint: responseCheckpoint(response, checkpoint)}, nil
-}
-
-func (c *RedditCollector) Collect(ctx context.Context, source Source, checkpoint Checkpoint) (Collection, error) {
-	token, err := resolveCredential(ctx, c.Credentials, source.CredentialEnv)
-	if err != nil {
-		return Collection{}, err
-	}
-	request, err := NewRedditRequest(source, token, checkpoint.Cursor)
-	if err != nil {
-		return Collection{}, err
-	}
-	request = request.WithContext(ctx)
-	response, err := httpClient(c.Client).Do(request)
-	if err != nil {
-		return Collection{}, fmt.Errorf("collect reddit %s: %w", source.Key, err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return Collection{}, fmt.Errorf("collect reddit %s: HTTP %d", source.Key, response.StatusCode)
-	}
-	var payload struct {
-		Data struct {
-			After    string `json:"after"`
-			Children []struct {
-				Data struct {
-					ID, Title, Permalink, Selftext string
-					CreatedUTC                     float64 `json:"created_utc"`
-				} `json:"data"`
-			} `json:"children"`
-		} `json:"data"`
-	}
-	if err = decodeBounded(response.Body, &payload); err != nil {
-		return Collection{}, err
-	}
-	now := time.Now().UTC()
-	items := make([]Item, 0, len(payload.Data.Children))
-	for _, child := range payload.Data.Children {
-		itemURL := "https://www.reddit.com" + child.Data.Permalink
-		items = append(items, Item{SourceItemID: child.Data.ID, Title: child.Data.Title, URL: itemURL, Content: child.Data.Selftext, PublishedAt: time.Unix(int64(child.Data.CreatedUTC), 0).UTC().Format(time.RFC3339), Trust: UntrustedSourceData, Provenance: provenance(source, itemURL, now)})
-	}
-	return Collection{Items: deduplicate(items), Checkpoint: Checkpoint{Cursor: payload.Data.After}}, nil
-}
-
-func (c *XCollector) Collect(ctx context.Context, source Source, checkpoint Checkpoint) (Collection, error) {
-	token, err := resolveCredential(ctx, c.Credentials, source.CredentialEnv)
-	if err != nil {
-		return Collection{}, err
-	}
-	request, err := NewXRequest(source, token, checkpoint.Cursor)
-	if err != nil {
-		return Collection{}, err
-	}
-	request = request.WithContext(ctx)
-	response, err := httpClient(c.Client).Do(request)
-	if err != nil {
-		return Collection{}, fmt.Errorf("collect x %s: %w", source.Key, err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return Collection{}, fmt.Errorf("collect x %s: HTTP %d", source.Key, response.StatusCode)
-	}
-	var payload struct {
-		Data []struct{ ID, Text, CreatedAt string } `json:"data"`
-		Meta struct {
-			NextToken string `json:"next_token"`
-		} `json:"meta"`
-	}
-	if err = decodeBounded(response.Body, &payload); err != nil {
-		return Collection{}, err
-	}
-	now := time.Now().UTC()
-	items := make([]Item, 0, len(payload.Data))
-	for _, tweet := range payload.Data {
-		itemURL := "https://x.com/i/status/" + tweet.ID
-		items = append(items, Item{SourceItemID: tweet.ID, URL: itemURL, Content: tweet.Text, PublishedAt: tweet.CreatedAt, Trust: UntrustedSourceData, Provenance: provenance(source, itemURL, now)})
-	}
-	return Collection{Items: deduplicate(items), Checkpoint: Checkpoint{Cursor: payload.Meta.NextToken}}, nil
-}
-
-func NewRedditRequest(source Source, token, cursor string) (*http.Request, error) {
-	if err := validateCredentialReference(source.CredentialEnv); err != nil {
-		return nil, err
-	}
-	parsed, err := url.Parse(source.URL)
-	if err != nil || parsed.Scheme != "https" || parsed.Hostname() != "oauth.reddit.com" {
-		return nil, fmt.Errorf("reddit source must use https://oauth.reddit.com")
-	}
-	query := parsed.Query()
-	query.Set("raw_json", "1")
-	query.Set("limit", "100")
-	if cursor != "" {
-		query.Set("after", cursor)
-	}
-	parsed.RawQuery = query.Encode()
-	request, _ := http.NewRequest(http.MethodGet, parsed.String(), nil)
-	request.Header.Set("Authorization", "Bearer "+token)
-	request.Header.Set("User-Agent", "vessica-newsletter/1.0")
-	return request, nil
-}
-
-func NewXRequest(source Source, token, cursor string) (*http.Request, error) {
-	if err := validateCredentialReference(source.CredentialEnv); err != nil {
-		return nil, err
-	}
-	parsed, err := url.Parse(source.URL)
-	if err != nil || parsed.Scheme != "https" || (parsed.Hostname() != "api.x.com" && parsed.Hostname() != "api.twitter.com") {
-		return nil, fmt.Errorf("x source must use the HTTPS X API host")
-	}
-	query := parsed.Query()
-	if strings.TrimSpace(source.Query) == "" {
-		return nil, fmt.Errorf("x source query is required")
-	}
-	query.Set("query", source.Query)
-	query.Set("max_results", "100")
-	query.Set("tweet.fields", "created_at")
-	if cursor != "" {
-		query.Set("next_token", cursor)
-	}
-	parsed.RawQuery = query.Encode()
-	request, _ := http.NewRequest(http.MethodGet, parsed.String(), nil)
-	request.Header.Set("Authorization", "Bearer "+token)
-	return request, nil
 }
 
 type feedEnvelope struct {

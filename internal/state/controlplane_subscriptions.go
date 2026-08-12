@@ -245,7 +245,15 @@ func (db *DB) FinalizeOutlookIngestionBatch(ctx context.Context, batchID, emailE
 			return fmt.Errorf("stale %s checkpoint: expected %q", checkpoint.sourceType, checkpoint.expected)
 		}
 	}
-	result, err := tx.ExecContext(ctx, db.Rebind(`UPDATE outlook_ingestion_batches SET state='queued',error=NULL,updated_at=? WHERE id=? AND workspace_id=?`), now, batchID, ws.ID)
+	var outboxCount int
+	if err = tx.QueryRowContext(ctx, db.Rebind(`SELECT COUNT(*) FROM outlook_outbox WHERE batch_id=? AND workspace_id=?`), batchID, ws.ID).Scan(&outboxCount); err != nil {
+		return err
+	}
+	nextState, completedAt := "queued", ""
+	if batchState == "completed" || outboxCount == 0 {
+		nextState, completedAt = "completed", now
+	}
+	result, err := tx.ExecContext(ctx, db.Rebind(`UPDATE outlook_ingestion_batches SET state=?,completed_at=CASE WHEN ?='' THEN completed_at ELSE ? END,error=NULL,updated_at=? WHERE id=? AND workspace_id=?`), nextState, completedAt, completedAt, now, batchID, ws.ID)
 	if err != nil {
 		return err
 	}
@@ -269,6 +277,11 @@ func (db *DB) FinalizeOutlookIngestionBatch(ctx context.Context, batchID, emailE
 		}
 		if reservations != 0 {
 			return fmt.Errorf("outlook reservation fence is required")
+		}
+	}
+	if nextState == "completed" {
+		if err = db.enqueueCloudOrchestrationTaskTx(ctx, tx, ws.ID, "cos_briefing", batchID, "{}", now); err != nil {
+			return err
 		}
 	}
 	return tx.Commit()

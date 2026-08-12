@@ -21,6 +21,8 @@ export class Runtime implements AgentRuntimeLifecycle {
   readonly capabilities: RuntimeCapabilities;
   private active = 0;
   private stopping = false;
+  private readonly agentActive = new Map<string, number>();
+  private readonly agentWaiters = new Map<string, Array<() => void>>();
   constructor(private readonly client: ControlPlaneClient, private readonly executor: Executor, concurrency = 4, credentialsReady = !!process.env.OPENAI_API_KEY, private readonly leaseFactory: LeaseFactory = intervalLeaseFactory) {
     this.capabilities = {
       runtime_version: process.env.RUNTIME_VERSION || "dev",
@@ -70,6 +72,14 @@ export class Runtime implements AgentRuntimeLifecycle {
     }
   }
   async execute(task: ClaimedTask) {
+    const release = await this.admit(task);
+    try {
+      await this.executeClaimed(task);
+    } finally {
+      release();
+    }
+  }
+  private async executeClaimed(task: ClaimedTask) {
     const abort = new AbortController();
     const timeoutSeconds = task.definition?.kind === "vessica.agent/v2" ? task.definition.timeout_seconds ?? 60 * 60 : 60 * 60;
     const timeout = setTimeout(() => abort.abort(new Error(`run exceeded ${timeoutSeconds} second limit`)), timeoutSeconds * 1000);
@@ -95,5 +105,27 @@ export class Runtime implements AgentRuntimeLifecycle {
       clearTimeout(timeout);
       lease.stop();
     }
+  }
+
+  private async admit(task: ClaimedTask): Promise<() => void> {
+    if (task.definition?.kind !== "vessica.agent/v2" || !task.run) return () => undefined;
+    const key = task.run.agent_id || task.definition.name;
+    const limit = task.definition.concurrency;
+    while ((this.agentActive.get(key) ?? 0) >= limit) {
+      await new Promise<void>((resolve) => {
+        const waiters = this.agentWaiters.get(key) ?? [];
+        waiters.push(resolve);
+        this.agentWaiters.set(key, waiters);
+      });
+    }
+    this.agentActive.set(key, (this.agentActive.get(key) ?? 0) + 1);
+    return () => {
+      const remaining = (this.agentActive.get(key) ?? 1) - 1;
+      if (remaining > 0) this.agentActive.set(key, remaining);
+      else this.agentActive.delete(key);
+      const waiters = this.agentWaiters.get(key) ?? [];
+      this.agentWaiters.delete(key);
+      for (const resume of waiters) resume();
+    };
   }
 }

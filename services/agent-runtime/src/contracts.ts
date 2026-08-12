@@ -120,7 +120,7 @@ export type ClaimedTask = {
   attempt?: { id: string; attempt_number: number };
   build?: { id: string; kind: "create" | "update"; description: string; agent_id?: string };
   client_timezone?: string;
-  run?: { id: string; input_json: string; trigger: string; originating_repository_id?: string; rate_snapshot_json: string; resolved_knowledge_json: string };
+  run?: { id: string; agent_id?: string; input_json: string; trigger: string; originating_repository_id?: string; rate_snapshot_json: string; resolved_knowledge_json: string };
   definition?: AgentDefinition;
   current_definition?: AgentDefinition;
   agent_catalog?: Array<{ id: string; name: string; purpose: string }>;

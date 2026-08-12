@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vessica-labs/vessica-cli/internal/state"
 )
@@ -68,6 +69,46 @@ func TestOutlookV2ParityAndContactPersistence(t *testing.T) {
 	var count int
 	if err := db.QueryRow(context.Background(), `SELECT COUNT(*) FROM outlook_ingestion_items WHERE source_id LIKE 'contact:person@example.com:%'`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("contact item count=%d err=%v", count, err)
+	}
+}
+
+func TestCompletedOutlookBatchReplayReturnsSameReceiptAndStaysCompleted(t *testing.T) {
+	server, db := mcpTestServer(t)
+	session := authorizedMCPSession(t, server, MCPScopes())
+	batch := emptyOutlookBatch()
+	batch.BatchID = "completed-replay"
+	batch.Messages = []map[string]any{validOutlookMessage("replayed-message")}
+	batch.BatchSummary.MessagesScanned, batch.BatchSummary.MessagesIncluded = 1, 1
+	var batchMap map[string]any
+	raw, _ := json.Marshal(batch)
+	_ = json.Unmarshal(raw, &batchMap)
+	arguments := map[string]any{"batch": batchMap, "idempotency_key": batch.BatchID}
+	first := callMCPTool(t, session, "outlook_ingestion_submit", arguments)
+	claimed, err := db.ClaimOutlookOutbox(context.Background(), "worker", time.Minute)
+	if err != nil || claimed == nil {
+		t.Fatalf("claim=%#v err=%v", claimed, err)
+	}
+	if err = db.CompleteOutlookOutbox(context.Background(), claimed.ID, "worker", `{"memory_id":"mem"}`); err != nil {
+		t.Fatal(err)
+	}
+	second := callMCPTool(t, session, "outlook_ingestion_submit", arguments)
+	firstJSON, _ := json.Marshal(first.StructuredContent)
+	secondJSON, _ := json.Marshal(second.StructuredContent)
+	if string(firstJSON) != string(secondJSON) {
+		t.Fatalf("replayed receipt changed: first=%s second=%s", firstJSON, secondJSON)
+	}
+	var completed, tasks int
+	_ = db.QueryRow(context.Background(), `SELECT COUNT(*) FROM outlook_ingestion_batches WHERE state='completed'`).Scan(&completed)
+	_ = db.QueryRow(context.Background(), `SELECT COUNT(*) FROM cloud_orchestration_tasks WHERE kind='cos_briefing'`).Scan(&tasks)
+	if completed != 1 || tasks != 1 {
+		t.Fatalf("completed=%d tasks=%d", completed, tasks)
+	}
+}
+
+func TestRuntimeAgentRunPayloadIncludesCompleteDurableInput(t *testing.T) {
+	payload := runtimeAgentRunPayload(&state.AgentRun{ID: "run", AgentID: "agent", InputJSON: `{"date":"2026-08-12","items":[{"source_item_id":"one"}],"output_contract":{"title":"string"}}`, Trigger: "newsletter_daily", RateSnapshotJSON: `{"rate":"1"}`, ResolvedKnowledgeJSON: `[]`})
+	if payload["agent_id"] != "agent" || !strings.Contains(payload["input_json"].(string), "output_contract") || payload["rate_snapshot_json"] == "" || payload["resolved_knowledge_json"] == "" {
+		t.Fatalf("runtime payload=%#v", payload)
 	}
 }
 

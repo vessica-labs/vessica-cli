@@ -107,14 +107,14 @@ func (s *Server) registerOutlookIngestionTool(server *mcp.Server) {
 			sourceID := stringField(record, "source_id")
 			record["source_id"] = sourceID
 			raw, _ := json.Marshal(record)
-			_, _, duplicate, itemErr := s.agentApp().AcceptOutlookIngestionItem(ctx, state.OutlookIngestionItemInput{
+			item, _, duplicate, itemErr := s.agentApp().AcceptOutlookIngestionItem(ctx, state.OutlookIngestionItemInput{
 				BatchID: batch.ID, SourceID: sourceID, InternetMessageID: stringField(record, "internet_message_id"),
 				ConversationID: stringField(record, "conversation_id"), MessageAt: firstStringField(record, "message_at", "event_at", "generated_at"), NormalizedJSON: string(raw),
 			}, in.Batch.BatchID+":"+sourceID)
 			if itemErr != nil {
 				return &outlookIngestionOutput{}, itemErr
 			}
-			if duplicate {
+			if duplicate && item.BatchID != batch.ID {
 				out.DeduplicatedIDs = append(out.DeduplicatedIDs, sourceID)
 				continue
 			}

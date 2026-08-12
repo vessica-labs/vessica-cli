@@ -212,12 +212,32 @@ export class OpenAIAgentsExecutor implements Executor {
       outputType: task.task.kind === "eval" ? criticOutput : "text",
     });
     await batcher.append("agent.run.started", { attempt: task.attempt?.attempt_number ?? 1, trigger: task.run.trigger });
-    const parsed = JSON.parse(task.run.input_json) as { prompt?: string };
-    const modelInput = task.task.kind === "eval" ? task.run.input_json : parsed.prompt ?? task.run.input_json;
+    let modelInput = task.run.input_json;
+    if (task.task.kind !== "eval") {
+      const parsed = JSON.parse(task.run.input_json) as Record<string, unknown>;
+      if (Object.keys(parsed).length === 1 && typeof parsed.prompt === "string") modelInput = parsed.prompt;
+    }
+    const checkpointInterval = definition.kind === "vessica.agent/v2" && definition.checkpoints.enabled && definition.checkpoints.interval_seconds > 0
+      ? definition.checkpoints.interval_seconds : 0;
+    let checkpointTimer: NodeJS.Timeout | undefined;
+    if (checkpointInterval) {
+      await batcher.append("agent.checkpoint.started", { interval_seconds: checkpointInterval });
+      checkpointTimer = setInterval(() => {
+        void batcher.append("agent.checkpoint.saved", { interval_seconds: checkpointInterval, phase: "running" })
+          .then(() => batcher.flush()).catch(() => undefined);
+      }, checkpointInterval * 1000);
+    }
     const maxTurns = definition.kind === "vessica.agent/v2" && definition.conversations.enabled
       ? definition.conversations.max_turns
       : 25;
-    const stream = await this.runner.run(agent, modelInput, { stream: true, maxTurns, context, signal });
+    const stream = await this.runner.run(agent, modelInput, { stream: true, maxTurns, context, signal }).catch(async (error: unknown) => {
+      if (checkpointTimer) clearInterval(checkpointTimer);
+      if (checkpointInterval) await batcher.append("agent.checkpoint.failed", { interval_seconds: checkpointInterval });
+      await batcher.append("error", { message: error instanceof Error ? error.message : "agent run failed" });
+      await batcher.flush().catch(() => undefined);
+      const usage = { requests: 0, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, reasoning_tokens: 0, total_tokens: 0, response_ids: [] };
+      throw new ExecutionFailure(error instanceof Error ? error.message : "agent run failed", usage, estimateCost(usage, task.run!.rate_snapshot_json));
+    });
     const responseIDs: string[] = [];
     let completedText = "";
     try {
@@ -246,16 +266,20 @@ export class OpenAIAgentsExecutor implements Executor {
       await stream.completed;
       if (stream.error) throw stream.error;
     } catch (error) {
+      if (checkpointTimer) clearInterval(checkpointTimer);
       const usage = normalizeUsage(stream.runContext.usage, responseIDs);
+      if (checkpointInterval) await batcher.append("agent.checkpoint.failed", { interval_seconds: checkpointInterval });
       await batcher.append("error", { message: error instanceof Error ? error.message : "agent run failed" });
       await batcher.flush().catch(() => undefined);
       throw new ExecutionFailure(error instanceof Error ? error.message : "agent run failed", usage, estimateCost(usage, task.run.rate_snapshot_json));
     }
+    if (checkpointTimer) clearInterval(checkpointTimer);
     const usage = normalizeUsage(stream.runContext.usage, responseIDs);
     const finalText = typeof stream.finalOutput === "string" ? stream.finalOutput : completedText;
     await batcher.append("agent.message.completed", { text: finalText });
     if (task.task.kind === "eval") await batcher.append("agent.eval.completed", stream.finalOutput);
     await batcher.append("agent.run.completed", { response_ids: responseIDs });
+    if (checkpointInterval) await batcher.append("agent.checkpoint.completed", { interval_seconds: checkpointInterval });
     await batcher.flush();
     return { output: stream.finalOutput ?? completedText, usage, cost: estimateCost(usage, task.run.rate_snapshot_json) };
   }
@@ -337,7 +361,9 @@ export class OpenAIAgentsExecutor implements Executor {
 
   private async runInlineChild(task: ClaimedTask) {
     const abort = new AbortController();
-    const timeout = setTimeout(() => abort.abort(new Error("run exceeded 60 minute limit")), 60 * 60 * 1000);
+    const definition = task.definition ? normalizeDefinition(task.definition) : undefined;
+    const timeoutSeconds = definition?.timeout_seconds ?? 60 * 60;
+    const timeout = setTimeout(() => abort.abort(new Error(`run exceeded ${timeoutSeconds} second limit`)), timeoutSeconds * 1000);
     const lease = this.leaseFactory(this.client, task, (reason) => abort.abort(reason));
     try {
       const result = await this.run(task, abort.signal);

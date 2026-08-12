@@ -212,11 +212,6 @@ type NewsletterCollectionReport struct {
 	Failures  []NewsletterCollectionFailure
 }
 
-type NewsletterSynthesisRequest struct {
-	Date  string
-	Items []newsletter.Item
-}
-
 type NewsletterSynthesisResult struct {
 	Title        string                 `json:"title"`
 	Content      string                 `json:"content"`
@@ -224,16 +219,10 @@ type NewsletterSynthesisResult struct {
 	Observations []KnowledgeObservation `json:"observations"`
 }
 
-type NewsletterSynthesisRuntime interface {
-	Synthesize(context.Context, NewsletterSynthesisRequest) (NewsletterSynthesisResult, error)
-}
-
 type NewsletterOrchestrator struct {
-	Service     *Service
-	Collectors  CollectorRegistry
-	Synthesizer NewsletterSynthesisRuntime
-	Knowledge   CloudKnowledgeSink
-	Now         func() time.Time
+	Service    *Service
+	Collectors CollectorRegistry
+	Now        func() time.Time
 }
 
 func (orchestrator *NewsletterOrchestrator) now() time.Time {
@@ -298,32 +287,6 @@ func (orchestrator *NewsletterOrchestrator) Collect(ctx context.Context) (Newsle
 	}
 	_, _ = orchestrator.Service.DB.DeleteExpiredNewsletterItems(ctx, state.FormatTime(orchestrator.now()))
 	return report, nil
-}
-
-func (orchestrator *NewsletterOrchestrator) Synthesize(ctx context.Context, date time.Time) (string, error) {
-	if orchestrator.Service == nil || orchestrator.Synthesizer == nil || orchestrator.Knowledge == nil {
-		return "", fmt.Errorf("newsletter synthesis requires service, runtime, and knowledge")
-	}
-	day := date.UTC().Format("2006-01-02")
-	items, err := orchestrator.Service.DB.ListNewsletterItemsSince(ctx, day+"T00:00:00Z")
-	if err != nil {
-		return "", err
-	}
-	normalized := make([]newsletter.Item, 0, len(items))
-	known := map[string]bool{}
-	for _, stored := range items {
-		var item newsletter.Item
-		if json.Unmarshal([]byte(stored.NormalizedJSON), &item) != nil || item.Trust != newsletter.UntrustedSourceData {
-			continue
-		}
-		normalized = append(normalized, item)
-		known[item.SourceItemID] = true
-	}
-	result, err := orchestrator.Synthesizer.Synthesize(ctx, NewsletterSynthesisRequest{Date: day, Items: normalized})
-	if err != nil {
-		return "", err
-	}
-	return persistNewsletterSynthesis(ctx, orchestrator.Knowledge, day, normalized, result)
 }
 
 func persistNewsletterSynthesis(ctx context.Context, sink CloudKnowledgeSink, day string, normalized []newsletter.Item, result NewsletterSynthesisResult) (string, error) {

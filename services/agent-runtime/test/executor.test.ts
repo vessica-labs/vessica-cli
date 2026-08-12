@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sdk = vi.hoisted(() => ({
   agents: [] as Array<Record<string, unknown>>,
@@ -43,6 +43,7 @@ describe("OpenAIAgentsExecutor", () => {
     sdk.runnerConfigs.length = 0;
     sdk.run.mockReset();
   });
+  afterEach(() => vi.useRealTimers());
 
   it("preserves reasoning items across function-tool turns", () => {
     new OpenAIAgentsExecutor({} as ControlPlaneClient);
@@ -198,5 +199,88 @@ describe("OpenAIAgentsExecutor", () => {
       { ordinal: 3, type: "agent.usage", payload: expect.objectContaining({ response_ids: ["resp_run"] }) },
       { ordinal: 4, type: "agent.message.completed", payload: { text: "VESSICA_OK" } },
     ]));
+  });
+
+  it("passes the complete durable newsletter and COS envelopes to the model", async () => {
+    const stream = () => ({
+      async *[Symbol.asyncIterator]() {}, completed: Promise.resolve(), error: null, finalOutput: "done",
+      runContext: { usage: { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, inputTokensDetails: [], outputTokensDetails: [] } },
+    });
+    sdk.run.mockImplementation(async () => stream());
+    const client = { events: vi.fn().mockResolvedValue({}) } as unknown as ControlPlaneClient;
+    const executor = new OpenAIAgentsExecutor(client);
+    const envelopes = [
+      { prompt: "synthesize", date: "2026-08-12", items: [{ source_item_id: "item-1" }], output_contract: { title: "string" } },
+      { prompt: "brief", batch_id: "batch-1", coverage: { count: 3, newest_source_at: "2026-08-12T10:00:00Z" } },
+    ];
+    for (const [index, envelope] of envelopes.entries()) {
+      await executor.run({
+        protocol: "vessica.agent-runtime/v1", fence_token: `fence_${index}`,
+        task: { id: `task_${index}`, kind: "run", subject_id: `run_${index}`, attempts: 1 },
+        run: { id: `run_${index}`, agent_id: "agent_1", input_json: JSON.stringify(envelope), trigger: "scheduled", rate_snapshot_json: "{}", resolved_knowledge_json: "[]" },
+        definition,
+      }, new AbortController().signal);
+      expect(JSON.parse(sdk.run.mock.calls[index]?.[1] as string)).toEqual(envelope);
+    }
+  });
+
+  it("emits v2 checkpoint lifecycle events at the configured interval", async () => {
+    vi.useFakeTimers();
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    sdk.run.mockResolvedValue({
+      async *[Symbol.asyncIterator]() { await gate; }, completed: gate, error: null, finalOutput: "done",
+      runContext: { usage: { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, inputTokensDetails: [], outputTokensDetails: [] } },
+    });
+    const client = { events: vi.fn().mockResolvedValue({}) } as unknown as ControlPlaneClient;
+    const executor = new OpenAIAgentsExecutor(client);
+    const run = executor.run({
+      protocol: "vessica.agent-runtime/v1", fence_token: "fence_checkpoint",
+      task: { id: "task_checkpoint", kind: "run", subject_id: "run_checkpoint", attempts: 1 },
+      run: { id: "run_checkpoint", agent_id: "agent_checkpoint", input_json: '{"prompt":"wait"}', trigger: "manual", rate_snapshot_json: "{}", resolved_knowledge_json: "[]" },
+      definition: { ...definition, kind: "vessica.agent/v2", runtime: { kind: "typescript_agents_sdk" }, action_policy: { default: "deny", allowed_actions: [], approval_required: [] }, writable_knowledge_namespaces: [], sources: { network: "none", allowed_domains: [], allowed_source_types: [] }, concurrency: 1, timeout_seconds: 30, conversations: { enabled: false, max_turns: 25 }, checkpoints: { enabled: true, interval_seconds: 5 } },
+    }, new AbortController().signal);
+    await vi.advanceTimersByTimeAsync(5_000);
+    const emittedTypes = () => client.events.mock.calls.flatMap((call) => call[2]).map((event) => event.type);
+    expect(emittedTypes()).toEqual(expect.arrayContaining(["agent.checkpoint.started", "agent.checkpoint.saved"]));
+    finish();
+    await run;
+    await vi.runAllTimersAsync();
+    expect(emittedTypes()).toContain("agent.checkpoint.completed");
+    vi.useRealTimers();
+  });
+
+  it("uses a child definition's configured timeout for inline execution", async () => {
+    vi.useFakeTimers();
+    sdk.run.mockImplementation((_agent, _input, options) => new Promise((_resolve, reject) => {
+      const signal = (options as { signal: AbortSignal }).signal;
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }));
+    const childDefinition = {
+      ...definition, kind: "vessica.agent/v2" as const,
+      runtime: { kind: "typescript_agents_sdk" as const },
+      action_policy: { default: "deny" as const, allowed_actions: [], approval_required: [] },
+      writable_knowledge_namespaces: [], sources: { network: "none" as const, allowed_domains: [], allowed_source_types: [] },
+      concurrency: 1, timeout_seconds: 2, conversations: { enabled: false, max_turns: 25 }, checkpoints: { enabled: false, interval_seconds: 0 },
+    };
+    const childExecution = {
+      protocol: "vessica.agent-runtime/v1" as const, fence_token: "child_fence",
+      task: { id: "child_task", kind: "run" as const, subject_id: "child_run", attempts: 1 },
+      run: { id: "child_run", agent_id: "child_agent", input_json: '{"prompt":"child"}', trigger: "child", rate_snapshot_json: "{}", resolved_knowledge_json: "[]" },
+      definition: childDefinition,
+    };
+    const client = {
+      child: vi.fn().mockResolvedValue({ child: { id: "child_run" }, execution: childExecution }),
+      events: vi.fn().mockResolvedValue({}), fail: vi.fn().mockResolvedValue({}), complete: vi.fn(),
+    } as unknown as ControlPlaneClient;
+    const executor = new OpenAIAgentsExecutor(client, () => ({ stop() {} }));
+    const context = { client, runID: "parent_run", fence: "parent_fence", toolOrdinal: 0, batcher: { append: vi.fn().mockResolvedValue(undefined) }, failedToolCallIDs: new Set<string>() };
+    const tools = (executor as unknown as { mapTools(d: AgentDefinition, c: typeof context): Array<Record<string, unknown>> }).mapTools({ ...definition, tools: [{ id: "agent.invoke", config: {} }] }, context);
+    const invoke = tools[0] as { execute(args: { agent: string; prompt: string }): Promise<unknown> };
+    const execution = invoke.execute({ agent: "CHILD", prompt: "run" });
+    const rejection = expect(execution).rejects.toThrow("run exceeded 2 second limit");
+    await vi.advanceTimersByTimeAsync(2_000);
+    await rejection;
+    expect(client.fail).toHaveBeenCalledWith("child_run", "child_fence", "run exceeded 2 second limit", expect.any(Object), 0);
   });
 });

@@ -40,3 +40,47 @@ func TestOutlookCompletionEnqueuesExactlyOneCOSOrchestration(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestOutlookZeroItemAndAllDeduplicatedBatchesCompleteAndEnqueueCOS(t *testing.T) {
+	db, ctx := agentTestDB(t), context.Background()
+	checkpoint1 := "2026-08-12T08:00:00Z"
+	empty, err := db.CreateOutlookIngestionBatchWithCheckpoints(ctx, OutlookIngestionBatchInput{IdempotencyKey: "empty", SubmittedBy: "connector"}, "", checkpoint1, "", checkpoint1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.FinalizeOutlookIngestionBatch(ctx, empty.ID, "", checkpoint1, `{}`, "", checkpoint1, `{}`, empty.ReservationToken); err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := db.CreateOutlookIngestionBatchWithCheckpoints(ctx, OutlookIngestionBatchInput{IdempotencyKey: "empty", SubmittedBy: "connector"}, "", checkpoint1, "", checkpoint1)
+	if err != nil || replayed.State != "completed" {
+		t.Fatalf("empty replay=%#v err=%v", replayed, err)
+	}
+	if err = db.FinalizeOutlookIngestionBatch(ctx, replayed.ID, "", checkpoint1, `{}`, "", checkpoint1, `{}`); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint2 := "2026-08-13T08:00:00Z"
+	dedup, err := db.CreateOutlookIngestionBatchWithCheckpoints(ctx, OutlookIngestionBatchInput{IdempotencyKey: "dedup", SubmittedBy: "connector"}, checkpoint1, checkpoint2, checkpoint1, checkpoint2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed, err := db.CreateOutlookIngestionBatch(ctx, OutlookIngestionBatchInput{IdempotencyKey: "seed", SubmittedBy: "connector"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, _, _, err := db.UpsertOutlookIngestionItemAndEnqueue(ctx, OutlookIngestionItemInput{BatchID: seed.ID, SourceID: "existing", NormalizedJSON: `{}`}, "existing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, duplicate, err := db.UpsertOutlookIngestionItemAndEnqueue(ctx, OutlookIngestionItemInput{BatchID: dedup.ID, SourceID: item.SourceID, NormalizedJSON: `{}`}, "ignored"); err != nil || !duplicate {
+		t.Fatalf("duplicate=%v err=%v", duplicate, err)
+	}
+	if err = db.FinalizeOutlookIngestionBatch(ctx, dedup.ID, checkpoint1, checkpoint2, `{}`, checkpoint1, checkpoint2, `{}`, dedup.ReservationToken); err != nil {
+		t.Fatal(err)
+	}
+	var completed, tasks int
+	_ = db.QueryRow(ctx, `SELECT COUNT(*) FROM outlook_ingestion_batches WHERE id IN (?,?) AND state='completed'`, empty.ID, dedup.ID).Scan(&completed)
+	_ = db.QueryRow(ctx, `SELECT COUNT(*) FROM cloud_orchestration_tasks WHERE kind='cos_briefing' AND subject_id IN (?,?)`, empty.ID, dedup.ID).Scan(&tasks)
+	if completed != 2 || tasks != 2 {
+		t.Fatalf("completed=%d tasks=%d", completed, tasks)
+	}
+}

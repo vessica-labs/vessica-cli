@@ -161,7 +161,7 @@ func TestFinalizeOutlookBatchCommitsCheckpointsAndLifecycleTogether(t *testing.T
 		t.Fatalf("calendar checkpoint=%#v err=%v", calendar, err)
 	}
 	finalized, err := db.getOutlookBatch(ctx, "finalize")
-	if err != nil || finalized.State != "queued" {
+	if err != nil || finalized.State != "completed" {
 		t.Fatalf("finalized batch=%#v err=%v", finalized, err)
 	}
 }

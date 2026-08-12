@@ -140,7 +140,7 @@ func (s *Server) handleAgentRuntimeClaim(w http.ResponseWriter, r *http.Request)
 		}
 		agents, _ := s.DB.ListActiveAgents(r.Context())
 		repositories, _ := s.DB.ListRepositories(r.Context())
-		payload["run"] = run
+		payload["run"] = runtimeAgentRunPayload(run)
 		payload["definition"] = json.RawMessage(version.DefinitionJSON)
 		payload["agent_registry"] = agents
 		payload["repositories"] = repositories
@@ -514,7 +514,7 @@ func (s *Server) handleAgentRuntimeChild(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	agents, _ := s.DB.ListAgents(r.Context())
-	writeJSON(w, 201, map[string]any{"child": child, "execution": map[string]any{"protocol": agentRuntimeProtocol, "task": task, "attempt": attempt, "fence_token": task.FenceToken, "run": child, "definition": json.RawMessage(version.DefinitionJSON), "agent_registry": agents}})
+	writeJSON(w, 201, map[string]any{"child": child, "execution": map[string]any{"protocol": agentRuntimeProtocol, "task": task, "attempt": attempt, "fence_token": task.FenceToken, "run": runtimeAgentRunPayload(child), "definition": json.RawMessage(version.DefinitionJSON), "agent_registry": agents}})
 }
 
 func runtimeError(w http.ResponseWriter, err error) {

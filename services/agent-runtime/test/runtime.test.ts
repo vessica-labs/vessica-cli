@@ -64,4 +64,37 @@ describe("Runtime", () => {
     await execution;
     expect(client.fail).toHaveBeenCalledWith("arun_1", "fence_1", "run cancelled", expect.any(Object), 0);
   });
+
+  it("admits no more concurrent runs for an agent than its v2 definition allows", async () => {
+    let finishFirst!: () => void;
+    const first = new Promise<void>((resolve) => { finishFirst = resolve; });
+    const client = { heartbeat: vi.fn(), complete: vi.fn().mockResolvedValue({}), fail: vi.fn().mockResolvedValue({}) } as unknown as ControlPlaneClient;
+    const executor: Executor = {
+      build: vi.fn(),
+      run: vi.fn().mockImplementationOnce(async () => { await first; return { output: "one", usage: { requests: 0, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, reasoning_tokens: 0, total_tokens: 0, response_ids: [] }, cost: 0 }; })
+        .mockResolvedValue({ output: "two", usage: { requests: 0, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, reasoning_tokens: 0, total_tokens: 0, response_ids: [] }, cost: 0 }),
+    };
+    const v2 = { ...task, run: { ...task.run!, agent_id: "agent_1" }, definition: { ...task.definition!, kind: "vessica.agent/v2" as const, runtime: { kind: "typescript_agents_sdk" as const }, action_policy: { default: "deny" as const, allowed_actions: [], approval_required: [] }, writable_knowledge_namespaces: [], sources: { network: "none" as const, allowed_domains: [], allowed_source_types: [] }, concurrency: 1, timeout_seconds: 30, conversations: { enabled: false, max_turns: 25 }, checkpoints: { enabled: false, interval_seconds: 0 } } };
+    const runtime = new Runtime(client, executor, 4, true, () => ({ stop() {} }));
+    const one = runtime.execute(v2);
+    const two = runtime.execute({ ...v2, fence_token: "fence_2", task: { ...v2.task, id: "task_2", subject_id: "run_2" }, run: { ...v2.run, id: "run_2" } });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(executor.run).toHaveBeenCalledTimes(1);
+    finishFirst();
+    await one;
+    await two;
+    expect(executor.run).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the v2 definition timeout", async () => {
+    vi.useFakeTimers();
+    const client = { heartbeat: vi.fn(), complete: vi.fn(), fail: vi.fn().mockResolvedValue({}) } as unknown as ControlPlaneClient;
+    const executor: Executor = { build: vi.fn(), run: vi.fn().mockImplementation((_task, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }))) };
+    const timed = { ...task, definition: { ...task.definition!, kind: "vessica.agent/v2" as const, runtime: { kind: "typescript_agents_sdk" as const }, action_policy: { default: "deny" as const, allowed_actions: [], approval_required: [] }, writable_knowledge_namespaces: [], sources: { network: "none" as const, allowed_domains: [], allowed_source_types: [] }, concurrency: 1, timeout_seconds: 2, conversations: { enabled: false, max_turns: 25 }, checkpoints: { enabled: false, interval_seconds: 0 } } };
+    const execution = new Runtime(client, executor, 4, true, () => ({ stop() {} })).execute(timed);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await execution;
+    expect(client.fail).toHaveBeenCalledWith("arun_1", "fence_1", "run exceeded 2 second limit", expect.any(Object), 0);
+  });
 });
