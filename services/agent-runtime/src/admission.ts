@@ -7,7 +7,7 @@ type Release = () => void;
 // parent/child calls fail one side instead of deadlocking the runtime.
 export class AgentAdmission {
   private readonly active = new Map<string, Set<string>>();
-  private readonly waiters = new Map<string, Array<() => void>>();
+  private readonly waiters = new Map<string, Set<() => void>>();
   private readonly waitsFor = new Map<string, Set<string>>();
 
   async admit(task: ClaimedTask, requesterRunID?: string, signal?: AbortSignal): Promise<Release> {
@@ -37,7 +37,7 @@ export class AgentAdmission {
       const current = this.active.get(agentID);
       current?.delete(holderID);
       if (!current?.size) this.active.delete(agentID);
-      const waiting = this.waiters.get(agentID) ?? [];
+      const waiting = this.waiters.get(agentID) ?? new Set<() => void>();
       this.waiters.delete(agentID);
       for (const resume of waiting) resume();
     };
@@ -52,11 +52,16 @@ export class AgentAdmission {
 
   private wait(agentID: string, signal?: AbortSignal): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      const cleanup = () => signal?.removeEventListener("abort", abort);
+      const cleanup = () => {
+        signal?.removeEventListener("abort", abort);
+        const waiting = this.waiters.get(agentID);
+        waiting?.delete(resume);
+        if (!waiting?.size) this.waiters.delete(agentID);
+      };
       const resume = () => { cleanup(); resolve(); };
       const abort = () => { cleanup(); reject(signal?.reason ?? new Error("admission cancelled")); };
-      const waiting = this.waiters.get(agentID) ?? [];
-      waiting.push(resume);
+      const waiting = this.waiters.get(agentID) ?? new Set<() => void>();
+      waiting.add(resume);
       this.waiters.set(agentID, waiting);
       if (signal?.aborted) abort();
       else signal?.addEventListener("abort", abort, { once: true });

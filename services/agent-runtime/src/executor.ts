@@ -32,6 +32,7 @@ type RuntimeContext = {
   toolOrdinal: number;
   batcher: EventBatcher;
   failedToolCallIDs: Set<string>;
+  signal: AbortSignal;
 };
 
 const metadataInput = z.array(z.object({ key: z.string(), value: z.string() })).nullable().optional();
@@ -191,6 +192,7 @@ export class OpenAIAgentsExecutor implements Executor {
       toolOrdinal: 0,
       batcher,
       failedToolCallIDs: new Set(),
+      signal,
     };
     const tools = this.mapTools(definition, context);
     const registry = (task.agent_registry ?? []).map((a) => `${a.id} ${a.name}: ${a.purpose}`).join("\n");
@@ -331,7 +333,7 @@ export class OpenAIAgentsExecutor implements Executor {
           await context.batcher.append("agent.child.started", { run_id: child.child.id, agent });
           if (!child.execution) return child.child;
           try {
-            const result = await this.runInlineChild(child.execution, context.runID);
+            const result = await this.runInlineChild(child.execution, context.runID, context.signal);
             await context.batcher.append("agent.child.completed", { run_id: child.child.id, status: "completed" });
             return { run_id: child.child.id, status: "completed", output: result.output };
           } catch (error) {
@@ -360,8 +362,11 @@ export class OpenAIAgentsExecutor implements Executor {
     }
   }
 
-  private async runInlineChild(task: ClaimedTask, requesterRunID: string) {
+  private async runInlineChild(task: ClaimedTask, requesterRunID: string, parentSignal?: AbortSignal) {
     const abort = new AbortController();
+	const abortFromParent = () => abort.abort(parentSignal?.reason ?? new Error("parent run cancelled"));
+	if (parentSignal?.aborted) abortFromParent();
+	else parentSignal?.addEventListener("abort", abortFromParent, { once: true });
     const definition = task.definition ? normalizeDefinition(task.definition) : undefined;
     const timeoutSeconds = definition?.timeout_seconds ?? 60 * 60;
     const timeout = setTimeout(() => abort.abort(new Error(`run exceeded ${timeoutSeconds} second limit`)), timeoutSeconds * 1000);
@@ -369,6 +374,7 @@ export class OpenAIAgentsExecutor implements Executor {
     let release: (() => void) | undefined;
     try {
       release = await this.admission.admit(task, requesterRunID, abort.signal);
+      if (abort.signal.aborted) throw abort.signal.reason;
       const result = await this.run(task, abort.signal);
       await this.client.complete(task.task.subject_id, task.fence_token, result.output, result.usage, result.cost);
       return result;
@@ -377,6 +383,6 @@ export class OpenAIAgentsExecutor implements Executor {
       const cost = error instanceof ExecutionFailure ? error.cost : 0;
       await this.client.fail(task.task.subject_id, task.fence_token, error instanceof Error ? error.message : "child run failed", usage, cost).catch(()=>undefined);
       throw error;
-    } finally { release?.(); clearTimeout(timeout); lease.stop(); }
+    } finally { parentSignal?.removeEventListener("abort", abortFromParent); release?.(); clearTimeout(timeout); lease.stop(); }
   }
 }

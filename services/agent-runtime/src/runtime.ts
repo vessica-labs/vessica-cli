@@ -71,20 +71,15 @@ export class Runtime implements AgentRuntimeLifecycle {
     }
   }
   async execute(task: ClaimedTask) {
-    const release = await this.admission.admit(task);
-    try {
-      await this.executeClaimed(task);
-    } finally {
-      release();
-    }
-  }
-  private async executeClaimed(task: ClaimedTask) {
     const abort = new AbortController();
     const timeoutSeconds = task.definition?.kind === "vessica.agent/v2" ? task.definition.timeout_seconds ?? 60 * 60 : 60 * 60;
     const timeout = setTimeout(() => abort.abort(new Error(`run exceeded ${timeoutSeconds} second limit`)), timeoutSeconds * 1000);
     const lease = this.leaseFactory(this.client, task, (reason) => abort.abort(reason));
     let usage = emptyUsage();
+    let release: (() => void) | undefined;
     try {
+      release = await this.admission.admit(task, undefined, abort.signal);
+      if (abort.signal.aborted) throw abort.signal.reason;
       if (task.task.kind === "build") {
         const result = await this.executor.build(task, abort.signal);
         await this.client.completeBuild(task.task.subject_id, task.fence_token, result.definition, result.warnings, result.usage);
@@ -101,6 +96,7 @@ export class Runtime implements AgentRuntimeLifecycle {
         await this.client.fail(task.task.subject_id, task.fence_token, message, usage, error instanceof ExecutionFailure ? error.cost : 0).catch(() => undefined);
       }
     } finally {
+      release?.();
       clearTimeout(timeout);
       lease.stop();
     }

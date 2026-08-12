@@ -338,4 +338,23 @@ describe("OpenAIAgentsExecutor", () => {
     finish();
     await Promise.all([first, second]);
   });
+
+  it("does not execute an inline child after its parent signal aborts", async () => {
+    const parent = new AbortController();
+    const childDefinition = {
+      ...definition, kind: "vessica.agent/v2" as const, runtime: { kind: "typescript_agents_sdk" as const },
+      action_policy: { default: "deny" as const, allowed_actions: [], approval_required: [] }, writable_knowledge_namespaces: [],
+      sources: { network: "none" as const, allowed_domains: [], allowed_source_types: [] }, concurrency: 1, timeout_seconds: 30,
+      conversations: { enabled: false, max_turns: 25 }, checkpoints: { enabled: false, interval_seconds: 0 },
+    };
+    const execution = { protocol: "vessica.agent-runtime/v1" as const, fence_token: "child_fence", task: { id: "child_task", kind: "run" as const, subject_id: "child_run", attempts: 1 }, run: { id: "child_run", agent_id: "child_agent", input_json: "{}", trigger: "child", rate_snapshot_json: "{}", resolved_knowledge_json: "[]" }, definition: childDefinition };
+    const client = { child: vi.fn().mockResolvedValue({ child: { id: "child_run" }, execution }), events: vi.fn(), complete: vi.fn(), fail: vi.fn().mockResolvedValue({}) } as unknown as ControlPlaneClient;
+    const executor = new OpenAIAgentsExecutor(client, () => ({ stop() {} }), new AgentAdmission());
+    const context = { client, runID: "parent", fence: "parent_fence", toolOrdinal: 0, batcher: { append: vi.fn().mockResolvedValue(undefined) }, failedToolCallIDs: new Set<string>(), signal: parent.signal };
+    const invoke = (executor as unknown as { mapTools(d: AgentDefinition, c: typeof context): Array<Record<string, unknown>> }).mapTools({ ...definition, tools: [{ id: "agent.invoke", config: {} }] }, context)[0] as { execute(args: { agent: string; prompt: string }): Promise<unknown> };
+    parent.abort(new Error("parent run cancelled"));
+    await expect(invoke.execute({ agent: "CHILD", prompt: "run" })).rejects.toThrow("parent run cancelled");
+    expect(sdk.run).not.toHaveBeenCalled();
+    expect(client.fail).toHaveBeenCalledWith("child_run", "child_fence", "parent run cancelled", expect.any(Object), 0);
+  });
 });

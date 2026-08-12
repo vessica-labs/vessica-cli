@@ -97,4 +97,44 @@ describe("Runtime", () => {
     await execution;
     expect(client.fail).toHaveBeenCalledWith("arun_1", "fence_1", "run exceeded 2 second limit", expect.any(Object), 0);
   });
+
+  it("starts lease and timeout before admission and never executes an aborted waiter", async () => {
+    vi.useFakeTimers();
+    let finishFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => { finishFirst = resolve; });
+    const aborters = new Map<string, (reason: Error) => void>();
+    const stopped: string[] = [];
+    const leaseFactory = vi.fn((_client, claimed: ClaimedTask, onAbort: (reason: Error) => void) => {
+      aborters.set(claimed.task.subject_id, onAbort);
+      return { stop: () => stopped.push(claimed.task.subject_id) };
+    });
+    const client = { complete: vi.fn().mockResolvedValue({}), fail: vi.fn().mockResolvedValue({}) } as unknown as ControlPlaneClient;
+    const executor: Executor = {
+      build: vi.fn(),
+      run: vi.fn().mockImplementationOnce(async () => { await firstGate; return { output: "one", usage: { requests: 0, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, reasoning_tokens: 0, total_tokens: 0, response_ids: [] }, cost: 0 }; }),
+    };
+    const v2 = { ...task, run: { ...task.run!, agent_id: "agent_wait" }, definition: { ...task.definition!, kind: "vessica.agent/v2" as const, runtime: { kind: "typescript_agents_sdk" as const }, action_policy: { default: "deny" as const, allowed_actions: [], approval_required: [] }, writable_knowledge_namespaces: [], sources: { network: "none" as const, allowed_domains: [], allowed_source_types: [] }, concurrency: 1, timeout_seconds: 30, conversations: { enabled: false, max_turns: 25 }, checkpoints: { enabled: false, interval_seconds: 0 } } };
+    const runtime = new Runtime(client, executor, 4, true, leaseFactory);
+    const first = runtime.execute(v2);
+    const waiting = runtime.execute({ ...v2, fence_token: "fence_wait", task: { ...v2.task, id: "task_wait", subject_id: "run_wait" }, run: { ...v2.run, id: "run_wait" } });
+    await vi.waitFor(() => expect(leaseFactory).toHaveBeenCalledTimes(2));
+    expect(executor.run).toHaveBeenCalledTimes(1);
+    aborters.get("run_wait")?.(new Error("attempt lease lost"));
+    await waiting;
+    finishFirst();
+    await first;
+    expect(executor.run).toHaveBeenCalledTimes(1);
+    expect(client.fail).toHaveBeenCalledWith("run_wait", "fence_wait", "attempt lease lost", expect.any(Object), 0);
+    expect(stopped).toEqual(expect.arrayContaining(["run_wait", "arun_1"]));
+  });
+
+  it("retains v1 immediate admission while starting its lease before execution", async () => {
+    const order: string[] = [];
+    const client = { complete: vi.fn().mockResolvedValue({}), fail: vi.fn() } as unknown as ControlPlaneClient;
+    const executor: Executor = { build: vi.fn(), run: vi.fn().mockImplementation(async () => { order.push("execute"); return { output: "done", usage: { requests: 0, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, reasoning_tokens: 0, total_tokens: 0, response_ids: [] }, cost: 0 }; }) };
+    const runtime = new Runtime(client, executor, 4, true, () => { order.push("lease"); return { stop() {} }; });
+    await Promise.all([runtime.execute(task), runtime.execute({ ...task, task: { ...task.task, id: "v1_2", subject_id: "v1_run_2" }, run: { ...task.run!, id: "v1_run_2" } })]);
+    expect(order.filter((value) => value === "lease")).toHaveLength(2);
+    expect(executor.run).toHaveBeenCalledTimes(2);
+  });
 });

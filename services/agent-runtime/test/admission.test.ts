@@ -28,4 +28,16 @@ describe("AgentAdmission", () => {
     releaseChildB();
     releaseA();
   });
+
+  it("removes an aborted waiter so it cannot acquire a later release", async () => {
+    const admission = new AgentAdmission();
+    const release = await admission.admit(task("active", "agent"));
+    const abort = new AbortController();
+    const waiting = admission.admit(task("stale", "agent"), undefined, abort.signal);
+    abort.abort(new Error("attempt lease lost"));
+    await expect(waiting).rejects.toThrow("attempt lease lost");
+    release();
+    const nextRelease = await admission.admit(task("fresh", "agent"));
+    nextRelease();
+  });
 });
