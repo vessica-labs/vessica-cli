@@ -92,8 +92,8 @@ type OutlookIngestionItemInput struct{ BatchID, SourceID, InternetMessageID, Con
 type OutlookIngestionItem struct{ ID, WorkspaceID, BatchID, SourceID, InternetMessageID, ConversationID, MessageAt, NormalizedJSON, State, Error, CreatedAt, UpdatedAt string }
 type OutlookIngestionReceipt struct{ ID, WorkspaceID, BatchID, ItemID, State, ResultJSON, Error, CreatedAt string }
 type OutlookOutbox struct {
-	ID, WorkspaceID, BatchID, ItemID, ProcessingKey, State, LeaseOwner, LeaseUntil, ProcessedAt, LastError, CreatedAt, UpdatedAt string
-	Attempts                                                                                                                     int
+	ID, WorkspaceID, BatchID, ItemID, ProcessingKey, State, LeaseOwner, LeaseUntil, AvailableAt, ProcessedAt, LastError, CreatedAt, UpdatedAt string
+	Attempts                                                                                                                                  int
 }
 type AgentTaskCheckpointInput struct{ AgentID, AgentRunID, CheckpointKey, StateJSON, Status string }
 type AgentTaskCheckpoint struct{ ID, WorkspaceID, AgentID, AgentRunID, CheckpointKey, StateJSON, Status, CreatedAt, UpdatedAt string }
@@ -101,4 +101,4 @@ type AgentRunTriggerInput struct {
 	AgentID, IdempotencyKey, Trigger, InputJSON, RepositoryID, ParentRunID string
 	RateSnapshot                                                           any
 }
-type AgentRunTrigger struct{ ID, WorkspaceID, AgentID, IdempotencyKey, Trigger, InputJSON, RepositoryID, ParentRunID, AgentRunID, State, ClaimToken, LeaseUntil, CreatedAt, UpdatedAt string }
+type AgentRunTrigger struct{ ID, WorkspaceID, AgentID, IdempotencyKey, Trigger, InputJSON, RepositoryID, ParentRunID, AgentRunID, State, ClaimToken, LeaseUntil, RateSnapshotJSON, CreatedAt, UpdatedAt string }

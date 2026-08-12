@@ -37,7 +37,7 @@ replica_id TEXT NOT NULL,
 heartbeat_at TEXT NOT NULL,
 acquired_at TEXT NOT NULL
 );
-`}, {version: 5, sql: AgentSchemaSQL}, {version: 6, sql: CloudAgentControlPlaneSchemaSQL}, {version: 7, sql: CloudAgentControlPlaneOwnershipSQL}}
+`}, {version: 5, sql: AgentSchemaSQL}, {version: 6, sql: CloudAgentControlPlaneSchemaSQL}, {version: 7, sql: CloudAgentControlPlaneOwnershipSQL}, {version: 8, sql: CloudAgentTriggerRequestSQL}}
 
 func latestMigrationVersion() int {
 	if len(migrations) == 0 {

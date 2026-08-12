@@ -133,6 +133,33 @@ func TestAgentRunTriggerRecoversCreatedButUnlinkedRun(t *testing.T) {
 	}
 }
 
+// Break caught: a retry after a pre-run crash changes the original intent or
+// rate snapshot instead of resuming the accepted durable request.
+func TestAgentRunTriggerRecoveryUsesOriginalDurableRequest(t *testing.T) {
+	db := agentTestDB(t)
+	ctx := context.Background()
+	agent, err := db.CreateAgent(ctx, "ORIGINAL", "test", testDefinition, "{}", 5_000_000, "UTC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, _ := db.GetWorkspace(ctx)
+	now := Now()
+	if _, err = db.Exec(ctx, `INSERT INTO agent_run_triggers(id,workspace_id,agent_id,idempotency_key,trigger,input_json,rate_snapshot_json,state,lease_until,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'creating',?,?,?)`, "atrigger_original", ws.ID, agent.ID, "original-key", "mcp", `{"prompt":"original"}`, `{"rate":"original"}`, FormatTime(time.Now().Add(-time.Minute)), now, now); err != nil {
+		t.Fatal(err)
+	}
+	trigger, err := db.TriggerAgentRun(ctx, AgentRunTriggerInput{AgentID: agent.ID, IdempotencyKey: "original-key", Trigger: "web", InputJSON: `{"prompt":"changed"}`, RateSnapshot: map[string]string{"rate": "changed"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := db.GetAgentRun(ctx, trigger.AgentRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Trigger != "mcp" || run.InputJSON != `{"prompt":"original"}` || run.RateSnapshotJSON != `{"rate":"original"}` {
+		t.Fatalf("run=%#v", run)
+	}
+}
+
 // Break caught: a crash between completing an outbox marker and writing its
 // receipt makes the externally complete item permanently unreconstructible.
 func TestCompleteOutlookOutboxAtomicallyWritesReceiptAndLifecycle(t *testing.T) {

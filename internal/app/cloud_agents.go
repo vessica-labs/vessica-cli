@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/vessica-labs/vessica-cli/internal/state"
 )
@@ -26,6 +27,9 @@ func (s *Service) RevokeOAuthAccessToken(ctx context.Context, tokenHash string) 
 }
 func (s *Service) RevokeOAuthRefreshToken(ctx context.Context, tokenHash string) error {
 	return s.DB.RevokeOAuthRefreshToken(ctx, tokenHash)
+}
+func (s *Service) ValidateOAuthRefreshToken(ctx context.Context, materialHash string) (*state.OAuthRefreshToken, error) {
+	return s.DB.GetOAuthRefreshToken(ctx, materialHash)
 }
 func (s *Service) ConsumeOAuthAuthorizationCode(ctx context.Context, codeHash string) (*state.OAuthAuthorizationCode, error) {
 	return s.DB.ConsumeOAuthAuthorizationCode(ctx, codeHash)
@@ -66,8 +70,14 @@ func (s *Service) UpsertOutlookIngestionItem(ctx context.Context, in state.Outlo
 func (s *Service) EnqueueOutlookOutbox(ctx context.Context, batchID, itemID, key string) (*state.OutlookOutbox, error) {
 	return s.DB.EnqueueOutlookOutbox(ctx, batchID, itemID, key)
 }
+func (s *Service) ClaimOutlookOutbox(ctx context.Context, owner string, lease time.Duration) (*state.OutlookOutbox, error) {
+	return s.DB.ClaimOutlookOutbox(ctx, owner, lease)
+}
 func (s *Service) CompleteOutlookOutbox(ctx context.Context, outboxID, owner, receiptState, resultJSON string) error {
 	return s.DB.CompleteOutlookOutboxAtomically(ctx, outboxID, owner, receiptState, resultJSON)
+}
+func (s *Service) FailOutlookOutbox(ctx context.Context, outboxID, owner, errorText string, retryAt time.Time) error {
+	return s.DB.FailOutlookOutbox(ctx, outboxID, owner, errorText, retryAt)
 }
 func (s *Service) RecordOutlookReceipt(ctx context.Context, batchID, itemID, receiptState, resultJSON, errText string) (*state.OutlookIngestionReceipt, error) {
 	return s.DB.RecordOutlookIngestionReceipt(ctx, batchID, itemID, receiptState, resultJSON, errText)

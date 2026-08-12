@@ -96,3 +96,24 @@ authorized transport boundary. No route currently exists in this task.
 3. GREEN: `go test ./internal/state ./internal/app -count=1`, `go test ./...`,
    `go vet ./...`, `go build ./cmd/ves`, `./scripts/lint-arch.sh`, and
    `git diff --check` passed.
+
+## Round 2 remediation
+
+- Persisted trigger rate snapshots alongside the original trigger, so recovery
+  creates a run only from the accepted durable request rather than retry input.
+- Added refresh-token validation plus Outlook claim and fenced failure/retry
+  application methods. Failure atomically retains the outbox, increments its
+  durable attempt record, stores the error, reschedules it, and updates item and
+  batch lifecycle state.
+- Added application-level OAuth, Outlook, newsletter, and source-checkpoint
+  behavior tests.
+- Split the former control-plane state monolith into a 499-line core and a
+  dedicated agent-trigger/checkpoint state file. The pre-existing `agent.go`
+  remains slightly above the soft limit because its small trigger-aware run
+  additions belong beside run creation.
+
+### Round 2 TDD evidence
+
+1. RED: `go test ./internal/state ./internal/app -run '^(TestAgentRunTriggerRecoveryUsesOriginalDurableRequest|TestCloudAgentServiceOAuthLifecycle|TestCloudAgentServiceOutlookFailureReschedulesWork|TestCloudAgentServiceSourcesAndCheckpoints)$' -count=1` failed because the durable rate snapshot, refresh lookup, and Outlook claim/failure service methods did not exist.
+2. GREEN: the same focused suite passed after persisting/reusing the original
+   trigger request and adding the application and fenced retry methods.
