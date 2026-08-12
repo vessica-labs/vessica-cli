@@ -35,6 +35,7 @@ and architecture records.
 
 Repository contributors should also read the root `ARCHITECTURE.md`,
 `SECURITY.md`, `TESTING.md`, `DEPLOY.md`, `DESIGN.md`, and `AGENTS.md`.
+Benchmark comparisons should record both wall-clock duration and persisted Vessica phase timings.
 
 ## Decision records still relevant to the current design
 
