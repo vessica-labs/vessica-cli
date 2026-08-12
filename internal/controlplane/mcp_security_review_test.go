@@ -34,7 +34,7 @@ func TestOAuthRequiresCanonicalHTTPSResourceAndFormContentType(t *testing.T) {
 		t.Fatalf("authorize wrong resource=%d %s", rec.Code, rec.Body.String())
 	}
 	values.Set("resource", resource)
-	if rec := formRequest(handler, http.MethodPost, "/oauth/authorize", values); rec.Code != http.StatusSeeOther {
+	if rec := oauthConsentRequest(handler, values, "https://vessica.example"); rec.Code != http.StatusSeeOther {
 		t.Fatalf("authorize canonical resource=%d %s", rec.Code, rec.Body.String())
 	}
 	jsonToken := httptest.NewRequest(http.MethodPost, "/oauth/token", strings.NewReader(`{"grant_type":"refresh_token"}`))
@@ -131,7 +131,7 @@ func TestOAuthConsentRejectsDashboardActorFromAnotherWorkspace(t *testing.T) {
 	}
 	_, _ = server.agentApp().RegisterOAuthClient(context.Background(), state.OAuthClientInput{ClientID: "client", Name: "Client", RedirectURIsJSON: `["https://client.example/callback"]`, ScopesJSON: `["agents:read"]`})
 	values := url.Values{"response_type": {"code"}, "client_id": {"client"}, "redirect_uri": {"https://client.example/callback"}, "scope": {"agents:read"}, "resource": {"https://vessica.example/mcp"}, "code_challenge_method": {"S256"}, "code_challenge": {strings.Repeat("a", 43)}, "consent": {"approve"}}
-	if rec := formRequest(server.Handler(), http.MethodPost, "/oauth/authorize", values); rec.Code != http.StatusUnauthorized {
+	if rec := oauthConsentRequest(server.Handler(), values, "https://vessica.example"); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("foreign consent=%d %s workspace=%s", rec.Code, rec.Body.String(), db.Workspace.ID)
 	}
 }

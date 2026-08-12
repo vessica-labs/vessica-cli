@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,6 +19,62 @@ import (
 )
 
 const oauthMaxBodyBytes = 64 << 10
+
+var oauthConsentTemplate = template.Must(template.New("oauth-consent").Parse(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Authorize {{.ClientName}}</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f5f7; color: #17202a; }
+    main { width: min(34rem, calc(100% - 3rem)); padding: 2rem; border-radius: 1rem; background: white; box-shadow: 0 1rem 3rem rgba(0,0,0,.12); }
+    h1 { margin-top: 0; font-size: 1.5rem; }
+    ul { padding-left: 1.25rem; }
+    .actions { display: flex; gap: .75rem; margin-top: 1.5rem; }
+    button { padding: .7rem 1rem; border-radius: .5rem; border: 1px solid #aaa; font: inherit; cursor: pointer; }
+    button[value="approve"] { background: #1167d8; color: white; border-color: #1167d8; }
+    @media (prefers-color-scheme: dark) { body { background: #111827; color: #e5e7eb; } main { background: #1f2937; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Authorize {{.ClientName}}</h1>
+    <p><strong>{{.ClientName}}</strong> is requesting access to workspace <strong>{{.WorkspaceID}}</strong>.</p>
+    <p>Requested permissions:</p>
+    <ul>{{range .Scopes}}<li>{{.}}</li>{{end}}</ul>
+    <form method="post" action="/oauth/authorize">
+      <input type="hidden" name="response_type" value="{{.ResponseType}}">
+      <input type="hidden" name="client_id" value="{{.ClientID}}">
+      <input type="hidden" name="redirect_uri" value="{{.RedirectURI}}">
+      <input type="hidden" name="scope" value="{{.Scope}}">
+      <input type="hidden" name="state" value="{{.State}}">
+      <input type="hidden" name="code_challenge" value="{{.CodeChallenge}}">
+      <input type="hidden" name="code_challenge_method" value="{{.CodeChallengeMethod}}">
+      <input type="hidden" name="resource" value="{{.Resource}}">
+      <div class="actions">
+        <button type="submit" name="consent" value="approve">Approve</button>
+        <button type="submit" name="consent" value="deny">Deny</button>
+      </div>
+    </form>
+  </main>
+</body>
+</html>`))
+
+type oauthConsentPage struct {
+	ClientID            string
+	ClientName          string
+	WorkspaceID         string
+	ResponseType        string
+	RedirectURI         string
+	Scope               string
+	State               string
+	CodeChallenge       string
+	CodeChallengeMethod string
+	Resource            string
+	Scopes              []string
+}
 
 type MCPDashboardActor struct {
 	WorkspaceID string
@@ -115,7 +172,7 @@ func (s *Server) handleOAuthAuthorizationServer(w http.ResponseWriter, r *http.R
 }
 
 func (s *Server) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
-	_, resource, ok := s.requireCanonicalMCP(w)
+	base, resource, ok := s.requireCanonicalMCP(w)
 	if !ok {
 		return
 	}
@@ -137,16 +194,32 @@ func (s *Server) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	actor, err := s.MCPDashboardIdentity(r, r.Method == http.MethodPost)
+	if r.Method == http.MethodPost && !validOAuthConsentOrigin(r, base) {
+		writeOAuthError(w, http.StatusForbidden, "access_denied", "authorization consent origin is not allowed")
+		return
+	}
+	actor, err := s.MCPDashboardIdentity(r, false)
 	workspace, workspaceErr := s.DB.GetWorkspace(r.Context())
 	if err != nil || workspaceErr != nil || strings.TrimSpace(actor.UserID) == "" || actor.WorkspaceID != workspace.ID {
 		writeOAuthError(w, http.StatusUnauthorized, "access_denied", "dashboard authorization is required")
 		return
 	}
 	if r.Method == http.MethodGet {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"consent_required": true, "client_id": client.ClientID, "client_name": client.Name,
-			"workspace_id": client.WorkspaceID, "actor_id": actor.UserID, "scopes": scopes,
+		formAction := "'self'"
+		if redirectTarget, parseErr := url.Parse(redirectURI); parseErr == nil && redirectTarget.Scheme == "https" && redirectTarget.Host != "" && redirectTarget.User == nil {
+			formAction += " https://" + redirectTarget.Host
+		}
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action "+formAction+"; frame-ancestors 'none'")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_ = oauthConsentTemplate.Execute(w, oauthConsentPage{
+			ClientID: client.ClientID, ClientName: client.Name, WorkspaceID: client.WorkspaceID,
+			ResponseType: r.Form.Get("response_type"), RedirectURI: redirectURI,
+			Scope: r.Form.Get("scope"), State: r.Form.Get("state"),
+			CodeChallenge: r.Form.Get("code_challenge"), CodeChallengeMethod: r.Form.Get("code_challenge_method"),
+			Resource: resource, Scopes: scopes,
 		})
 		return
 	}
@@ -178,6 +251,18 @@ func (s *Server) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	}
 	target.RawQuery = query.Encode()
 	http.Redirect(w, r, target.String(), http.StatusSeeOther)
+}
+
+func validOAuthConsentOrigin(r *http.Request, base string) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == base {
+		return true
+	}
+	// Some browser privacy/extension paths omit Origin on a top-level form POST.
+	// Sec-Fetch-Site is a browser-controlled forbidden header and preserves the
+	// same-origin boundary for those submissions. The Strict session cookie is
+	// still required independently by MCPDashboardIdentity.
+	return (origin == "" || origin == "null") && r.Header.Get("Sec-Fetch-Site") == "same-origin"
 }
 
 func (s *Server) validateAuthorizationRequest(r *http.Request, resource string) (*state.OAuthClient, string, []string, error) {

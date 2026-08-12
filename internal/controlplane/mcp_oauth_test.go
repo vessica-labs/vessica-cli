@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -34,8 +35,8 @@ func mcpTestServer(t *testing.T) (*Server, *state.DB) {
 		DB: db, Config: config.Defaults(), MCPEnabled: true,
 		MCPPublicURL: "https://vessica.example",
 		MCPDashboardIdentity: func(_ *http.Request, mutation bool) (MCPDashboardActor, error) {
-			if !mutation {
-				t.Fatal("authorization consent did not require mutation-grade dashboard identity")
+			if mutation {
+				t.Fatal("OAuth consent must use the session identity; same-origin form submission provides CSRF protection")
 			}
 			return MCPDashboardActor{WorkspaceID: db.Workspace.ID, UserID: "user_1", Role: "owner"}, nil
 		},
@@ -254,7 +255,20 @@ func TestOAuthDiscoveryPKCEAndDedicatedHashedTokens(t *testing.T) {
 		"scope": {allScopes}, "state": {"opaque-state"}, "code_challenge": {challenge},
 		"code_challenge_method": {"S256"}, "consent": {"approve"}, "resource": {"https://vessica.example/mcp"},
 	}
-	rec := formRequest(handler, http.MethodPost, "/oauth/authorize", authorize)
+	getRec := httptest.NewRecorder()
+	handler.ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, "/oauth/authorize?"+authorize.Encode(), nil))
+	if getRec.Code != http.StatusOK || !strings.HasPrefix(getRec.Header().Get("Content-Type"), "text/html") {
+		t.Fatalf("authorize consent page status=%d type=%q body=%s", getRec.Code, getRec.Header().Get("Content-Type"), getRec.Body.String())
+	}
+	for _, expected := range []string{"Authorize Test MCP client", `name="client_id" value="client-1"`, `name="consent" value="approve"`, "knowledge:read"} {
+		if !strings.Contains(getRec.Body.String(), expected) {
+			t.Fatalf("authorize consent page omitted %q: %s", expected, getRec.Body.String())
+		}
+	}
+	if !strings.Contains(getRec.Header().Get("Content-Security-Policy"), "form-action 'self' https://client.example") || getRec.Header().Get("X-Frame-Options") != "DENY" {
+		t.Fatalf("authorize consent security headers=%v", getRec.Header())
+	}
+	rec := oauthConsentRequest(handler, authorize, "https://vessica.example")
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("authorize status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -300,6 +314,50 @@ func TestOAuthDiscoveryPKCEAndDedicatedHashedTokens(t *testing.T) {
 	}
 	if storedAccess == tokens.AccessToken || storedRefresh == tokens.RefreshToken || storedAccess == "" || storedRefresh == "" {
 		t.Fatalf("plaintext OAuth material was stored: access=%q refresh=%q", storedAccess, storedRefresh)
+	}
+}
+
+func TestOAuthConsentPageEscapesClientNameAndRejectsCrossOriginPost(t *testing.T) {
+	server, _ := mcpTestServer(t)
+	redirectURI := "https://client.example/callback"
+	if _, err := server.agentApp().RegisterOAuthClient(context.Background(), state.OAuthClientInput{
+		ClientID: "client-escape", Name: `<script>alert("x")</script>`,
+		RedirectURIsJSON: `[` + fmt.Sprintf("%q", redirectURI) + `]`, ScopesJSON: `["agents:read"]`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	values := url.Values{
+		"response_type": {"code"}, "client_id": {"client-escape"}, "redirect_uri": {redirectURI},
+		"scope": {"agents:read"}, "state": {"state"}, "code_challenge": {strings.Repeat("a", 43)},
+		"code_challenge_method": {"S256"}, "resource": {"https://vessica.example/mcp"},
+	}
+	getRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(getRec, httptest.NewRequest(http.MethodGet, "/oauth/authorize?"+values.Encode(), nil))
+	if getRec.Code != http.StatusOK || strings.Contains(getRec.Body.String(), `<script>alert`) || !strings.Contains(getRec.Body.String(), `&lt;script&gt;`) {
+		t.Fatalf("escaped consent page status=%d body=%s", getRec.Code, getRec.Body.String())
+	}
+	values.Set("consent", "deny")
+	denied := oauthConsentRequest(server.Handler(), values, "https://vessica.example")
+	deniedLocation, deniedErr := url.Parse(denied.Header().Get("Location"))
+	if denied.Code != http.StatusSeeOther || deniedErr != nil || deniedLocation.Query().Get("error") != "access_denied" || deniedLocation.Query().Get("state") != "state" {
+		t.Fatalf("denied consent status=%d location=%q err=%v", denied.Code, denied.Header().Get("Location"), deniedErr)
+	}
+	values.Set("consent", "approve")
+	crossOrigin := oauthConsentRequest(server.Handler(), values, "https://hostile.example")
+	if crossOrigin.Code != http.StatusForbidden || !strings.Contains(crossOrigin.Body.String(), `"error":"access_denied"`) {
+		t.Fatalf("cross-origin consent status=%d body=%s", crossOrigin.Code, crossOrigin.Body.String())
+	}
+	missingBrowserSignal := oauthConsentRequest(server.Handler(), values, "")
+	if missingBrowserSignal.Code != http.StatusForbidden {
+		t.Fatalf("originless consent without browser signal status=%d body=%s", missingBrowserSignal.Code, missingBrowserSignal.Body.String())
+	}
+	privacyRequest := httptest.NewRequest(http.MethodPost, "/oauth/authorize", strings.NewReader(values.Encode()))
+	privacyRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	privacyRequest.Header.Set("Sec-Fetch-Site", "same-origin")
+	privacyRec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(privacyRec, privacyRequest)
+	if privacyRec.Code != http.StatusSeeOther {
+		t.Fatalf("same-origin browser consent status=%d body=%s", privacyRec.Code, privacyRec.Body.String())
 	}
 }
 

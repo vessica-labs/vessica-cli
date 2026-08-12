@@ -23,6 +23,15 @@ func formRequest(handler http.Handler, method, path string, values url.Values) *
 	return rec
 }
 
+func oauthConsentRequest(handler http.Handler, values url.Values, origin string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/oauth/authorize", strings.NewReader(values.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", origin)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
 func mustJSON(value any) string {
 	raw, _ := json.Marshal(value)
 	return string(raw)
