@@ -3,7 +3,8 @@
 This plugin teaches Codex to operate setup and engineering workflows through
 the version-matched `ves` CLI. When `VES_MCP_PUBLIC_URL` is a canonical HTTPS
 origin during `ves setup codex --plugin`, the installer also writes a concrete
-OAuth-protected remote MCP descriptor. It contains no database, Railway,
+OAuth-protected remote MCP descriptor using Codex's direct server-map shape.
+It contains no database, Railway,
 Linear, or knowledge-service implementation. The hosted control plane and `ves` remain authoritative.
 
 ## Included workflows

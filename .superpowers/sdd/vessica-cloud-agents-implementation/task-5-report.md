@@ -36,12 +36,14 @@ Railway deployment, or live schedule creation was added. No push was performed.
 - `/internal/dashboard/metrics` retains the existing dashboard metrics and adds
   Prometheus-format OAuth, MCP, source/ingestion, rejection, failed-agent,
   missing-briefing, aggregate budget, and denied-action signals.
-- The existing Codex plugin now includes `.mcp.json` with remote HTTP MCP at
-  `${VES_MCP_PUBLIC_URL}/mcp`, declares it through `mcpServers`, and adds the
-  `use-vessica-cloud` skill. Existing setup, epic, run, harness, knowledge,
-  agent, and operator CLI skills remain. Shared Claude rendering continues to
-  pass and keeps its Codex production-runner boundary.
-- Release packaging asserts the MCP descriptor and cloud skill are present.
+- The existing Codex plugin installer can generate `.mcp.json` with remote HTTP
+  MCP at the configured canonical HTTPS origin plus `/mcp`, declares it through
+  the manifest's `mcpServers` pointer, and adds the `use-vessica-cloud` skill.
+  Existing setup, epic, run, harness, knowledge, agent, and operator CLI skills
+  remain. Shared Claude rendering continues to pass and keeps its Codex
+  production-runner boundary.
+- Release packaging asserts that the source archive contains the cloud skill
+  but no unrendered MCP descriptor or URL placeholder.
   The dashboard OpenAPI source and generated TypeScript contract were updated,
   and production assets/docs were regenerated and embedded.
 - `docs/Cloud_Agents_Operator_Runbook.md` documents Railway configuration,
@@ -106,9 +108,8 @@ The Task 5 P1/P2 review findings were corrected in a follow-up TDD pass:
   failure. It rotates the key only after definitive success or when the user
   edits the request as a new action. A lost-response retry test proves one
   message and one durable run, with the second response replayed.
-- Knowledge citation links now seed an exact search from the `citation` query
-  and visibly identify the requested evidence. The React test follows a
-  citation link and proves that the cited ID is queried and rendered.
+- Knowledge citation links now route persisted IDs directly to their typed
+  detail surface and API. They do not rely on lexical search to resolve an ID.
 - Missing briefing health now resolves the most recent expected weekday morning
   and afternoon slots in `America/Los_Angeles`, applies a 30-minute grace
   window, includes the expected local date in the signal, and treats an older
@@ -133,3 +134,26 @@ CLI build, architecture lint (same pre-existing 526-line soft warning), 5
 dashboard Vitest files / 9 tests, dashboard build, 2 Playwright tests, agent
 runtime 10 files / 34 tests plus typecheck/build, source and rendered ChatGPT
 plugin validation, and the 151,164-byte compressed dashboard asset budget.
+
+## Final review corrections
+
+- Persisted citation IDs now route by their exact type prefix: `art_` to the
+  artifact detail API, `mem_` to the memory detail API, and `ent_` to the entity
+  detail API. They no longer use lexical search-by-ID. Tests traverse the real
+  React router, assert the exact endpoint for every type, preserve the API's
+  structured 404 for a missing object, and leave invalid/non-object citation
+  strings visible but unlinked.
+- Installed Codex `.mcp.json` now uses the officially supported direct server
+  map, while `plugin.json` retains its `mcpServers: "./.mcp.json"` pointer. The
+  installation test semantically decodes both JSON files and verifies exactly
+  one HTTPS remote server, no unsupported wrapper, placeholder, or secret.
+  Missing configuration still produces a skills/CLI-only install and unsafe
+  endpoints still fail before any plugin files are written.
+
+Final verification passed: all Go tests, the selected race suites, `go vet`,
+CLI build, architecture lint (same pre-existing 526-line soft warning), 5
+dashboard Vitest files / 13 tests, dashboard build, 2 Playwright tests, source
+plugin validation, and the 150,923-byte compressed dashboard asset budget.
+The current Codex CLI exposes plugin and MCP management but no standalone
+descriptor-validation command, so installed output is covered by semantic JSON
+tests against the documented schema rather than a string assertion.

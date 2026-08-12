@@ -23,9 +23,11 @@ and the plugin manifest are present.
 To enable MCP in Codex, set `VES_MCP_PUBLIC_URL` to the canonical HTTPS
 control-plane origin before running the install command. The installer validates
 that it is an origin with no credentials, path, query, or fragment and writes a
-concrete `.mcp.json` URL ending in `/mcp`. It never serializes an environment
-placeholder or token. When the variable is absent, installation remains
-skills/CLI-only and omits both `.mcp.json` and `mcpServers`.
+concrete `.mcp.json` direct server map whose URL ends in `/mcp`. The installed
+`plugin.json` points to that companion file through `mcpServers`. The installer
+never serializes an environment placeholder or token. When the variable is
+absent, installation remains skills/CLI-only and omits both `.mcp.json` and
+`mcpServers`.
 
 ChatGPT web does not consume this local Codex installation. Following the
 [official OpenAI connection workflow](https://developers.openai.com/plugins/deploy/connect-chatgpt),

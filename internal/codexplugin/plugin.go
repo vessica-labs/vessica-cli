@@ -126,7 +126,9 @@ func configureInstalledMCP(dest, endpoint string, configured bool) error {
 	}
 	mcpPath := filepath.Join(dest, ".mcp.json")
 	if configured {
-		body, marshalErr := json.MarshalIndent(map[string]any{"mcpServers": map[string]any{"vessica": map[string]string{"type": "http", "url": endpoint}}}, "", "  ")
+		// Codex plugin MCP descriptors use a direct server map. The plugin
+		// manifest points at this companion file with its mcpServers field.
+		body, marshalErr := json.MarshalIndent(map[string]any{"vessica": map[string]string{"url": endpoint}}, "", "  ")
 		if marshalErr != nil {
 			return marshalErr
 		}

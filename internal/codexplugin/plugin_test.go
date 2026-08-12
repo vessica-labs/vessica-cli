@@ -82,8 +82,16 @@ func TestInstallWritesPluginAndMarketplaceEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(mcpRaw), `"type": "http"`) || !strings.Contains(string(mcpRaw), `"url": "https://vessica.example/mcp"`) || strings.Contains(string(mcpRaw), "${") {
-		t.Fatalf("remote MCP config is invalid: %s", mcpRaw)
+	var descriptor map[string]map[string]any
+	if err = json.Unmarshal(mcpRaw, &descriptor); err != nil {
+		t.Fatal(err)
+	}
+	server, ok := descriptor["vessica"]
+	if !ok || len(descriptor) != 1 || len(server) != 1 || server["url"] != "https://vessica.example/mcp" {
+		t.Fatalf("remote MCP descriptor does not use the supported direct server map: %#v", descriptor)
+	}
+	if strings.Contains(string(mcpRaw), "mcpServers") || strings.Contains(string(mcpRaw), "${") || strings.Contains(string(mcpRaw), "secret") {
+		t.Fatalf("remote MCP config contains an unsupported wrapper or secret material: %s", mcpRaw)
 	}
 	raw, err := os.ReadFile(result.Marketplace)
 	if err != nil {
