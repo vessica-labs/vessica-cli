@@ -124,7 +124,7 @@ func TestOutlookReservationCrashReclaimIsLeasedAndFenced(t *testing.T) {
 	db, ctx := agentTestDB(t), context.Background()
 	candidate := "2026-08-11T08:00:00-07:00"
 	in := OutlookIngestionBatchInput{IdempotencyKey: "crash-reclaim", SubmittedBy: "user"}
-	first, err := db.CreateOutlookIngestionBatchWithCheckpoints(ctx, in, "", candidate, "", candidate, time.Millisecond)
+	first, err := db.CreateOutlookIngestionBatchWithCheckpoints(ctx, in, "", candidate, "", candidate, time.Minute)
 	if err != nil || first.ReservationToken == "" {
 		t.Fatalf("first=%#v err=%v", first, err)
 	}

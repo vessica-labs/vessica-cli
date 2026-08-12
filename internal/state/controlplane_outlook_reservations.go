@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,6 +11,11 @@ import (
 )
 
 const outlookReservationLease = 5 * time.Minute
+
+var (
+	ErrOutlookReservationAlreadyClaimed = errors.New("outlook batch checkpoint reservation is already claimed")
+	ErrOutlookReservationHeld           = errors.New("outlook checkpoints are reserved by another batch")
+)
 
 // CreateOutlookIngestionBatchWithCheckpoints atomically validates and leases
 // both source checkpoints. The returned raw token is ephemeral; only its hash
@@ -55,7 +61,14 @@ func (db *DB) CreateOutlookIngestionBatchWithCheckpoints(ctx context.Context, in
 			if err = tx.QueryRowContext(ctx, db.Rebind(`SELECT COUNT(*) FROM source_checkpoint_reservations WHERE workspace_id=? AND batch_id=? AND ((source_type='outlook_email' AND expected_value=? AND candidate_value=?) OR (source_type='outlook_calendar' AND expected_value=? AND candidate_value=?))`), ws.ID, existingID, emailExpected, emailCandidate, calendarExpected, calendarCandidate).Scan(&matching); err != nil || matching != 2 {
 				return nil, fmt.Errorf("outlook batch checkpoint reservation is incomplete or changed")
 			}
-			result, updateErr := tx.ExecContext(ctx, db.Rebind(`UPDATE source_checkpoint_reservations SET claim_token_hash=?,lease_until=?,updated_at=? WHERE workspace_id=? AND batch_id=?`), claimHash, leaseUntil, now, ws.ID, existingID)
+			var activeReservations int
+			if err = tx.QueryRowContext(ctx, db.Rebind(`SELECT COUNT(*) FROM source_checkpoint_reservations WHERE workspace_id=? AND batch_id=? AND lease_until>=?`), ws.ID, existingID, now).Scan(&activeReservations); err != nil {
+				return nil, err
+			}
+			if activeReservations != 0 {
+				return nil, ErrOutlookReservationAlreadyClaimed
+			}
+			result, updateErr := tx.ExecContext(ctx, db.Rebind(`UPDATE source_checkpoint_reservations SET claim_token_hash=?,lease_until=?,updated_at=? WHERE workspace_id=? AND batch_id=? AND lease_until<?`), claimHash, leaseUntil, now, ws.ID, existingID, now)
 			if updateErr != nil {
 				return nil, updateErr
 			}
@@ -97,12 +110,22 @@ func (db *DB) CreateOutlookIngestionBatchWithCheckpoints(ctx context.Context, in
 	if err = db.validateOutlookCheckpointsTx(ctx, tx, ws.ID, emailExpected, calendarExpected); err != nil {
 		return nil, err
 	}
-	var reservations int
-	if err = tx.QueryRowContext(ctx, db.Rebind(`SELECT COUNT(*) FROM source_checkpoint_reservations WHERE workspace_id=? AND source_id='outlook'`), ws.ID).Scan(&reservations); err != nil {
+	var reservations, activeReservations int
+	if err = tx.QueryRowContext(ctx, db.Rebind(`SELECT COUNT(*),COALESCE(SUM(CASE WHEN lease_until>=? THEN 1 ELSE 0 END),0) FROM source_checkpoint_reservations WHERE workspace_id=? AND source_id='outlook'`), now, ws.ID).Scan(&reservations, &activeReservations); err != nil {
 		return nil, err
 	}
+	if activeReservations != 0 {
+		return nil, ErrOutlookReservationHeld
+	}
 	if reservations != 0 {
-		return nil, fmt.Errorf("outlook checkpoints are reserved by another batch")
+		result, deleteErr := tx.ExecContext(ctx, db.Rebind(`DELETE FROM source_checkpoint_reservations WHERE workspace_id=? AND source_id='outlook' AND lease_until<?`), ws.ID, now)
+		if deleteErr != nil {
+			return nil, deleteErr
+		}
+		deleted, _ := result.RowsAffected()
+		if deleted != int64(reservations) {
+			return nil, ErrOutlookReservationHeld
+		}
 	}
 	batchID := id.New("obatch")
 	if _, err = tx.ExecContext(ctx, db.Rebind(`INSERT INTO outlook_ingestion_batches(id,workspace_id,idempotency_key,submitted_by,state,checkpoint_json,warnings_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`), batchID, ws.ID, in.IdempotencyKey, in.SubmittedBy, "received", in.CheckpointJSON, in.WarningsJSON, now, now); err != nil {

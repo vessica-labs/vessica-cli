@@ -322,3 +322,41 @@ audit findings described above. No push was performed.
 The dashboard clean install still reports the same 8 high-severity transitive
 npm audit findings. This task did not modify dashboard dependencies. No push
 was performed.
+
+## Round 4 reservation ownership remediation
+
+- An active same-batch reservation now returns the explicit
+  `ErrOutlookReservationAlreadyClaimed` outcome and leaves both the stored fence
+  hash and lease unchanged. It no longer silently rotates the live owner's
+  fence.
+- An expired same-batch reservation may be reclaimed with a new hashed fence;
+  the update is conditional on both reservation rows still being expired.
+- A different batch is rejected with `ErrOutlookReservationHeld` while either
+  source reservation is active and cannot alter the current owner.
+- After every abandoned reservation expires, a different batch may
+  transactionally release it and establish new ownership only after its
+  expected email and calendar values match the current committed checkpoints.
+  A conditional delete elects one reclaimer under concurrency. Existing
+  globally keyed item/outbox work deduplicates into the replacement submission,
+  preventing duplicate delivery.
+- Stale finalize and release fences are rejected after both same-batch and
+  different-batch ownership changes.
+
+### Round 4 RED/GREEN evidence and verification
+
+1. RED: repeating the same batch always rotated its fence, including during an
+   active lease. GREEN: the active-case test observes `already_claimed` and
+   proves the stored fence/lease are byte-for-byte unchanged.
+2. RED: expired reservations permanently blocked a different batch. GREEN: the
+   replacement test reclaims from the current committed checkpoint, advances
+   only to its own candidate, and retains exactly one item and one outbox row.
+3. Four-case SQLite tests cover same-active, same-expired, different-active,
+   and different-expired behavior plus stale finalize/release rejection.
+   Disposable PostgreSQL covers all four ownership outcomes and stale release.
+4. `go test ./... -count=1`, the focused repository race gate, `go vet ./...`,
+   `go build ./cmd/ves`, architecture lint, `git diff --check`, dashboard clean
+   install/API generation/unit/build/E2E, and the 148157-byte asset budget all
+   passed. Architecture lint retains one pre-existing soft file-length warning;
+   npm audit retains the same 8 high-severity transitive findings.
+
+No push was performed.

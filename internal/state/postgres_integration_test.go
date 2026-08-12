@@ -297,6 +297,12 @@ func TestPostgresHostedSchema(t *testing.T) {
 	if err != nil || reserved.ReservationToken == "" {
 		t.Fatalf("Postgres reserve=%#v err=%v", reserved, err)
 	}
+	if replayed, replayErr := db.CreateOutlookIngestionBatchWithCheckpoints(ctx, reservationInput, emailExpected, candidate, calendarExpected, candidate); replayed != nil || !stderrors.Is(replayErr, ErrOutlookReservationAlreadyClaimed) {
+		t.Fatalf("Postgres active same-batch replay=%#v err=%v", replayed, replayErr)
+	}
+	if contender, contenderErr := db.CreateOutlookIngestionBatchWithCheckpoints(ctx, OutlookIngestionBatchInput{IdempotencyKey: unique + "-active-contender", SubmittedBy: "postgres-user"}, emailExpected, candidate, calendarExpected, candidate); contender != nil || !stderrors.Is(contenderErr, ErrOutlookReservationHeld) {
+		t.Fatalf("Postgres active different-batch contender=%#v err=%v", contender, contenderErr)
+	}
 	if _, _, _, err = db.UpsertOutlookIngestionItemAndEnqueue(ctx, OutlookIngestionItemInput{BatchID: reserved.ID, SourceID: unique + "-first", NormalizedJSON: `{}`}, unique+"-processing"); err != nil {
 		t.Fatal(err)
 	}
@@ -318,6 +324,23 @@ func TestPostgresHostedSchema(t *testing.T) {
 		t.Fatal("Postgres stale reservation fence released")
 	}
 	if err = db.ReleaseOutlookCheckpointReservation(ctx, reserved.ID, reclaimedReservation.ReservationToken); err != nil {
+		t.Fatal(err)
+	}
+	abandoned, err := db.CreateOutlookIngestionBatchWithCheckpoints(ctx, OutlookIngestionBatchInput{IdempotencyKey: unique + "-abandoned", SubmittedBy: "postgres-user"}, emailExpected, candidate, calendarExpected, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `UPDATE source_checkpoint_reservations SET lease_until=? WHERE batch_id=?`, FormatTime(time.Now().Add(-time.Minute)), abandoned.ID); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := db.CreateOutlookIngestionBatchWithCheckpoints(ctx, OutlookIngestionBatchInput{IdempotencyKey: unique + "-replacement", SubmittedBy: "postgres-user"}, emailExpected, candidate, calendarExpected, candidate)
+	if err != nil || replacement.ReservationToken == "" {
+		t.Fatalf("Postgres different-batch expired replacement=%#v err=%v", replacement, err)
+	}
+	if err = db.ReleaseOutlookCheckpointReservation(ctx, abandoned.ID, abandoned.ReservationToken); err == nil {
+		t.Fatal("Postgres abandoned fence released replacement reservation")
+	}
+	if err = db.ReleaseOutlookCheckpointReservation(ctx, replacement.ID, replacement.ReservationToken); err != nil {
 		t.Fatal(err)
 	}
 }
