@@ -52,7 +52,7 @@ func authorizedMCPSession(t *testing.T, server *Server, scopes []string) *mcp.Cl
 	}
 	if _, err := server.DB.IssueOAuthAccessToken(context.Background(), state.OAuthAccessTokenInput{
 		ClientID: "client-tools", ActorID: "user_1", TokenHash: hashOAuthMaterial(rawToken),
-		ScopesJSON: mustJSON(scopes), ExpiresAt: state.FormatTime(time.Now().Add(time.Hour)),
+		Resource: "https://vessica.example/mcp", ScopesJSON: mustJSON(scopes), ExpiresAt: state.FormatTime(time.Now().Add(time.Hour)),
 	}); err != nil {
 		t.Fatal(err)
 	}

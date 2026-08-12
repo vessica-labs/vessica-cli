@@ -49,17 +49,17 @@ type AgentRun struct {
 	AgentID                 string `json:"agent_id"`
 	DefinitionVersion       int    `json:"definition_version"`
 	Trigger                 string `json:"trigger"`
-	InputJSON               string `json:"input_json"`
+	InputJSON               string `json:"-"`
 	OriginatingRepositoryID string `json:"originating_repository_id,omitempty"`
 	ParentRunID             string `json:"parent_run_id,omitempty"`
-	TriggerID               string `json:"trigger_id,omitempty"`
+	TriggerID               string `json:"-"`
 	RootRunID               string `json:"root_run_id"`
 	NestingDepth            int    `json:"nesting_depth"`
 	Status                  string `json:"status"`
-	BudgetPeriodStart       string `json:"budget_period_start"`
-	ReservationMicroUSD     int64  `json:"reservation_microusd"`
-	RateSnapshotJSON        string `json:"rate_snapshot_json"`
-	ResolvedKnowledgeJSON   string `json:"resolved_knowledge_json"`
+	BudgetPeriodStart       string `json:"-"`
+	ReservationMicroUSD     int64  `json:"-"`
+	RateSnapshotJSON        string `json:"-"`
+	ResolvedKnowledgeJSON   string `json:"-"`
 	OutputJSON              string `json:"output_json,omitempty"`
 	TerminalError           string `json:"terminal_error,omitempty"`
 	CancelRequestedAt       string `json:"cancel_requested_at,omitempty"`

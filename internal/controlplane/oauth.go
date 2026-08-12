@@ -20,8 +20,9 @@ import (
 const oauthMaxBodyBytes = 64 << 10
 
 type MCPDashboardActor struct {
-	UserID string
-	Role   string
+	WorkspaceID string
+	UserID      string
+	Role        string
 }
 
 var mcpScopes = []string{
@@ -58,27 +59,49 @@ func (s *Server) registerOAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /oauth/revoke", s.handleOAuthRevoke)
 }
 
-func (s *Server) oauthBaseURL(r *http.Request) string {
-	if configured := strings.TrimRight(strings.TrimSpace(s.MCPPublicURL), "/"); configured != "" {
-		return configured
+func (s *Server) canonicalMCPResource() (string, string, error) {
+	base, err := canonicalHTTPSOrigin(s.MCPPublicURL)
+	if err != nil {
+		return "", "", fmt.Errorf("VES_MCP_PUBLIC_URL must be a canonical HTTPS origin")
 	}
-	scheme := "https"
-	if r.TLS == nil && (strings.HasPrefix(r.Host, "127.0.0.1") || strings.HasPrefix(r.Host, "localhost")) {
-		scheme = "http"
+	return base, base + "/mcp", nil
+}
+
+func canonicalHTTPSOrigin(configured string) (string, error) {
+	configured = strings.TrimSpace(configured)
+	parsed, err := url.Parse(configured)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+		return "", fmt.Errorf("not a canonical HTTPS origin")
 	}
-	return scheme + "://" + r.Host
+	base := "https://" + parsed.Host
+	return base, nil
+}
+
+func (s *Server) requireCanonicalMCP(w http.ResponseWriter) (string, string, bool) {
+	base, resource, err := s.canonicalMCPResource()
+	if err != nil {
+		writeOAuthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", err.Error())
+		return "", "", false
+	}
+	return base, resource, true
 }
 
 func (s *Server) handleOAuthProtectedResource(w http.ResponseWriter, r *http.Request) {
-	base := s.oauthBaseURL(r)
+	base, resource, ok := s.requireCanonicalMCP(w)
+	if !ok {
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"resource": base + "/mcp", "authorization_servers": []string{base},
+		"resource": resource, "authorization_servers": []string{base},
 		"scopes_supported": MCPScopes(), "bearer_methods_supported": []string{"header"},
 	})
 }
 
 func (s *Server) handleOAuthAuthorizationServer(w http.ResponseWriter, r *http.Request) {
-	base := s.oauthBaseURL(r)
+	base, _, ok := s.requireCanonicalMCP(w)
+	if !ok {
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"issuer": base, "authorization_endpoint": base + "/oauth/authorize",
 		"token_endpoint": base + "/oauth/token", "revocation_endpoint": base + "/oauth/revoke",
@@ -90,6 +113,10 @@ func (s *Server) handleOAuthAuthorizationServer(w http.ResponseWriter, r *http.R
 }
 
 func (s *Server) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
+	_, resource, ok := s.requireCanonicalMCP(w)
+	if !ok {
+		return
+	}
 	if s.MCPDashboardIdentity == nil {
 		writeOAuthError(w, http.StatusServiceUnavailable, "temporarily_unavailable", "dashboard identity is unavailable")
 		return
@@ -103,13 +130,14 @@ func (s *Server) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	} else {
 		r.Form = r.URL.Query()
 	}
-	client, redirectURI, scopes, err := s.validateAuthorizationRequest(r)
+	client, redirectURI, scopes, err := s.validateAuthorizationRequest(r, resource)
 	if err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	actor, err := s.MCPDashboardIdentity(r, r.Method == http.MethodPost)
-	if err != nil || strings.TrimSpace(actor.UserID) == "" {
+	workspace, workspaceErr := s.DB.GetWorkspace(r.Context())
+	if err != nil || workspaceErr != nil || strings.TrimSpace(actor.UserID) == "" || actor.WorkspaceID != workspace.ID {
 		writeOAuthError(w, http.StatusUnauthorized, "access_denied", "dashboard authorization is required")
 		return
 	}
@@ -133,6 +161,7 @@ func (s *Server) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 		ClientID: client.ClientID, ActorID: actor.UserID, CodeHash: hashOAuthMaterial(code),
 		RedirectURI: redirectURI, ScopesJSON: mustMarshalJSON(scopes),
 		CodeChallenge: r.Form.Get("code_challenge"), CodeChallengeMethod: "S256",
+		Resource:  resource,
 		ExpiresAt: state.FormatTime(time.Now().Add(5 * time.Minute)),
 	})
 	if err != nil {
@@ -149,12 +178,15 @@ func (s *Server) handleOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, target.String(), http.StatusSeeOther)
 }
 
-func (s *Server) validateAuthorizationRequest(r *http.Request) (*state.OAuthClient, string, []string, error) {
+func (s *Server) validateAuthorizationRequest(r *http.Request, resource string) (*state.OAuthClient, string, []string, error) {
 	if r.Form.Get("response_type") != "code" {
 		return nil, "", nil, fmt.Errorf("response_type must be code")
 	}
 	if r.Form.Get("code_challenge_method") != "S256" || !validPKCEValue(r.Form.Get("code_challenge"), 43, 128) {
 		return nil, "", nil, fmt.Errorf("S256 PKCE code_challenge is required")
+	}
+	if r.Form.Get("resource") != resource {
+		return nil, "", nil, fmt.Errorf("resource must exactly match the canonical MCP resource")
 	}
 	client, err := s.DB.GetOAuthClient(r.Context(), strings.TrimSpace(r.Form.Get("client_id")))
 	if err != nil || client.RevokedAt != "" {
@@ -179,6 +211,13 @@ func (s *Server) validateAuthorizationRequest(r *http.Request) (*state.OAuthClie
 }
 
 func (s *Server) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
+	if !requireOAuthForm(w, r) {
+		return
+	}
+	_, resource, ok := s.requireCanonicalMCP(w)
+	if !ok {
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, oauthMaxBodyBytes)
 	if err := r.ParseForm(); err != nil {
 		writeOAuthFormError(w, err)
@@ -186,15 +225,19 @@ func (s *Server) handleOAuthToken(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Form.Get("grant_type") {
 	case "authorization_code":
-		s.exchangeAuthorizationCode(w, r)
+		s.exchangeAuthorizationCode(w, r, resource)
 	case "refresh_token":
-		s.exchangeRefreshToken(w, r)
+		s.exchangeRefreshToken(w, r, resource)
 	default:
 		writeOAuthError(w, http.StatusBadRequest, "unsupported_grant_type", "grant_type is not supported")
 	}
 }
 
-func (s *Server) exchangeAuthorizationCode(w http.ResponseWriter, r *http.Request) {
+func (s *Server) exchangeAuthorizationCode(w http.ResponseWriter, r *http.Request, resource string) {
+	if r.Form.Get("resource") != resource {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_target", "resource must exactly match the canonical MCP resource")
+		return
+	}
 	verifier := r.Form.Get("code_verifier")
 	if !validPKCEValue(verifier, 43, 128) {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "PKCE verification failed")
@@ -202,24 +245,28 @@ func (s *Server) exchangeAuthorizationCode(w http.ResponseWriter, r *http.Reques
 	}
 	sum := sha256.Sum256([]byte(verifier))
 	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
-	code, err := s.agentApp().ExchangeOAuthAuthorizationCode(r.Context(), hashOAuthMaterial(r.Form.Get("code")), r.Form.Get("client_id"), r.Form.Get("redirect_uri"), challenge)
+	code, err := s.agentApp().ExchangeOAuthAuthorizationCode(r.Context(), hashOAuthMaterial(r.Form.Get("code")), r.Form.Get("client_id"), r.Form.Get("redirect_uri"), challenge, resource)
 	if err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "authorization code is invalid or expired")
 		return
 	}
-	s.issueOAuthTokenPair(w, r, code.ClientID, code.ActorID, code.ScopesJSON, id.New("oauthfamily"))
+	s.issueOAuthTokenPair(w, r, code.ClientID, code.ActorID, code.ScopesJSON, id.New("oauthfamily"), resource)
 }
 
-func (s *Server) exchangeRefreshToken(w http.ResponseWriter, r *http.Request) {
-	refresh, err := s.agentApp().ConsumeOAuthRefreshToken(r.Context(), hashOAuthMaterial(r.Form.Get("refresh_token")), r.Form.Get("client_id"))
+func (s *Server) exchangeRefreshToken(w http.ResponseWriter, r *http.Request, resource string) {
+	if r.Form.Get("resource") != resource {
+		writeOAuthError(w, http.StatusBadRequest, "invalid_target", "resource must exactly match the canonical MCP resource")
+		return
+	}
+	refresh, err := s.agentApp().ConsumeOAuthRefreshToken(r.Context(), hashOAuthMaterial(r.Form.Get("refresh_token")), r.Form.Get("client_id"), resource)
 	if err != nil {
 		writeOAuthError(w, http.StatusBadRequest, "invalid_grant", "refresh token is invalid or expired")
 		return
 	}
-	s.issueOAuthTokenPair(w, r, refresh.ClientID, refresh.ActorID, refresh.ScopesJSON, refresh.FamilyID)
+	s.issueOAuthTokenPair(w, r, refresh.ClientID, refresh.ActorID, refresh.ScopesJSON, refresh.FamilyID, resource)
 }
 
-func (s *Server) issueOAuthTokenPair(w http.ResponseWriter, r *http.Request, clientID, actorID, scopesJSON, familyID string) {
+func (s *Server) issueOAuthTokenPair(w http.ResponseWriter, r *http.Request, clientID, actorID, scopesJSON, familyID, resource string) {
 	access, err := randomOAuthMaterial("vma_", 36)
 	if err != nil {
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "access token generation failed")
@@ -231,14 +278,14 @@ func (s *Server) issueOAuthTokenPair(w http.ResponseWriter, r *http.Request, cli
 		return
 	}
 	if _, err = s.agentApp().IssueOAuthAccessToken(r.Context(), state.OAuthAccessTokenInput{
-		ClientID: clientID, ActorID: actorID, TokenHash: hashOAuthMaterial(access), ScopesJSON: scopesJSON,
+		ClientID: clientID, ActorID: actorID, TokenHash: hashOAuthMaterial(access), FamilyID: familyID, Resource: resource, ScopesJSON: scopesJSON,
 		ExpiresAt: state.FormatTime(time.Now().Add(time.Hour)),
 	}); err != nil {
 		writeOAuthError(w, http.StatusInternalServerError, "server_error", "access token could not be stored")
 		return
 	}
 	if _, err = s.agentApp().IssueOAuthRefreshToken(r.Context(), state.OAuthRefreshTokenInput{
-		ClientID: clientID, ActorID: actorID, MaterialHash: hashOAuthMaterial(refresh), FamilyID: familyID,
+		ClientID: clientID, ActorID: actorID, MaterialHash: hashOAuthMaterial(refresh), FamilyID: familyID, Resource: resource,
 		ScopesJSON: scopesJSON, ExpiresAt: state.FormatTime(time.Now().Add(30 * 24 * time.Hour)),
 	}); err != nil {
 		_ = s.agentApp().RevokeOAuthAccessToken(r.Context(), hashOAuthMaterial(access))
@@ -255,6 +302,12 @@ func (s *Server) issueOAuthTokenPair(w http.ResponseWriter, r *http.Request, cli
 }
 
 func (s *Server) handleOAuthRevoke(w http.ResponseWriter, r *http.Request) {
+	if !requireOAuthForm(w, r) {
+		return
+	}
+	if _, _, ok := s.requireCanonicalMCP(w); !ok {
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, oauthMaxBodyBytes)
 	if err := r.ParseForm(); err != nil {
 		writeOAuthFormError(w, err)
@@ -266,6 +319,15 @@ func (s *Server) handleOAuthRevoke(w http.ResponseWriter, r *http.Request) {
 		_ = s.agentApp().RevokeOAuthRefreshToken(r.Context(), hash)
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+func requireOAuthForm(w http.ResponseWriter, r *http.Request) bool {
+	contentType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
+	if contentType != "application/x-www-form-urlencoded" {
+		writeOAuthError(w, http.StatusUnsupportedMediaType, "invalid_request", "application/x-www-form-urlencoded content type is required")
+		return false
+	}
+	return true
 }
 
 func validPKCEValue(value string, minLen, maxLen int) bool {

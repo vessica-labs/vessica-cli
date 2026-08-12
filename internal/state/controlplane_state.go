@@ -39,15 +39,11 @@ func (db *DB) GetActionLedgerByKey(ctx context.Context, key string) (*ActionLedg
 	if e != nil {
 		return nil, e
 	}
-	var v ActionLedger
-	var agent, run sql.NullString
-	e = db.QueryRow(ctx, `SELECT id,workspace_id,actor_id,agent_id,agent_run_id,tool,policy_decision,redacted_arguments_json,result_json,latency_ms,idempotency_key,external_ids_json,created_at FROM action_ledger WHERE workspace_id=? AND idempotency_key=?`, ws.ID, key).Scan(&v.ID, &v.WorkspaceID, &v.ActorID, &agent, &run, &v.Tool, &v.PolicyDecision, &v.RedactedArgumentsJSON, &v.ResultJSON, &v.LatencyMS, &v.IdempotencyKey, &v.ExternalIDsJSON, &v.CreatedAt)
+	v, e := scanActionLedger(db.QueryRow(ctx, `SELECT id,workspace_id,actor_id,agent_id,agent_run_id,tool,policy_decision,redacted_arguments_json,result_json,latency_ms,idempotency_key,external_ids_json,created_at,execution_state,claim_token_hash,lease_until,updated_at FROM action_ledger WHERE workspace_id=? AND idempotency_key=?`, ws.ID, key))
 	if e == sql.ErrNoRows {
 		return nil, fmt.Errorf("action ledger entry not found")
 	}
-	v.AgentID = agent.String
-	v.AgentRunID = run.String
-	return &v, e
+	return v, e
 }
 
 func (db *DB) CreateConversation(ctx context.Context, in ConversationInput) (*Conversation, error) {
@@ -139,7 +135,7 @@ func (db *DB) GetSourceCheckpoint(ctx context.Context, typ, sourceID string) (*S
 		return nil, e
 	}
 	var v SourceCheckpoint
-	e = db.QueryRow(ctx, `SELECT workspace_id,source_type,source_id,checkpoint_json,updated_at FROM source_checkpoints WHERE workspace_id=? AND source_type=? AND source_id=?`, ws.ID, typ, sourceID).Scan(&v.WorkspaceID, &v.SourceType, &v.SourceID, &v.CheckpointJSON, &v.UpdatedAt)
+	e = db.QueryRow(ctx, `SELECT workspace_id,source_type,source_id,checkpoint_json,checkpoint_value,updated_at FROM source_checkpoints WHERE workspace_id=? AND source_type=? AND source_id=?`, ws.ID, typ, sourceID).Scan(&v.WorkspaceID, &v.SourceType, &v.SourceID, &v.CheckpointJSON, &v.CheckpointValue, &v.UpdatedAt)
 	if e == sql.ErrNoRows {
 		return nil, fmt.Errorf("source checkpoint not found")
 	}

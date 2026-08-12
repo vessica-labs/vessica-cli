@@ -43,6 +43,7 @@ type Server struct {
 	AgentRuntimeToken    string
 	MCPEnabled           bool
 	MCPPublicURL         string
+	MCPAllowedOrigins    []string
 	MCPDashboardIdentity func(*http.Request, bool) (MCPDashboardActor, error)
 	BinaryPath           string
 	Logger               *log.Logger
@@ -141,6 +142,10 @@ func (s *Server) Handler() http.Handler {
 		return mux
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.MCPEnabled && mcpControlRoute(r) {
+			mux.ServeHTTP(w, r)
+			return
+		}
 		if s.PreviewBroker != nil && constantValue(r.Header.Get(PreviewEdgeHeader), s.PreviewEdgeToken) {
 			if previewReviewRoute(r) {
 				mux.ServeHTTP(w, r)
@@ -169,6 +174,11 @@ func (s *Server) Handler() http.Handler {
 		}
 		mux.ServeHTTP(w, r)
 	})
+}
+
+func mcpControlRoute(r *http.Request) bool {
+	p := r.URL.Path
+	return p == "/mcp" || strings.HasPrefix(p, "/oauth/") || strings.HasPrefix(p, "/.well-known/oauth-")
 }
 
 func previewReviewRoute(r *http.Request) bool {
@@ -201,6 +211,16 @@ func stripPort(host string) string {
 func (s *Server) Run(ctx context.Context, addr string) error {
 	if s.DB == nil {
 		return fmt.Errorf("control plane database is required")
+	}
+	if s.MCPEnabled {
+		if _, _, err := s.canonicalMCPResource(); err != nil {
+			return err
+		}
+		for _, origin := range s.MCPAllowedOrigins {
+			if _, err := canonicalHTTPSOrigin(origin); err != nil {
+				return fmt.Errorf("VES_MCP_ALLOWED_ORIGINS contains an invalid origin")
+			}
+		}
 	}
 	if s.Logger == nil {
 		s.Logger = log.New(os.Stdout, "control-plane ", log.LstdFlags|log.LUTC)

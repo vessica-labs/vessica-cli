@@ -7,9 +7,6 @@ import (
 
 func dashboardRoute(r *http.Request) bool {
 	p := r.URL.Path
-	if p == "/mcp" || strings.HasPrefix(p, "/oauth/") || strings.HasPrefix(p, "/.well-known/oauth-") {
-		return false
-	}
 	if strings.HasPrefix(p, "/api/v1/sandboxes") && strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
 		return false
 	}

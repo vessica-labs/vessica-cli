@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	appservice "github.com/vessica-labs/vessica-cli/internal/app"
 	"github.com/vessica-labs/vessica-cli/internal/config"
@@ -97,6 +98,49 @@ func TestLocalSessionCSRFAndIdempotentMutation(t *testing.T) {
 	consent.Header.Del("X-CSRF-Token")
 	if _, err = server.AuthorizeExternalRequest(consent, true); err == nil {
 		t.Fatal("external consent accepted a mutation without CSRF")
+	}
+}
+
+func TestExternalIdentityRequiresCurrentWorkspaceMembershipAndRole(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "state.db")
+	first, err := state.Open("sqlite", dbPath, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	if _, err = first.EnsureWorkspace(context.Background(), "workspace-one", "hosted"); err != nil {
+		t.Fatal(err)
+	}
+	user, _ := first.UpsertDashboardUser(context.Background(), "github-1", "user", "User", "")
+	_ = first.UpsertMembership(context.Background(), user.ID, "owner")
+	rawSession := "session-one"
+	_, _ = first.CreateDashboardSession(context.Background(), user.ID, "owner", digest(rawSession), digest("csrf"), state.FormatTime(time.Now().Add(time.Hour)))
+
+	second, err := state.Open("sqlite", dbPath, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	if _, err = second.EnsureWorkspace(context.Background(), "workspace-two", "hosted"); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/oauth/authorize", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookie, Value: rawSession})
+	server := New(appservice.New(second, root, config.Defaults()), "hosted")
+	if _, err = server.AuthorizeExternalRequest(request, false); err == nil {
+		t.Fatal("dashboard session crossed workspace boundary")
+	}
+
+	secondSession := "session-two"
+	_ = second.UpsertMembership(context.Background(), user.ID, "owner")
+	_, _ = second.CreateDashboardSession(context.Background(), user.ID, "owner", digest(secondSession), digest("csrf"), state.FormatTime(time.Now().Add(time.Hour)))
+	_ = second.UpsertMembership(context.Background(), user.ID, "member")
+	request = httptest.NewRequest(http.MethodGet, "/oauth/authorize", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookie, Value: secondSession})
+	identity, err := server.AuthorizeExternalRequest(request, false)
+	if err != nil || identity.Role != "member" || identity.WorkspaceID != second.Workspace.ID {
+		t.Fatalf("identity did not use current membership: %#v err=%v", identity, err)
 	}
 }
 

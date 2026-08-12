@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	appservice "github.com/vessica-labs/vessica-cli/internal/app"
 	"github.com/vessica-labs/vessica-cli/internal/state"
 	knowledge "github.com/vessica-labs/vessica-knowledge-server/knowledge"
 )
@@ -47,8 +46,8 @@ type latestBriefingOutput struct {
 func (o *latestBriefingOutput) setMCPError(err *MCPToolError) { o.Error = err }
 
 type agentsListOutput struct {
-	Agents []appservice.AgentSummary `json:"agents,omitempty"`
-	Error  *MCPToolError             `json:"error,omitempty"`
+	Agents []mcpAgentSummary `json:"agents,omitempty"`
+	Error  *MCPToolError     `json:"error,omitempty"`
 }
 
 func (o *agentsListOutput) setMCPError(err *MCPToolError) { o.Error = err }
@@ -57,8 +56,8 @@ type agentGetInput struct {
 	AgentID string `json:"agent_id" jsonschema:"agent ID or name"`
 }
 type agentGetOutput struct {
-	Agent *appservice.AgentDetail `json:"agent,omitempty"`
-	Error *MCPToolError           `json:"error,omitempty"`
+	Agent *mcpAgentDetail `json:"agent,omitempty"`
+	Error *MCPToolError   `json:"error,omitempty"`
 }
 
 func (o *agentGetOutput) setMCPError(err *MCPToolError) { o.Error = err }
@@ -67,8 +66,8 @@ type agentRunsListInput struct {
 	AgentID string `json:"agent_id,omitempty" jsonschema:"optional agent ID"`
 }
 type agentRunsListOutput struct {
-	Runs  []state.AgentRun `json:"runs,omitempty"`
-	Error *MCPToolError    `json:"error,omitempty"`
+	Runs  []mcpAgentRun `json:"runs,omitempty"`
+	Error *MCPToolError `json:"error,omitempty"`
 }
 
 func (o *agentRunsListOutput) setMCPError(err *MCPToolError) { o.Error = err }
@@ -77,8 +76,8 @@ type agentRunGetInput struct {
 	RunID string `json:"run_id" jsonschema:"agent run ID"`
 }
 type agentRunGetOutput struct {
-	Run   *state.AgentRun `json:"run,omitempty"`
-	Error *MCPToolError   `json:"error,omitempty"`
+	Run   *mcpAgentRun  `json:"run,omitempty"`
+	Error *MCPToolError `json:"error,omitempty"`
 }
 
 func (o *agentRunGetOutput) setMCPError(err *MCPToolError) { o.Error = err }
@@ -149,19 +148,23 @@ func (s *Server) registerMCPReadTools(server *mcp.Server) {
 	})
 	addMCPTool(s, server, &mcp.Tool{Name: "agents_list", Description: "List durable Vessica agents in the authorized workspace.", Annotations: closedReadAnnotations("List agents")}, mcpToolOptions{Scope: "agents:read"}, func() *agentsListOutput { return &agentsListOutput{} }, func(ctx context.Context, _ mcpPrincipal, _ emptyMCPInput) (*agentsListOutput, error) {
 		agents, err := s.agentApp().Agents(ctx)
-		return &agentsListOutput{Agents: agents}, err
+		return &agentsListOutput{Agents: publicAgentSummaries(agents)}, err
 	})
 	addMCPTool(s, server, &mcp.Tool{Name: "agent_get", Description: "Get one durable Vessica agent and its active definition.", Annotations: closedReadAnnotations("Get agent")}, mcpToolOptions{Scope: "agents:read"}, func() *agentGetOutput { return &agentGetOutput{} }, func(ctx context.Context, _ mcpPrincipal, in agentGetInput) (*agentGetOutput, error) {
 		agent, err := s.agentApp().Agent(ctx, in.AgentID)
-		return &agentGetOutput{Agent: agent}, err
+		return &agentGetOutput{Agent: publicAgentDetail(agent)}, err
 	})
 	addMCPTool(s, server, &mcp.Tool{Name: "agent_runs_list", Description: "List durable Vessica agent runs, optionally for one agent.", Annotations: closedReadAnnotations("List agent runs")}, mcpToolOptions{Scope: "agents:read"}, func() *agentRunsListOutput { return &agentRunsListOutput{} }, func(ctx context.Context, _ mcpPrincipal, in agentRunsListInput) (*agentRunsListOutput, error) {
 		runs, err := s.agentApp().AgentRuns(ctx, in.AgentID)
-		return &agentRunsListOutput{Runs: runs}, err
+		return &agentRunsListOutput{Runs: publicAgentRuns(runs)}, err
 	})
 	addMCPTool(s, server, &mcp.Tool{Name: "agent_run_get", Description: "Get one durable Vessica agent run.", Annotations: closedReadAnnotations("Get agent run")}, mcpToolOptions{Scope: "agents:read"}, func() *agentRunGetOutput { return &agentRunGetOutput{} }, func(ctx context.Context, _ mcpPrincipal, in agentRunGetInput) (*agentRunGetOutput, error) {
 		run, err := s.agentApp().AgentRun(ctx, in.RunID)
-		return &agentRunGetOutput{Run: run}, err
+		if run == nil {
+			return &agentRunGetOutput{}, err
+		}
+		public := publicAgentRun(*run)
+		return &agentRunGetOutput{Run: &public}, err
 	})
 	addMCPTool(s, server, &mcp.Tool{Name: "conversation_history", Description: "Read ordered messages from a shared workspace conversation.", Annotations: closedReadAnnotations("Conversation history")}, mcpToolOptions{Scope: "conversations:write"}, func() *conversationHistoryOutput { return &conversationHistoryOutput{} }, func(ctx context.Context, _ mcpPrincipal, in conversationHistoryInput) (*conversationHistoryOutput, error) {
 		messages, err := s.agentApp().ConversationMessages(ctx, in.ConversationID, in.AfterSequence)

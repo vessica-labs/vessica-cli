@@ -40,6 +40,16 @@ acquired_at TEXT NOT NULL
 `}, {version: 5, sql: AgentSchemaSQL}, {version: 6, sql: CloudAgentControlPlaneSchemaSQL}, {version: 7, sql: CloudAgentControlPlaneOwnershipSQL}, {version: 8, sql: CloudAgentTriggerRequestSQL}, {version: 9, sql: `
 ALTER TABLE oauth_authorization_codes ADD COLUMN code_challenge TEXT NOT NULL DEFAULT '';
 ALTER TABLE oauth_authorization_codes ADD COLUMN code_challenge_method TEXT NOT NULL DEFAULT '';
+`}, {version: 10, sql: `
+ALTER TABLE oauth_authorization_codes ADD COLUMN resource TEXT NOT NULL DEFAULT '';
+ALTER TABLE oauth_access_tokens ADD COLUMN family_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE oauth_access_tokens ADD COLUMN resource TEXT NOT NULL DEFAULT '';
+ALTER TABLE oauth_refresh_tokens ADD COLUMN resource TEXT NOT NULL DEFAULT '';
+ALTER TABLE action_ledger ADD COLUMN execution_state TEXT NOT NULL DEFAULT 'completed';
+ALTER TABLE action_ledger ADD COLUMN claim_token_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE action_ledger ADD COLUMN lease_until TEXT NOT NULL DEFAULT '';
+ALTER TABLE action_ledger ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+ALTER TABLE source_checkpoints ADD COLUMN checkpoint_value TEXT NOT NULL DEFAULT '';
 `}}
 
 func latestMigrationVersion() int {

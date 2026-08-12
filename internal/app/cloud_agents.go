@@ -28,23 +28,29 @@ func (s *Service) RevokeOAuthAccessToken(ctx context.Context, tokenHash string) 
 func (s *Service) RevokeOAuthRefreshToken(ctx context.Context, tokenHash string) error {
 	return s.DB.RevokeOAuthRefreshToken(ctx, tokenHash)
 }
-func (s *Service) ValidateOAuthRefreshToken(ctx context.Context, materialHash string) (*state.OAuthRefreshToken, error) {
-	return s.DB.GetOAuthRefreshToken(ctx, materialHash)
+func (s *Service) ValidateOAuthRefreshToken(ctx context.Context, materialHash, resource string) (*state.OAuthRefreshToken, error) {
+	return s.DB.GetOAuthRefreshToken(ctx, materialHash, resource)
 }
-func (s *Service) ConsumeOAuthAuthorizationCode(ctx context.Context, codeHash string) (*state.OAuthAuthorizationCode, error) {
-	return s.DB.ConsumeOAuthAuthorizationCode(ctx, codeHash)
+func (s *Service) ExchangeOAuthAuthorizationCode(ctx context.Context, codeHash, clientID, redirectURI, codeChallenge, resource string) (*state.OAuthAuthorizationCode, error) {
+	return s.DB.ExchangeOAuthAuthorizationCode(ctx, codeHash, clientID, redirectURI, codeChallenge, resource)
 }
-func (s *Service) ExchangeOAuthAuthorizationCode(ctx context.Context, codeHash, clientID, redirectURI, codeChallenge string) (*state.OAuthAuthorizationCode, error) {
-	return s.DB.ExchangeOAuthAuthorizationCode(ctx, codeHash, clientID, redirectURI, codeChallenge)
+func (s *Service) ValidateOAuthAccessToken(ctx context.Context, tokenHash, resource string) (*state.OAuthAccessToken, error) {
+	return s.DB.GetOAuthAccessToken(ctx, tokenHash, resource)
 }
-func (s *Service) ValidateOAuthAccessToken(ctx context.Context, tokenHash string) (*state.OAuthAccessToken, error) {
-	return s.DB.GetOAuthAccessToken(ctx, tokenHash)
-}
-func (s *Service) ConsumeOAuthRefreshToken(ctx context.Context, tokenHash, clientID string) (*state.OAuthRefreshToken, error) {
-	return s.DB.ConsumeOAuthRefreshToken(ctx, tokenHash, clientID)
+func (s *Service) ConsumeOAuthRefreshToken(ctx context.Context, tokenHash, clientID, resource string) (*state.OAuthRefreshToken, error) {
+	return s.DB.ConsumeOAuthRefreshToken(ctx, tokenHash, clientID, resource)
 }
 func (s *Service) RecordAction(ctx context.Context, in state.ActionLedgerInput) (*state.ActionLedger, error) {
 	return s.DB.AppendActionLedger(ctx, in)
+}
+func (s *Service) ClaimAction(ctx context.Context, in state.ActionLedgerInput, lease time.Duration) (*state.ActionExecutionClaim, error) {
+	return s.DB.ClaimActionExecution(ctx, in, lease)
+}
+func (s *Service) CompleteAction(ctx context.Context, ledgerID, claimToken, resultJSON string, latencyMS int64) error {
+	return s.DB.CompleteActionExecution(ctx, ledgerID, claimToken, resultJSON, latencyMS)
+}
+func (s *Service) FailAction(ctx context.Context, ledgerID, claimToken, resultJSON string) error {
+	return s.DB.FailActionExecution(ctx, ledgerID, claimToken, resultJSON)
 }
 func (s *Service) StartConversation(ctx context.Context, in state.ConversationInput) (*state.Conversation, error) {
 	return s.DB.CreateConversation(ctx, in)
@@ -100,8 +106,8 @@ func (s *Service) SetOutlookItemState(ctx context.Context, itemID, itemState, er
 func (s *Service) SetOutlookBatchState(ctx context.Context, batchID, batchState, errText string) error {
 	return s.DB.SetOutlookIngestionBatchState(ctx, batchID, batchState, errText)
 }
-func (s *Service) FinalizeOutlookIngestion(ctx context.Context, batchID, emailCheckpoint, calendarCheckpoint string) error {
-	return s.DB.FinalizeOutlookIngestionBatch(ctx, batchID, emailCheckpoint, calendarCheckpoint)
+func (s *Service) FinalizeOutlookIngestion(ctx context.Context, batchID, emailExpected, emailCandidate, emailCheckpoint, calendarExpected, calendarCandidate, calendarCheckpoint string) error {
+	return s.DB.FinalizeOutlookIngestionBatch(ctx, batchID, emailExpected, emailCandidate, emailCheckpoint, calendarExpected, calendarCandidate, calendarCheckpoint)
 }
 func (s *Service) TriggerCloudAgentRun(ctx context.Context, in state.AgentRunTriggerInput) (*state.AgentRunTrigger, error) {
 	return s.DB.TriggerAgentRun(ctx, in)

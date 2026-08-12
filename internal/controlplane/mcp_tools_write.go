@@ -18,8 +18,8 @@ type agentRunInput struct {
 	IdempotencyKey string `json:"idempotency_key" jsonschema:"stable retry key"`
 }
 type agentRunOutput struct {
-	Trigger *state.AgentRunTrigger `json:"trigger,omitempty"`
-	Error   *MCPToolError          `json:"error,omitempty"`
+	Trigger *mcpAgentRunTrigger `json:"trigger,omitempty"`
+	Error   *MCPToolError       `json:"error,omitempty"`
 }
 
 func (o *agentRunOutput) setMCPError(err *MCPToolError) { o.Error = err }
@@ -71,17 +71,25 @@ func (o *scheduledWriteProbeOutput) setMCPError(err *MCPToolError) { o.Error = e
 
 func (s *Server) registerMCPWriteTools(server *mcp.Server) {
 	s.registerOutlookIngestionTool(server)
-	addMCPTool(s, server, &mcp.Tool{Name: "agent_run", Description: "Idempotently queue a durable Vessica agent run.", Annotations: additiveWriteAnnotations("Run agent", true)}, mcpToolOptions{Scope: "agents:run", RequiresIdempotency: true}, func() *agentRunOutput { return &agentRunOutput{} }, func(ctx context.Context, _ mcpPrincipal, in agentRunInput) (*agentRunOutput, error) {
+	addMCPTool(s, server, &mcp.Tool{Name: "agent_run", Description: "Idempotently queue a durable Vessica agent run.", Annotations: writeAnnotations("Run agent", true, false)}, mcpToolOptions{Scope: "agents:run", RequiresIdempotency: true}, func() *agentRunOutput { return &agentRunOutput{} }, func(ctx context.Context, _ mcpPrincipal, in agentRunInput) (*agentRunOutput, error) {
 		if strings.TrimSpace(in.AgentID) == "" || strings.TrimSpace(in.Prompt) == "" {
 			return &agentRunOutput{}, fmt.Errorf("agent_id and prompt are required")
 		}
+		durableKey, err := durableMCPIdempotency(in.IdempotencyKey)
+		if err != nil {
+			return &agentRunOutput{}, err
+		}
 		trigger, err := s.agentApp().TriggerCloudAgentRun(ctx, state.AgentRunTriggerInput{
-			AgentID: in.AgentID, IdempotencyKey: in.IdempotencyKey, Trigger: "mcp", InputJSON: mustMarshalJSON(map[string]string{"prompt": in.Prompt}),
+			AgentID: in.AgentID, IdempotencyKey: durableKey, Trigger: "mcp", InputJSON: mustMarshalJSON(map[string]string{"prompt": in.Prompt}),
 			RepositoryID: in.RepositoryID, ParentRunID: in.ParentRunID,
 		})
-		return &agentRunOutput{Trigger: trigger}, err
+		var public *mcpAgentRunTrigger
+		if trigger != nil {
+			public = &mcpAgentRunTrigger{RunID: trigger.AgentRunID, AgentID: trigger.AgentID, State: trigger.State}
+		}
+		return &agentRunOutput{Trigger: public}, err
 	})
-	addMCPTool(s, server, &mcp.Tool{Name: "conversation_send", Description: "Idempotently append one user message to a shared Vessica conversation.", Annotations: additiveWriteAnnotations("Send conversation message", false)}, mcpToolOptions{Scope: "conversations:write", RequiresIdempotency: true}, func() *conversationSendOutput { return &conversationSendOutput{} }, func(ctx context.Context, principal mcpPrincipal, in conversationSendInput) (*conversationSendOutput, error) {
+	addMCPTool(s, server, &mcp.Tool{Name: "conversation_send", Description: "Idempotently append one user message to a shared Vessica conversation.", Annotations: writeAnnotations("Send conversation message", false, false)}, mcpToolOptions{Scope: "conversations:write", RequiresIdempotency: true}, func() *conversationSendOutput { return &conversationSendOutput{} }, func(ctx context.Context, principal mcpPrincipal, in conversationSendInput) (*conversationSendOutput, error) {
 		if strings.TrimSpace(in.Message) == "" {
 			return &conversationSendOutput{}, fmt.Errorf("message is required")
 		}
@@ -97,7 +105,7 @@ func (s *Server) registerMCPWriteTools(server *mcp.Server) {
 		message, err := s.agentApp().AddConversationMessage(ctx, in.ConversationID, state.ConversationMessageInput{Role: "user", ContentJSON: mustMarshalJSON(map[string]string{"text": in.Message}), MetadataJSON: mustMarshalJSON(map[string]string{"source": "mcp"})})
 		return &conversationSendOutput{Conversation: conversation, Message: message}, err
 	})
-	addMCPTool(s, server, &mcp.Tool{Name: "subscription_upsert", Description: "Idempotently create or update a workspace source subscription.", Annotations: additiveWriteAnnotations("Upsert subscription", true)}, mcpToolOptions{Scope: "sources:manage", RequiresIdempotency: true}, func() *subscriptionOutput { return &subscriptionOutput{} }, func(ctx context.Context, _ mcpPrincipal, in subscriptionUpsertInput) (*subscriptionOutput, error) {
+	addMCPTool(s, server, &mcp.Tool{Name: "subscription_upsert", Description: "Idempotently create or update a workspace source subscription.", Annotations: writeAnnotations("Upsert subscription", true, true)}, mcpToolOptions{Scope: "sources:manage", RequiresIdempotency: true}, func() *subscriptionOutput { return &subscriptionOutput{} }, func(ctx context.Context, _ mcpPrincipal, in subscriptionUpsertInput) (*subscriptionOutput, error) {
 		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(in.SourceURL)), "https://") {
 			return &subscriptionOutput{}, fmt.Errorf("source_url must use HTTPS")
 		}
@@ -105,13 +113,13 @@ func (s *Server) registerMCPWriteTools(server *mcp.Server) {
 		subscription, err := s.agentApp().UpsertNewsletterSubscription(ctx, state.NewsletterSubscriptionInput{SourceKey: in.SourceKey, SourceURL: in.SourceURL, Title: in.Title, Status: "active", RetentionDays: in.RetentionDays, MetadataJSON: string(metadata)})
 		return &subscriptionOutput{Subscription: subscription}, err
 	})
-	addMCPTool(s, server, &mcp.Tool{Name: "subscription_disable", Description: "Idempotently disable a workspace source subscription without deleting history.", Annotations: additiveWriteAnnotations("Disable subscription", true)}, mcpToolOptions{Scope: "sources:manage", RequiresIdempotency: true}, func() *subscriptionOutput { return &subscriptionOutput{} }, func(ctx context.Context, _ mcpPrincipal, in subscriptionDisableInput) (*subscriptionOutput, error) {
+	addMCPTool(s, server, &mcp.Tool{Name: "subscription_disable", Description: "Idempotently disable a workspace source subscription without deleting history.", Annotations: writeAnnotations("Disable subscription", true, true)}, mcpToolOptions{Scope: "sources:manage", RequiresIdempotency: true}, func() *subscriptionOutput { return &subscriptionOutput{} }, func(ctx context.Context, _ mcpPrincipal, in subscriptionDisableInput) (*subscriptionOutput, error) {
 		subscription, err := s.agentApp().DisableNewsletterSubscription(ctx, in.SubscriptionID)
 		return &subscriptionOutput{Subscription: subscription}, err
 	})
 	addMCPTool(s, server, &mcp.Tool{
 		Name: "scheduled_write_probe", Description: "Record one non-sensitive idempotent Scheduled Task write-path probe in the Vessica action ledger.",
-		Annotations: additiveWriteAnnotations("Scheduled write probe", false),
+		Annotations: writeAnnotations("Scheduled write probe", false, false),
 	}, mcpToolOptions{Scope: "conversations:write", RequiresIdempotency: true}, func() *scheduledWriteProbeOutput { return &scheduledWriteProbeOutput{} }, func(_ context.Context, _ mcpPrincipal, _ scheduledWriteProbeInput) (*scheduledWriteProbeOutput, error) {
 		return &scheduledWriteProbeOutput{Accepted: true}, nil
 	})

@@ -37,7 +37,7 @@ func mcpTestServer(t *testing.T) (*Server, *state.DB) {
 			if !mutation {
 				t.Fatal("authorization consent did not require mutation-grade dashboard identity")
 			}
-			return MCPDashboardActor{UserID: "user_1", Role: "owner"}, nil
+			return MCPDashboardActor{WorkspaceID: db.Workspace.ID, UserID: "user_1", Role: "owner"}, nil
 		},
 	}
 	return server, db
@@ -57,10 +57,14 @@ func TestMCPToolCallsDelegateAndWriteIdempotently(t *testing.T) {
 
 	runArgs := map[string]any{"agent_id": agent.ID, "prompt": "prepare", "idempotency_key": "run-once"}
 	firstRun := callMCPTool(t, session, "agent_run", runArgs)
+	var firstExecutionState string
+	if err = db.QueryRow(ctx, `SELECT execution_state FROM action_ledger WHERE tool='agent_run'`).Scan(&firstExecutionState); err != nil || firstExecutionState != "completed" {
+		t.Fatalf("first agent run execution state=%q err=%v", firstExecutionState, err)
+	}
 	secondRun := callMCPTool(t, session, "agent_run", runArgs)
 	var firstRunBody, secondRunBody struct {
 		Trigger struct {
-			AgentRunID string `json:"AgentRunID"`
+			AgentRunID string `json:"run_id"`
 		} `json:"trigger"`
 	}
 	decodeStructured(t, firstRun.StructuredContent, &firstRunBody)
@@ -76,7 +80,15 @@ func TestMCPToolCallsDelegateAndWriteIdempotently(t *testing.T) {
 		"agents_list": {}, "agent_get": {"agent_id": agent.ID},
 		"agent_runs_list": {"agent_id": agent.ID}, "agent_run_get": {"run_id": runs[0].ID},
 	} {
-		callMCPTool(t, session, name, args)
+		result := callMCPTool(t, session, name, args)
+		if name == "agents_list" || name == "agent_get" || name == "agent_runs_list" || name == "agent_run_get" {
+			encoded, _ := json.Marshal(result.StructuredContent)
+			for _, internal := range []string{"input_json", "rate_snapshot", "reservation", "claim_token", "lease_until", "resolved_knowledge", "workspace_id", "trigger_id"} {
+				if strings.Contains(strings.ToLower(string(encoded)), internal) {
+					t.Fatalf("%s leaked internal field %q: %s", name, internal, encoded)
+				}
+			}
+		}
 	}
 
 	messageArgs := map[string]any{"title": "Shared", "message": "hello", "idempotency_key": "message-once"}
@@ -120,8 +132,8 @@ func TestMCPToolCallsDelegateAndWriteIdempotently(t *testing.T) {
 		"source":      map[string]any{"surface": "chatgpt_work", "connector": "outlook", "scheduled_run": map[string]any{"task_id": "morning", "run_id": "run-1"}},
 		"scan_window": map[string]any{"start": "2026-08-11T07:00:00-07:00", "end": "2026-08-11T08:00:00-07:00", "timezone": "America/Los_Angeles"},
 		"watermarks": map[string]any{
-			"email":    map[string]any{"previous": "2026-08-11T07:00:00-07:00", "candidate": "2026-08-11T08:00:00-07:00"},
-			"calendar": map[string]any{"previous": "2026-08-11T07:00:00-07:00", "candidate": "2026-08-11T08:00:00-07:00"},
+			"email":    map[string]any{"previous": nil, "candidate": "2026-08-11T08:00:00-07:00"},
+			"calendar": map[string]any{"previous": nil, "candidate": "2026-08-11T08:00:00-07:00"},
 		},
 		"messages": []any{}, "calendar_events": []any{}, "contact_updates": []any{},
 		"batch_summary": map[string]any{"messages_scanned": 0, "messages_included": 0, "calendar_events_scanned": 0, "calendar_events_included": 0, "response_needs": 0, "contact_updates": 0, "warnings": []any{}},
@@ -140,11 +152,12 @@ func TestMCPToolCallsDelegateAndWriteIdempotently(t *testing.T) {
 // Break caught: source-derived HTML, credentials, embedded instructions, or
 // arbitrary connector links can enter the durable Outlook ingestion queue.
 func TestOutlookIngestionValidationRejectsUnsafeSourceData(t *testing.T) {
+	previous := "2026-08-11T07:00:00-07:00"
 	base := outlookBatchV2{
 		Schema: "vessica.outlook-ingestion/v2", BatchID: "batch", GeneratedAt: "2026-08-11T08:00:01-07:00",
 		Source:     outlookSource{Surface: "chatgpt_work", Connector: "outlook", ScheduledRun: outlookScheduledRun{TaskID: "task", RunID: "run"}},
 		ScanWindow: outlookScanWindow{Start: "2026-08-11T07:00:00-07:00", End: "2026-08-11T08:00:00-07:00", Timezone: "America/Los_Angeles"},
-		Watermarks: outlookWatermarks{Email: outlookWatermark{Previous: "2026-08-11T07:00:00-07:00", Candidate: "2026-08-11T08:00:00-07:00"}, Calendar: outlookWatermark{Previous: "2026-08-11T07:00:00-07:00", Candidate: "2026-08-11T08:00:00-07:00"}},
+		Watermarks: outlookWatermarks{Email: outlookWatermark{Previous: &previous, Candidate: "2026-08-11T08:00:00-07:00"}, Calendar: outlookWatermark{Previous: &previous, Candidate: "2026-08-11T08:00:00-07:00"}},
 		Messages:   []map[string]any{}, CalendarEvents: []map[string]any{}, ContactUpdates: []map[string]any{}, BatchSummary: outlookBatchSummary{Warnings: []string{}},
 	}
 	cases := []map[string]any{
@@ -215,7 +228,7 @@ func TestOAuthDiscoveryPKCEAndDedicatedHashedTokens(t *testing.T) {
 	authorize := url.Values{
 		"response_type": {"code"}, "client_id": {"client-1"}, "redirect_uri": {redirectURI},
 		"scope": {allScopes}, "state": {"opaque-state"}, "code_challenge": {challenge},
-		"code_challenge_method": {"S256"}, "consent": {"approve"},
+		"code_challenge_method": {"S256"}, "consent": {"approve"}, "resource": {"https://vessica.example/mcp"},
 	}
 	rec := formRequest(handler, http.MethodPost, "/oauth/authorize", authorize)
 	if rec.Code != http.StatusSeeOther {
@@ -229,7 +242,7 @@ func TestOAuthDiscoveryPKCEAndDedicatedHashedTokens(t *testing.T) {
 
 	wrong := formRequest(handler, http.MethodPost, "/oauth/token", url.Values{
 		"grant_type": {"authorization_code"}, "client_id": {"client-1"}, "code": {code},
-		"redirect_uri": {redirectURI}, "code_verifier": {strings.Repeat("x", 64)},
+		"redirect_uri": {redirectURI}, "code_verifier": {strings.Repeat("x", 64)}, "resource": {"https://vessica.example/mcp"},
 	})
 	if wrong.Code != http.StatusBadRequest || !strings.Contains(wrong.Body.String(), `"error":"invalid_grant"`) {
 		t.Fatalf("wrong PKCE status=%d body=%s", wrong.Code, wrong.Body.String())
@@ -237,7 +250,7 @@ func TestOAuthDiscoveryPKCEAndDedicatedHashedTokens(t *testing.T) {
 
 	tokenRec := formRequest(handler, http.MethodPost, "/oauth/token", url.Values{
 		"grant_type": {"authorization_code"}, "client_id": {"client-1"}, "code": {code},
-		"redirect_uri": {redirectURI}, "code_verifier": {verifier},
+		"redirect_uri": {redirectURI}, "code_verifier": {verifier}, "resource": {"https://vessica.example/mcp"},
 	})
 	if tokenRec.Code != http.StatusOK {
 		t.Fatalf("token status=%d body=%s", tokenRec.Code, tokenRec.Body.String())
@@ -277,14 +290,14 @@ func TestOAuthRefreshRotationExpiryAndRevocation(t *testing.T) {
 	rawRefresh := "vmr_" + strings.Repeat("r", 48)
 	if _, err := db.IssueOAuthRefreshToken(ctx, state.OAuthRefreshTokenInput{
 		ClientID: "client-1", ActorID: "user_1", MaterialHash: hashOAuthMaterial(rawRefresh),
-		FamilyID: "family-1", ScopesJSON: `["agents:read"]`, ExpiresAt: state.FormatTime(time.Now().Add(time.Hour)),
+		FamilyID: "family-1", Resource: "https://vessica.example/mcp", ScopesJSON: `["agents:read"]`, ExpiresAt: state.FormatTime(time.Now().Add(time.Hour)),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	handler := server.Handler()
 	refresh := func(material string) *httptest.ResponseRecorder {
 		return formRequest(handler, http.MethodPost, "/oauth/token", url.Values{
-			"grant_type": {"refresh_token"}, "client_id": {"client-1"}, "refresh_token": {material},
+			"grant_type": {"refresh_token"}, "client_id": {"client-1"}, "refresh_token": {material}, "resource": {"https://vessica.example/mcp"},
 		})
 	}
 	first := refresh(rawRefresh)
@@ -326,7 +339,7 @@ func TestMCPStatelessToolsScopesAnnotationsLedgerAndIdempotency(t *testing.T) {
 	}
 	if _, err := db.IssueOAuthAccessToken(context.Background(), state.OAuthAccessTokenInput{
 		ClientID: "client-1", ActorID: "user_1", TokenHash: hashOAuthMaterial(rawToken),
-		ScopesJSON: `["conversations:write"]`, ExpiresAt: state.FormatTime(time.Now().Add(time.Hour)),
+		Resource: "https://vessica.example/mcp", ScopesJSON: `["conversations:write"]`, ExpiresAt: state.FormatTime(time.Now().Add(time.Hour)),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -359,6 +372,7 @@ func TestMCPStatelessToolsScopesAnnotationsLedgerAndIdempotency(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	var probe *mcp.Tool
+	destructive := map[string]*mcp.Tool{}
 	for _, tool := range listedTools {
 		wantScope, expected := expectedScopes[tool.Name]
 		if !expected {
@@ -375,12 +389,23 @@ func TestMCPStatelessToolsScopesAnnotationsLedgerAndIdempotency(t *testing.T) {
 		if tool.Name == "scheduled_write_probe" {
 			probe = tool
 		}
+		if tool.Name == "subscription_upsert" || tool.Name == "subscription_disable" {
+			destructive[tool.Name] = tool
+		}
 	}
 	if len(seen) != len(expectedScopes) {
 		t.Fatalf("listed %d tools, want %d; seen=%v", len(seen), len(expectedScopes), seen)
 	}
+	if len(destructive) != 2 {
+		t.Fatalf("destructive subscription annotations missing: %v", destructive)
+	}
 	if probe == nil || probe.OutputSchema == nil || probe.Annotations == nil || probe.Annotations.DestructiveHint == nil || *probe.Annotations.DestructiveHint || probe.Annotations.ReadOnlyHint || !probe.Annotations.IdempotentHint {
 		t.Fatalf("scheduled probe annotations/schema=%#v", probe)
+	}
+	for name, tool := range destructive {
+		if tool.Annotations == nil || tool.Annotations.DestructiveHint == nil || !*tool.Annotations.DestructiveHint || tool.Annotations.ReadOnlyHint || !tool.Annotations.IdempotentHint {
+			t.Fatalf("%s annotations=%#v", name, tool.Annotations)
+		}
 	}
 
 	args := map[string]any{"idempotency_key": "probe-once", "note": "Authorization: Bearer secret-value"}
@@ -413,6 +438,15 @@ func TestMCPStatelessToolsScopesAnnotationsLedgerAndIdempotency(t *testing.T) {
 	if strings.Contains(redacted, "secret-value") || !strings.Contains(redacted, "[REDACTED]") {
 		t.Fatalf("ledger arguments were not redacted: %s", redacted)
 	}
+	oversizedKey := strings.Repeat("k", 201)
+	oversized, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "scheduled_write_probe", Arguments: map[string]any{"idempotency_key": oversizedKey}})
+	if err != nil || !oversized.IsError || !structuredHasCode(oversized.StructuredContent, "invalid_idempotency_key") {
+		t.Fatalf("oversized key result=%#v err=%v", oversized, err)
+	}
+	var rawKeyCount int
+	if err = db.QueryRow(context.Background(), `SELECT COUNT(*) FROM action_ledger WHERE idempotency_key=? OR redacted_arguments_json LIKE ?`, "probe-once", "%probe-once%").Scan(&rawKeyCount); err != nil || rawKeyCount != 0 {
+		t.Fatalf("raw idempotency key persisted count=%d err=%v", rawKeyCount, err)
+	}
 }
 
 // Break caught: an unbounded Streamable HTTP body can exhaust the singleton
@@ -421,7 +455,7 @@ func TestMCPRequestBodyIsBounded(t *testing.T) {
 	server, db := mcpTestServer(t)
 	rawToken := "vma_" + strings.Repeat("b", 48)
 	_, _ = server.agentApp().RegisterOAuthClient(context.Background(), state.OAuthClientInput{ClientID: "client-1", Name: "MCP"})
-	_, _ = db.IssueOAuthAccessToken(context.Background(), state.OAuthAccessTokenInput{ClientID: "client-1", ActorID: "user_1", TokenHash: hashOAuthMaterial(rawToken), ExpiresAt: state.FormatTime(time.Now().Add(time.Hour))})
+	_, _ = db.IssueOAuthAccessToken(context.Background(), state.OAuthAccessTokenInput{ClientID: "client-1", ActorID: "user_1", TokenHash: hashOAuthMaterial(rawToken), Resource: "https://vessica.example/mcp", ExpiresAt: state.FormatTime(time.Now().Add(time.Hour))})
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(strings.Repeat("x", mcpMaxBodyBytes+1)))
 	req.Header.Set("Authorization", "Bearer "+rawToken)
 	req.Header.Set("Content-Type", "application/json")

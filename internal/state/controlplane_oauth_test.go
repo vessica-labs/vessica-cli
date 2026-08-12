@@ -14,6 +14,7 @@ import (
 func TestOAuthCredentialsUseHashedLookupAndRedactedJSON(t *testing.T) {
 	db := agentTestDB(t)
 	ctx := context.Background()
+	resource := "https://vessica.example/mcp"
 	client, err := db.UpsertOAuthClient(ctx, OAuthClientInput{
 		ClientID:         "mcp-client",
 		Name:             "MCP client",
@@ -32,6 +33,7 @@ func TestOAuthCredentialsUseHashedLookupAndRedactedJSON(t *testing.T) {
 		ActorID:    "user_1",
 		CodeHash:   "authorization-code-hash",
 		ScopesJSON: `["agents.read"]`,
+		Resource:   resource,
 		ExpiresAt:  FormatTime(time.Now().Add(time.Hour)),
 	}); err != nil {
 		t.Fatal(err)
@@ -41,11 +43,12 @@ func TestOAuthCredentialsUseHashedLookupAndRedactedJSON(t *testing.T) {
 		ActorID:    "user_1",
 		TokenHash:  "access-token-hash",
 		ScopesJSON: `["agents.read"]`,
+		Resource:   resource,
 		ExpiresAt:  FormatTime(time.Now().Add(time.Hour)),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	access, err := db.GetOAuthAccessToken(ctx, "access-token-hash")
+	access, err := db.GetOAuthAccessToken(ctx, "access-token-hash", resource)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,18 +69,19 @@ func TestOAuthCredentialsUseHashedLookupAndRedactedJSON(t *testing.T) {
 func TestOAuthRefreshTokenRevocationUsesHashOnly(t *testing.T) {
 	db := agentTestDB(t)
 	ctx := context.Background()
+	resource := "https://vessica.example/mcp"
 	client, err := db.UpsertOAuthClient(ctx, OAuthClientInput{ClientID: "web", Name: "Web"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	refresh, err := db.IssueOAuthRefreshToken(ctx, OAuthRefreshTokenInput{ClientID: client.ClientID, ActorID: "user_1", MaterialHash: "refresh-hash", FamilyID: "family-1", ExpiresAt: FormatTime(time.Now().Add(time.Hour))})
+	refresh, err := db.IssueOAuthRefreshToken(ctx, OAuthRefreshTokenInput{ClientID: client.ClientID, ActorID: "user_1", MaterialHash: "refresh-hash", FamilyID: "family-1", Resource: resource, ExpiresAt: FormatTime(time.Now().Add(time.Hour))})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = db.RevokeOAuthRefreshToken(ctx, "refresh-hash"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.GetOAuthRefreshToken(ctx, "refresh-hash"); err == nil {
+	if _, err = db.GetOAuthRefreshToken(ctx, "refresh-hash", resource); err == nil {
 		t.Fatal("revoked refresh token was accepted")
 	}
 	raw, err := json.Marshal(refresh)

@@ -29,8 +29,8 @@ type outlookScanWindow struct {
 	Timezone string `json:"timezone"`
 }
 type outlookWatermark struct {
-	Previous  string `json:"previous"`
-	Candidate string `json:"candidate"`
+	Previous  *string `json:"previous"`
+	Candidate string  `json:"candidate"`
 }
 type outlookWatermarks struct {
 	Email    outlookWatermark `json:"email"`
@@ -81,7 +81,7 @@ func (s *Server) registerOutlookIngestionTool(server *mcp.Server) {
 	addMCPTool(s, server, &mcp.Tool{
 		Name:        "outlook_ingestion_submit",
 		Description: "Validate and durably accept one minimized ChatGPT Work Outlook ingestion v2 batch.",
-		Annotations: additiveWriteAnnotations("Submit Outlook ingestion", false),
+		Annotations: writeAnnotations("Submit Outlook ingestion", false, false),
 	}, mcpToolOptions{Scope: "knowledge:write", RequiresIdempotency: true}, func() *outlookIngestionOutput { return &outlookIngestionOutput{} }, func(ctx context.Context, principal mcpPrincipal, in outlookIngestionInput) (*outlookIngestionOutput, error) {
 		if in.IdempotencyKey != in.Batch.BatchID {
 			return &outlookIngestionOutput{}, fmt.Errorf("idempotency_key must equal batch_id")
@@ -90,18 +90,29 @@ func (s *Server) registerOutlookIngestionTool(server *mcp.Server) {
 			return &outlookIngestionOutput{}, err
 		}
 		checkpointJSON := mustMarshalJSON(in.Batch.Watermarks)
-		batch, err := s.agentApp().SubmitOutlookIngestion(ctx, state.OutlookIngestionBatchInput{IdempotencyKey: in.Batch.BatchID, SubmittedBy: principal.ActorID, CheckpointJSON: checkpointJSON, WarningsJSON: mustMarshalJSON(in.Batch.BatchSummary.Warnings)})
+		durableKey, err := durableMCPIdempotency(in.IdempotencyKey)
+		if err != nil {
+			return &outlookIngestionOutput{}, err
+		}
+		batch, err := s.agentApp().SubmitOutlookIngestion(ctx, state.OutlookIngestionBatchInput{IdempotencyKey: durableKey, SubmittedBy: principal.ActorID, CheckpointJSON: checkpointJSON, WarningsJSON: mustMarshalJSON(in.Batch.BatchSummary.Warnings)})
 		if err != nil {
 			return &outlookIngestionOutput{}, err
 		}
 		out := &outlookIngestionOutput{Schema: "vessica.outlook-ingestion-receipt/v2", BatchID: in.Batch.BatchID, Rejected: []outlookRejected{}, CommittedWatermarks: in.Batch.Watermarks}
 		records := append(append([]map[string]any{}, in.Batch.Messages...), in.Batch.CalendarEvents...)
+		for _, contact := range in.Batch.ContactUpdates {
+			email := strings.ToLower(stringField(contact, "email"))
+			contact["email"] = email
+			contact["source_id"] = "contact:" + email
+			records = append(records, contact)
+		}
 		for _, record := range records {
-			sourceID, _ := record["source_id"].(string)
+			sourceID := stringField(record, "source_id")
+			record["source_id"] = sourceID
 			raw, _ := json.Marshal(record)
 			item, duplicate, itemErr := s.agentApp().UpsertOutlookIngestionItem(ctx, state.OutlookIngestionItemInput{
 				BatchID: batch.ID, SourceID: sourceID, InternetMessageID: stringField(record, "internet_message_id"),
-				ConversationID: stringField(record, "conversation_id"), MessageAt: firstStringField(record, "message_at", "event_at"), NormalizedJSON: string(raw),
+				ConversationID: stringField(record, "conversation_id"), MessageAt: firstStringField(record, "message_at", "event_at", "generated_at"), NormalizedJSON: string(raw),
 			})
 			if itemErr != nil {
 				return &outlookIngestionOutput{}, itemErr
@@ -115,7 +126,9 @@ func (s *Server) registerOutlookIngestionTool(server *mcp.Server) {
 			}
 			out.AcceptedIDs = append(out.AcceptedIDs, sourceID)
 		}
-		if err = s.agentApp().FinalizeOutlookIngestion(ctx, batch.ID, mustMarshalJSON(in.Batch.Watermarks.Email), mustMarshalJSON(in.Batch.Watermarks.Calendar)); err != nil {
+		if err = s.agentApp().FinalizeOutlookIngestion(ctx, batch.ID,
+			outlookPrevious(in.Batch.Watermarks.Email), in.Batch.Watermarks.Email.Candidate, mustMarshalJSON(in.Batch.Watermarks.Email),
+			outlookPrevious(in.Batch.Watermarks.Calendar), in.Batch.Watermarks.Calendar.Candidate, mustMarshalJSON(in.Batch.Watermarks.Calendar)); err != nil {
 			return &outlookIngestionOutput{}, err
 		}
 		return out, nil
@@ -123,8 +136,16 @@ func (s *Server) registerOutlookIngestionTool(server *mcp.Server) {
 }
 
 func validateOutlookBatch(batch outlookBatchV2) error {
+	var whole any
+	raw, _ := json.Marshal(batch)
+	if json.Unmarshal(raw, &whole) != nil || rejectUnsafeOutlookValue(whole) != nil {
+		return fmt.Errorf("batch contains prohibited raw-content or credential data")
+	}
 	if batch.Schema != "vessica.outlook-ingestion/v2" || strings.TrimSpace(batch.BatchID) == "" {
 		return fmt.Errorf("schema and batch_id are invalid")
+	}
+	if len(batch.BatchID) > 200 || !boundedOutlookString(batch.Source.ScheduledRun.TaskID, 200) || !boundedOutlookString(batch.Source.ScheduledRun.RunID, 200) {
+		return fmt.Errorf("batch or scheduled-run identifier exceeds the v2 contract")
 	}
 	if batch.Source.Surface != "chatgpt_work" || batch.Source.Connector != "outlook" || batch.Source.ScheduledRun.TaskID == "" || batch.Source.ScheduledRun.RunID == "" {
 		return fmt.Errorf("scheduled ChatGPT Work Outlook provenance is required")
@@ -141,13 +162,13 @@ func validateOutlookBatch(batch outlookBatchV2) error {
 		return fmt.Errorf("scan_window.start: %w", err)
 	}
 	end, err := parseOutlookTime(batch.ScanWindow.End)
-	if err != nil || !end.After(start) || generated.Before(end) {
+	if err != nil || start.After(end) || generated.Before(end) {
 		return fmt.Errorf("scan window or generated_at is inconsistent")
 	}
 	for name, watermark := range map[string]outlookWatermark{"email": batch.Watermarks.Email, "calendar": batch.Watermarks.Calendar} {
-		previous, previousErr := parseOutlookTime(watermark.Previous)
+		previous, previousErr := parseOptionalOutlookTime(outlookPrevious(watermark))
 		candidate, candidateErr := parseOutlookTime(watermark.Candidate)
-		if previousErr != nil || candidateErr != nil || previous.After(candidate) || !candidate.Equal(end) {
+		if previousErr != nil || candidateErr != nil || (!previous.IsZero() && previous.After(candidate)) || !candidate.Equal(end) {
 			return fmt.Errorf("%s watermark is inconsistent", name)
 		}
 	}
@@ -161,7 +182,7 @@ func validateOutlookBatch(batch outlookBatchV2) error {
 	for _, records := range [][]map[string]any{batch.Messages, batch.CalendarEvents} {
 		for _, record := range records {
 			sourceID := stringField(record, "source_id")
-			if sourceID == "" || seen[sourceID] {
+			if !boundedOutlookString(sourceID, 500) || seen[sourceID] {
 				return fmt.Errorf("source_id is missing or duplicated")
 			}
 			seen[sourceID] = true
@@ -257,7 +278,7 @@ func validateOutlookRecord(record map[string]any, kind string, evidence map[stri
 			return fmt.Errorf("participant: %w", err)
 		}
 		object := participant.(map[string]any)
-		if !validOutlookEmail(stringField(object, "email")) || !containsString(allowedRoles, stringField(object, "role")) {
+		if !boundedOutlookStringValue(object["name"], 200) || !boundedOutlookStringValue(object["email"], 320) || !validOutlookEmail(stringField(object, "email")) || !containsString(allowedRoles, stringField(object, "role")) {
 			return fmt.Errorf("participant email or role is invalid")
 		}
 		if stringField(object, "role") == requiredRole {
@@ -267,7 +288,7 @@ func validateOutlookRecord(record map[string]any, kind string, evidence map[stri
 	if requiredRoleCount != 1 {
 		return fmt.Errorf("participants must contain exactly one %s", requiredRole)
 	}
-	if stringField(record, "subject") == "" || stringField(record, "summary") == "" {
+	if !boundedOutlookStringValue(record["subject"], 500) || !boundedOutlookStringValue(record["summary"], 1000) {
 		return fmt.Errorf("subject and summary must be non-empty")
 	}
 	if kind == "message" && !containsString([]string{"inbound", "outbound", "internal"}, stringField(record, "direction")) {
@@ -326,6 +347,29 @@ func parseOutlookTime(value string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("RFC 3339 timestamp is required")
 	}
 	return time.Parse(time.RFC3339, value)
+}
+
+func parseOptionalOutlookTime(value string) (time.Time, error) {
+	if strings.TrimSpace(value) == "" {
+		return time.Time{}, nil
+	}
+	return parseOutlookTime(value)
+}
+
+func outlookPrevious(watermark outlookWatermark) string {
+	if watermark.Previous == nil {
+		return ""
+	}
+	return *watermark.Previous
+}
+
+func boundedOutlookString(value string, limit int) bool {
+	return strings.TrimSpace(value) != "" && len(value) <= limit
+}
+
+func boundedOutlookStringValue(value any, limit int) bool {
+	text, ok := value.(string)
+	return ok && boundedOutlookString(text, limit)
 }
 
 func outlookHost(host string) bool {

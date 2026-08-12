@@ -73,11 +73,12 @@ func TestControlPlaneChildrenRejectForeignWorkspaceParents(t *testing.T) {
 func TestOAuthAuthorizationCodeCanBeConsumedOnceConcurrently(t *testing.T) {
 	db := agentTestDB(t)
 	ctx := context.Background()
+	resource := "https://vessica.example/mcp"
 	client, err := db.UpsertOAuthClient(ctx, OAuthClientInput{ClientID: "public-client", Name: "Client"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = db.CreateOAuthAuthorizationCode(ctx, OAuthAuthorizationCodeInput{ClientID: client.ClientID, ActorID: "user", CodeHash: "code-hash", ExpiresAt: FormatTime(time.Now().Add(time.Hour))}); err != nil {
+	if _, err = db.CreateOAuthAuthorizationCode(ctx, OAuthAuthorizationCodeInput{ClientID: client.ClientID, ActorID: "user", CodeHash: "code-hash", RedirectURI: "https://client.example/callback", CodeChallenge: "challenge", CodeChallengeMethod: "S256", Resource: resource, ExpiresAt: FormatTime(time.Now().Add(time.Hour))}); err != nil {
 		t.Fatal(err)
 	}
 	start := make(chan struct{})
@@ -88,7 +89,7 @@ func TestOAuthAuthorizationCodeCanBeConsumedOnceConcurrently(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			_, err := db.ConsumeOAuthAuthorizationCode(ctx, "code-hash")
+			_, err := db.ExchangeOAuthAuthorizationCode(ctx, "code-hash", client.ClientID, "https://client.example/callback", "challenge", resource)
 			results <- err
 		}()
 	}

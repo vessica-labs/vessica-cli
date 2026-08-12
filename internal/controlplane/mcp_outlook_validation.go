@@ -5,6 +5,12 @@ import (
 	"strings"
 )
 
+var canonicalOutlookClients = map[string]bool{
+	"Agilent": true, "Mastercard": true, "Pacific Life": true, "RBC": true,
+	"Western Digital": true, "Qualcomm": true, "Micron": true, "Cisco": true,
+	"AWS": true, "TD Bank": true, "CIBC": true,
+}
+
 func requireOutlookFields(value map[string]any, fields ...string) error {
 	for _, field := range fields {
 		if _, ok := value[field]; !ok {
@@ -71,14 +77,26 @@ func validateOutlookFindings(record map[string]any, evidence map[string]bool) er
 				return fmt.Errorf("%s: %w", field, err)
 			}
 			object := item.(map[string]any)
+			textKey := "summary"
+			limit := 500
+			if field == "response_needs" {
+				textKey = "reason"
+			}
+			if !boundedOutlookStringValue(object[textKey], limit) || (field == "commitments" && !boundedOutlookStringValue(object["owner"], 200)) {
+				return fmt.Errorf("%s contains an empty or oversized typed string", field)
+			}
 			if err := validateOutlookConfidence(object["confidence"]); err != nil {
 				return err
 			}
 			if err := validateOutlookEvidence(object["evidence_ids"], evidence); err != nil {
 				return err
 			}
-			if dueAt, ok := object["due_at"].(string); ok && dueAt != "" {
-				if _, err := parseOutlookTime(dueAt); err != nil {
+			if dueAt, present := object["due_at"]; present && dueAt != nil {
+				dueText, ok := dueAt.(string)
+				if !ok || dueText == "" {
+					return fmt.Errorf("due_at must be RFC 3339")
+				}
+				if _, err := parseOutlookTime(dueText); err != nil {
 					return fmt.Errorf("due_at must be RFC 3339")
 				}
 			}
@@ -98,6 +116,14 @@ func validateOutlookFindings(record map[string]any, evidence map[string]bool) er
 				return err
 			}
 			object := item.(map[string]any)
+			limit := 200
+			if field == "clients" {
+				limit = 120
+			}
+			name := stringField(object, "name")
+			if !boundedOutlookStringValue(object["name"], limit) || (field == "clients" && !canonicalOutlookClients[name]) {
+				return fmt.Errorf("signals.%s name is not a canonical scoped value", field)
+			}
 			if err := validateOutlookConfidence(object["confidence"]); err != nil {
 				return err
 			}
@@ -120,7 +146,14 @@ func validateOutlookRecurrence(value any) error {
 	if value == nil {
 		return nil
 	}
-	return validateOutlookObject(value, []string{"series_id", "occurrence_id"}, []string{"series_id", "occurrence_id"})
+	if err := validateOutlookObject(value, []string{"series_id", "occurrence_id"}, []string{"series_id", "occurrence_id"}); err != nil {
+		return err
+	}
+	object := value.(map[string]any)
+	if !boundedOutlookStringValue(object["series_id"], 500) || !boundedOutlookStringValue(object["occurrence_id"], 500) {
+		return fmt.Errorf("recurrence identifiers must be non-empty strings")
+	}
+	return nil
 }
 
 func validateOutlookChange(value any, eventAt string) error {
@@ -161,11 +194,17 @@ func validateOutlookContact(update map[string]any, evidence map[string]bool) err
 	if err := validateOutlookConfidence(update["inferred_importance"]); err != nil {
 		return fmt.Errorf("inferred_importance: %w", err)
 	}
-	if !validOutlookEmail(stringField(update, "email")) || stringField(update, "display_name") == "" || stringField(update, "rationale") == "" {
+	if !boundedOutlookStringValue(update["email"], 320) || !boundedOutlookStringValue(update["display_name"], 200) || !boundedOutlookStringValue(update["rationale"], 800) || !validOutlookEmail(stringField(update, "email")) {
 		return fmt.Errorf("contact identity fields are invalid")
 	}
 	if !containsString([]string{"client", "colleague", "external_partner", "unknown"}, stringField(update, "relationship_type")) {
 		return fmt.Errorf("relationship_type is invalid")
+	}
+	if client, present := update["client"]; present && client != nil {
+		clientName, ok := client.(string)
+		if !ok || !canonicalOutlookClients[clientName] {
+			return fmt.Errorf("client is not a canonical scoped account")
+		}
 	}
 	if err := validateOutlookEvidence(update["evidence_ids"], evidence); err != nil {
 		return err

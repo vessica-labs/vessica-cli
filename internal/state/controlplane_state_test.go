@@ -128,7 +128,8 @@ func TestFinalizeOutlookBatchCommitsCheckpointsAndLifecycleTogether(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = db.FinalizeOutlookIngestionBatch(ctx, batch.ID, `{"candidate":"email"}`, `{"candidate":"calendar"}`); err != nil {
+	checkpoint := "2026-08-11T08:00:00-07:00"
+	if err = db.FinalizeOutlookIngestionBatch(ctx, batch.ID, "", checkpoint, `{"candidate":"email"}`, "", checkpoint, `{"candidate":"calendar"}`); err != nil {
 		t.Fatal(err)
 	}
 	email, err := db.GetSourceCheckpoint(ctx, "outlook_email", "outlook")

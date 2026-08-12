@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 func (db *DB) ListNewsletterSubscriptions(ctx context.Context) ([]NewsletterSubscription, error) {
@@ -46,7 +47,7 @@ func (db *DB) DisableNewsletterSubscription(ctx context.Context, ref string) (*N
 
 // FinalizeOutlookIngestionBatch advances both independent source checkpoints
 // and the batch lifecycle in one transaction after every item is durable.
-func (db *DB) FinalizeOutlookIngestionBatch(ctx context.Context, batchID, emailCheckpointJSON, calendarCheckpointJSON string) error {
+func (db *DB) FinalizeOutlookIngestionBatch(ctx context.Context, batchID, emailExpected, emailCandidate, emailCheckpointJSON, calendarExpected, calendarCandidate, calendarCheckpointJSON string) error {
 	ws, err := db.GetWorkspace(ctx)
 	if err != nil {
 		return err
@@ -57,14 +58,41 @@ func (db *DB) FinalizeOutlookIngestionBatch(ctx context.Context, batchID, emailC
 	}
 	defer tx.Rollback()
 	now := Now()
-	for _, checkpoint := range []struct{ sourceType, value string }{
-		{"outlook_email", emailCheckpointJSON}, {"outlook_calendar", calendarCheckpointJSON},
+	for _, checkpoint := range []struct{ sourceType, expected, candidate, value string }{
+		{"outlook_email", emailExpected, emailCandidate, emailCheckpointJSON},
+		{"outlook_calendar", calendarExpected, calendarCandidate, calendarCheckpointJSON},
 	} {
+		candidateTime, parseErr := time.Parse(time.RFC3339, checkpoint.candidate)
+		if parseErr != nil {
+			return fmt.Errorf("%s candidate checkpoint must be RFC 3339", checkpoint.sourceType)
+		}
+		if checkpoint.expected != "" {
+			expectedTime, expectedErr := time.Parse(time.RFC3339, checkpoint.expected)
+			if expectedErr != nil || expectedTime.After(candidateTime) {
+				return fmt.Errorf("%s checkpoint must be monotonic", checkpoint.sourceType)
+			}
+		}
 		if checkpoint.value == "" {
 			checkpoint.value = "{}"
 		}
-		if _, err = tx.ExecContext(ctx, db.Rebind(`INSERT INTO source_checkpoints(workspace_id,source_type,source_id,checkpoint_json,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(workspace_id,source_type,source_id) DO UPDATE SET checkpoint_json=excluded.checkpoint_json,updated_at=excluded.updated_at`), ws.ID, checkpoint.sourceType, "outlook", checkpoint.value, now); err != nil {
+		result, updateErr := tx.ExecContext(ctx, db.Rebind(`UPDATE source_checkpoints SET checkpoint_json=?,checkpoint_value=?,updated_at=? WHERE workspace_id=? AND source_type=? AND source_id='outlook' AND checkpoint_value=?`), checkpoint.value, checkpoint.candidate, now, ws.ID, checkpoint.sourceType, checkpoint.expected)
+		if updateErr != nil {
+			return updateErr
+		}
+		changed, _ := result.RowsAffected()
+		if changed == 1 {
+			continue
+		}
+		if checkpoint.expected != "" {
+			return fmt.Errorf("stale %s checkpoint: expected %q", checkpoint.sourceType, checkpoint.expected)
+		}
+		result, err = tx.ExecContext(ctx, db.Rebind(`INSERT INTO source_checkpoints(workspace_id,source_type,source_id,checkpoint_json,checkpoint_value,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(workspace_id,source_type,source_id) DO NOTHING`), ws.ID, checkpoint.sourceType, "outlook", checkpoint.value, checkpoint.candidate, now)
+		if err != nil {
 			return err
+		}
+		changed, _ = result.RowsAffected()
+		if changed != 1 {
+			return fmt.Errorf("stale %s checkpoint: expected %q", checkpoint.sourceType, checkpoint.expected)
 		}
 	}
 	result, err := tx.ExecContext(ctx, db.Rebind(`UPDATE outlook_ingestion_batches SET state='queued',error=NULL,updated_at=? WHERE id=? AND workspace_id=?`), now, batchID, ws.ID)

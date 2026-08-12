@@ -6,6 +6,7 @@ import (
 )
 
 var patterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\b(?:vmc|vma|vmr|triggerclaim|mcpclaim)_[a-z0-9._\-]+`),
 	// Match bearer credentials before generic authorization keys. Otherwise the
 	// generic matcher can consume only "Authorization: Bearer" and leave the
 	// credential suffix visible.
@@ -32,6 +33,10 @@ func Redact(s string) string {
 		out = re.ReplaceAllStringFunc(out, func(m string) string {
 			// Keep key name when present
 			if i := strings.IndexAny(m, ":="); i > 0 && !strings.HasPrefix(strings.ToLower(m), "bearer") {
+				remainder := strings.TrimSpace(m[i+1:])
+				if strings.HasPrefix(remainder, `"`) || strings.HasPrefix(remainder, `'`) {
+					return strings.TrimSpace(m[:i+1]) + ` "` + redacted + `"`
+				}
 				return strings.TrimSpace(m[:i+1]) + " " + redacted
 			}
 			return redacted

@@ -27,20 +27,21 @@ func cloudAgentService(t *testing.T) (*Service, *state.DB) {
 func TestCloudAgentServiceOAuthLifecycle(t *testing.T) {
 	s, _ := cloudAgentService(t)
 	ctx := context.Background()
+	resource := "https://vessica.example/mcp"
 	client, err := s.RegisterOAuthClient(ctx, state.OAuthClientInput{ClientID: "public", Name: "Public"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.IssueOAuthRefreshToken(ctx, state.OAuthRefreshTokenInput{ClientID: client.ClientID, ActorID: "user", MaterialHash: "refresh", FamilyID: "family", ExpiresAt: state.FormatTime(time.Now().Add(time.Hour))}); err != nil {
+	if _, err = s.IssueOAuthRefreshToken(ctx, state.OAuthRefreshTokenInput{ClientID: client.ClientID, ActorID: "user", MaterialHash: "refresh", FamilyID: "family", Resource: resource, ExpiresAt: state.FormatTime(time.Now().Add(time.Hour))}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.ValidateOAuthRefreshToken(ctx, "refresh"); err != nil {
+	if _, err = s.ValidateOAuthRefreshToken(ctx, "refresh", resource); err != nil {
 		t.Fatal(err)
 	}
 	if err = s.RevokeOAuthRefreshToken(ctx, "refresh"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = s.ValidateOAuthRefreshToken(ctx, "refresh"); err == nil {
+	if _, err = s.ValidateOAuthRefreshToken(ctx, "refresh", resource); err == nil {
 		t.Fatal("revoked refresh token validated")
 	}
 }

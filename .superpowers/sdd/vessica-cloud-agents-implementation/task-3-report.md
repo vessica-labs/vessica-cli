@@ -105,3 +105,79 @@ dashboard, runtime, deployment, and plugin behavior remains unchanged when
   outside the OAuth/MCP scope.
 
 No push was performed.
+
+## Release-blocker remediation
+
+The Task 3 security review was resolved before later task work began:
+
+- Consent is bound to the active workspace ID and a fresh membership lookup;
+  cached session roles cannot authorize consent after a role or membership
+  change. Cross-workspace and stale-role tests cover both layers.
+- The configured canonical HTTPS origin is mandatory while MCP is enabled.
+  Authorization codes, token exchanges, refresh rotation, stored access and
+  refresh grants, and `/mcp` validation all require the exact canonical
+  `resource`; no request `Host` fallback exists. Token and revocation requests
+  accept bounded form bodies only.
+- Write idempotency is now a durable claim/finalize protocol. A unique ledger
+  claim is committed before the side effect, concurrent callers elect one
+  owner, completed results replay, failed work is retryable, and stale leases
+  can be reclaimed. Claim material and caller keys are hashed and bounded.
+- Browser origins are explicitly same-origin or allowlisted HTTPS origins.
+  Malformed JSON, missing/invalid authorization, invalid stored scopes,
+  hostile origins, unknown tools, SDK pre-handler schema denials, scope denials,
+  and allowed calls are durably audited. Audit errors are returned rather than
+  discarded.
+- Outlook contacts are persisted as normalized ingestion items and included in
+  full receipts. Validation now ports the approved Python v2 contract's unsafe
+  full-batch scan, canonical accounts, nonempty bounded typed strings, nullable
+  initial watermarks, due dates, recurrence and change semantics, warnings and
+  count rules. Stored source IDs are trimmed. Independent expected-previous and
+  monotonic checkpoints advance transactionally; stale batches roll back.
+- Refresh replay transactionally revokes its whole token family. Revoked
+  clients cannot validate access or refresh credentials. MCP credential,
+  trigger-claim, and action-claim prefixes are redacted everywhere.
+- Agent and agent-run MCP responses now use explicit public DTOs. Runtime
+  input, trigger, claim, lease, reservation, rate and resolved-knowledge fields
+  are JSON-hidden on internal models as a second boundary.
+- Subscription upsert/disable are explicitly destructive and idempotent. The
+  scheduled probe remains exactly destructive=false, readOnly=false and
+  idempotent=true.
+
+### Additional RED/GREEN evidence
+
+1. RED: foreign-workspace and removed-role dashboard sessions approved consent.
+   GREEN: current workspace membership and role are re-read before consent.
+2. RED: missing/wrong OAuth resource values and insecure public origins could
+   reach grant paths. GREEN: exact-resource and canonical-origin tests now pass
+   for authorize, token, refresh, access validation, and startup.
+3. RED: the original check/act/append flow allowed concurrent duplicate side
+   effects. GREEN: concurrent state claims have exactly one winner; failure,
+   reclaim, completion and replay tests pass under the race detector.
+4. RED: successful replay was initially observed as still claimed because
+   redaction made stored structured JSON invalid. GREEN: JSON-preserving secret
+   redaction and the explicit public trigger DTO produce a completed replay.
+5. RED: contacts were validated but absent from durable items and receipts.
+   GREEN: contact persistence and exact receipt-partition tests pass.
+6. RED: full-batch unsafe warnings, unscoped client signals, invalid typed due
+   dates, nullable initial checkpoints and stale/backward checkpoints were not
+   handled with Python-contract parity. GREEN: parity/security corpus and
+   transactional checkpoint tests pass.
+7. RED: agent list/detail/run responses exposed input, rates, reservations,
+   claims, leases and workspace internals. GREEN: explicit DTO leak tests pass.
+
+### Final verification after remediation
+
+- `go test ./... -count=1` — passed.
+- `go test -race ./... -count=1` — passed; the final security-only adjustment
+  was additionally checked with `go test -race ./internal/state ./internal/app
+  ./internal/run ./internal/controlplane -count=1`.
+- `go vet ./...` and `go build ./cmd/ves` — passed.
+- `./scripts/lint-arch.sh` — passed with only the same two pre-existing soft
+  file-length warnings.
+- Dashboard API generation, 4 Vitest files / 6 tests, production build, and 2
+  Playwright end-to-end tests — passed.
+- Dashboard asset budget — passed at 148157 compressed bytes.
+- `git diff --check` — passed.
+
+The attempted generic `make lint` command has no repository target; the
+authoritative `./scripts/lint-arch.sh` gate above passed. No push was performed.

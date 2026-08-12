@@ -68,8 +68,9 @@ type actor struct {
 // ExternalIdentity is the dashboard principal exposed to sibling protocol
 // handlers without exposing dashboard session material.
 type ExternalIdentity struct {
-	UserID string
-	Role   string
+	WorkspaceID string
+	UserID      string
+	Role        string
 }
 type contextKey string
 
@@ -296,9 +297,20 @@ func (s *Server) AuthorizeExternalRequest(r *http.Request, mutation bool) (Exter
 	if a.Service {
 		return ExternalIdentity{}, errors.New("interactive dashboard session required")
 	}
+	workspace, err := s.DB.GetWorkspace(r.Context())
+	if err != nil {
+		return ExternalIdentity{}, err
+	}
+	session, err := s.DB.GetDashboardSession(r.Context(), digest(cookieValue(r, sessionCookie)))
+	if err != nil || session.WorkspaceID != workspace.ID {
+		return ExternalIdentity{}, errors.New("dashboard session is not valid for this workspace")
+	}
+	membership, err := s.DB.GetMembership(r.Context(), a.UserID)
+	if err != nil || membership.WorkspaceID != workspace.ID {
+		return ExternalIdentity{}, errors.New("current workspace membership required")
+	}
 	if mutation {
-		session, sessionErr := s.DB.GetDashboardSession(r.Context(), digest(cookieValue(r, sessionCookie)))
-		if sessionErr != nil || !same(session.CSRFHash, digest(r.Header.Get("X-CSRF-Token"))) {
+		if !same(session.CSRFHash, digest(r.Header.Get("X-CSRF-Token"))) {
 			return ExternalIdentity{}, errors.New("valid CSRF token required")
 		}
 		if s.Origin != "" {
@@ -309,7 +321,7 @@ func (s *Server) AuthorizeExternalRequest(r *http.Request, mutation bool) (Exter
 			}
 		}
 	}
-	return ExternalIdentity{UserID: a.UserID, Role: a.Role}, nil
+	return ExternalIdentity{WorkspaceID: workspace.ID, UserID: a.UserID, Role: membership.Role}, nil
 }
 
 func (s *Server) handleLocalExchange(w http.ResponseWriter, r *http.Request) {

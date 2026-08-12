@@ -157,6 +157,7 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 				PreviewPublicURL:    os.Getenv("VES_PREVIEW_ORIGIN"),
 				MCPEnabled:          strings.EqualFold(strings.TrimSpace(os.Getenv("VES_MCP_ENABLED")), "true"),
 				MCPPublicURL:        firstNonEmpty(os.Getenv("VES_MCP_PUBLIC_URL"), cfg.Hosted.ControlPlaneURL),
+				MCPAllowedOrigins:   commaValues(os.Getenv("VES_MCP_ALLOWED_ORIGINS")),
 			}
 			if !strings.EqualFold(strings.TrimSpace(os.Getenv("VES_DASHBOARD_ENABLED")), "false") {
 				dash := dashboard.New(appservice.New(db, root, cfg), "hosted")
@@ -184,7 +185,7 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 				dash.RuntimeStatus = server.AgentRuntimeStatus
 				server.MCPDashboardIdentity = func(r *http.Request, mutation bool) (controlplane.MCPDashboardActor, error) {
 					identity, identityErr := dash.AuthorizeExternalRequest(r, mutation)
-					return controlplane.MCPDashboardActor{UserID: identity.UserID, Role: identity.Role}, identityErr
+					return controlplane.MCPDashboardActor{WorkspaceID: identity.WorkspaceID, UserID: identity.UserID, Role: identity.Role}, identityErr
 				}
 				server.Dashboard = dash.Handler()
 			}
@@ -258,6 +259,16 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 	promptWorker.Flags().StringVar(&promptB64, "prompt-b64", "", "base64url-encoded refinement prompt")
 	cmd.AddCommand(worker, promptWorker)
 	return cmd
+}
+
+func commaValues(value string) []string {
+	var out []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func openHostedWorker(ctx context.Context) (*runengine.Engine, *state.DB, error) {
