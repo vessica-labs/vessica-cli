@@ -13,7 +13,7 @@ func dashboardRoute(r *http.Request) bool {
 	if strings.HasPrefix(p, "/auth/") || strings.HasPrefix(p, "/assets/") || p == "/internal/dashboard/metrics" {
 		return true
 	}
-	for _, prefix := range []string{"/api/v1/system", "/api/v1/integrations", "/api/v1/sandboxes", "/api/v1/knowledge", "/api/v1/access", "/api/v1/audit", "/api/v1/hosting", "/api/v1/docs"} {
+	for _, prefix := range []string{"/api/v1/system", "/api/v1/integrations", "/api/v1/sandboxes", "/api/v1/knowledge", "/api/v1/access", "/api/v1/audit", "/api/v1/hosting", "/api/v1/docs", "/api/v1/conversations", "/api/v1/briefings", "/api/v1/operator"} {
 		if strings.HasPrefix(p, prefix) {
 			return true
 		}

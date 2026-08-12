@@ -901,6 +901,102 @@ label {
 .token-box code {
   word-break: break-all;
 }
+.conversation-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 0.8rem;
+}
+.conversation-sidebar,
+.message-list,
+.briefing-grid > section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+.conversation-sidebar label {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.65rem 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.conversation-list a {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+  padding: 0.7rem 0.2rem;
+}
+.conversation-list a.active,
+.run-inline a,
+.citation-list a {
+  color: var(--primary-strong);
+}
+.conversation-list small,
+.message-card small,
+.operator-row small {
+  color: var(--muted);
+}
+.conversation-thread {
+  min-height: 520px;
+}
+.message-list {
+  margin: 1rem 0;
+}
+.message-card {
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  border-radius: 0.7rem;
+  padding: 0.85rem;
+}
+.message-card p {
+  white-space: pre-wrap;
+}
+.run-inline,
+.citation-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.7rem 0;
+}
+.run-inline a,
+.citation-list a {
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+}
+.briefing-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+.briefing-card h3 {
+  margin: 0;
+}
+.briefing-card ul,
+.briefing-card ol {
+  padding-left: 1.25rem;
+  list-style: initial;
+}
+.operator-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.7rem;
+  border-top: 1px solid var(--line);
+  padding: 0.7rem 0;
+}
+.operator-row span:first-child {
+  display: flex;
+  flex-direction: column;
+}
+.operator-heading {
+  padding: 1rem;
+}
+.status-stale,
+.status-missing {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
 .bootstrap {
   min-height: 100vh;
   display: flex;
@@ -966,7 +1062,9 @@ label {
   .stat-grid,
   .two-column,
   .card-grid,
-  .run-side {
+  .run-side,
+  .conversation-layout,
+  .briefing-grid {
     grid-template-columns: 1fr;
   }
   .search-row {

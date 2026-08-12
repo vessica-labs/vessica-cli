@@ -88,6 +88,9 @@ CREATE TABLE IF NOT EXISTS canonical_knowledge_artifacts(
   FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_cloud_orchestration_ready ON cloud_orchestration_tasks(state,available_at,lease_until,created_at);
+`}, {version: 14, sql: `
+ALTER TABLE conversations ADD COLUMN agent_id TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_conversations_workspace_updated ON conversations(workspace_id,updated_at);
 `}}
 
 func latestMigrationVersion() int {

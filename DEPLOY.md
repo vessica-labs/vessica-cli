@@ -33,6 +33,12 @@ the user's persistent Codex configuration.
 
 Before production deployment, verify required secrets described in `SECURITY.md`, Postgres pool limits, public dashboard/preview origins, and the health endpoint. A successful build is not sufficient: verify the terminal Railway deployment status and a live readiness request.
 
+For remote MCP and cloud agents, verify the exact canonical HTTPS origin,
+interactive OAuth consent, one successful scheduled-write probe, and the
+owner-only Operations view. Provision the ChatGPT Work project and the 6:30 AM
+and 4:30 PM weekday Outlook schedules with
+[`docs/Cloud_Agents_Operator_Runbook.md`](docs/Cloud_Agents_Operator_Runbook.md).
+
 Normal users do not deploy from source. `ves up` resolves released control-plane and knowledge-server images to immutable digests, provisions one PostgreSQL service, and idempotently creates `vessica_control` and `vessica_knowledge` with separate owners and URLs. pgvector is enabled only in the knowledge database. It then validates Railway Sandbox availability and waits for terminal `SUCCESS` plus `/readyz`. Hosted knowledge is valid with no `EMBEDDING_API_KEY`; it reports lexical retrieval and `embedding_state: not_configured` until the user explicitly enables embeddings.
 
 Onboarding is journaled and resumable with `ves up resume`. New installations

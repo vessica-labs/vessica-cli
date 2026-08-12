@@ -40,12 +40,12 @@ func (db *DB) SendConversationMessageIdempotent(ctx context.Context, actionKey, 
 	conversation := &Conversation{}
 	if conversationID == "" {
 		*conversation = Conversation{ID: id.New("conv"), WorkspaceID: ws.ID, ActorID: actorID, Title: title, Status: "active", CreatedAt: now, UpdatedAt: now}
-		if _, err = tx.ExecContext(ctx, db.Rebind(`INSERT INTO conversations(id,workspace_id,actor_id,title,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`), conversation.ID, conversation.WorkspaceID, conversation.ActorID, conversation.Title, conversation.Status, now, now); err != nil {
+		if _, err = tx.ExecContext(ctx, db.Rebind(`INSERT INTO conversations(id,workspace_id,actor_id,agent_id,title,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`), conversation.ID, conversation.WorkspaceID, conversation.ActorID, "", conversation.Title, conversation.Status, now, now); err != nil {
 			return nil, nil, false, err
 		}
 		conversationID = conversation.ID
 	} else {
-		if err = scanConversation(tx.QueryRowContext(ctx, db.Rebind(`SELECT id,workspace_id,actor_id,title,status,created_at,updated_at FROM conversations WHERE id=? AND workspace_id=? AND status='active'`), conversationID, ws.ID), conversation); err != nil {
+		if err = scanConversation(tx.QueryRowContext(ctx, db.Rebind(`SELECT id,workspace_id,actor_id,agent_id,title,status,created_at,updated_at FROM conversations WHERE id=? AND workspace_id=? AND status='active'`), conversationID, ws.ID), conversation); err != nil {
 			return nil, nil, false, fmt.Errorf("active conversation not found")
 		}
 	}
@@ -76,7 +76,7 @@ func (db *DB) SendConversationMessageIdempotent(ctx context.Context, actionKey, 
 
 func getConversationActionRecords(ctx context.Context, db *DB, tx *sql.Tx, workspaceID, conversationID, messageID string) (*Conversation, *ConversationMessage, error) {
 	conversation := &Conversation{}
-	if err := scanConversation(tx.QueryRowContext(ctx, db.Rebind(`SELECT id,workspace_id,actor_id,title,status,created_at,updated_at FROM conversations WHERE id=? AND workspace_id=?`), conversationID, workspaceID), conversation); err != nil {
+	if err := scanConversation(tx.QueryRowContext(ctx, db.Rebind(`SELECT id,workspace_id,actor_id,agent_id,title,status,created_at,updated_at FROM conversations WHERE id=? AND workspace_id=?`), conversationID, workspaceID), conversation); err != nil {
 		return nil, nil, err
 	}
 	message := &ConversationMessage{}
@@ -85,5 +85,5 @@ func getConversationActionRecords(ctx context.Context, db *DB, tx *sql.Tx, works
 }
 
 func scanConversation(row interface{ Scan(...any) error }, conversation *Conversation) error {
-	return row.Scan(&conversation.ID, &conversation.WorkspaceID, &conversation.ActorID, &conversation.Title, &conversation.Status, &conversation.CreatedAt, &conversation.UpdatedAt)
+	return row.Scan(&conversation.ID, &conversation.WorkspaceID, &conversation.ActorID, &conversation.AgentID, &conversation.Title, &conversation.Status, &conversation.CreatedAt, &conversation.UpdatedAt)
 }

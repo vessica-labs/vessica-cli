@@ -1,9 +1,10 @@
 # Vessica Codex Plugin
 
-The first-party Vessica plugin gives Codex a conversational operating layer over
-the `ves` Go CLI. It does not connect directly to Postgres, the knowledge HTTP
-API, Railway, Linear, or an MCP server. The CLI remains the only product
-implementation and the hosted control plane remains authoritative.
+The first-party Vessica plugin combines the OAuth-protected remote MCP surface
+with the existing conversational operating layer over the `ves` Go CLI. MCP is
+used for shared knowledge, briefings, conversations, agents, and approved
+sources. The CLI remains the setup, engineering-run, harness, preview, recovery,
+and operator interface. Neither path connects directly to Postgres.
 
 ## Install or update
 
@@ -18,6 +19,11 @@ The first command updates the Vessica-managed section of repository
 `AGENTS.md`, writes the plugin source to the personal marketplace, and installs
 or updates the plugin assets. The read-only check reports whether `ves`, Codex,
 and the plugin manifest are present.
+
+Set `VES_MCP_PUBLIC_URL` to the canonical HTTPS control-plane origin before
+installing or launching Codex. The bundled `.mcp.json` appends `/mcp`; OAuth
+discovery and interactive consent are handled by the control plane. Do not put
+an access or refresh token in the plugin bundle.
 
 The released plugin archive also contains `scripts/ensure-ves.sh`. This is the
 plugin-only bootstrap path: it reads the CLI pin packaged with the plugin,
@@ -46,6 +52,7 @@ plugin.
 | `use-knowledge` | Resolve entities; retrieve, version, or diagnose artifacts and memories; and manage optional retrieval features. |
 | `use-agents` | Discover the active registry; build or edit durable agents; invoke them; and resume `arun_` streams from the greatest sequence. |
 | `operate-vessica` | Explain commands, diagnose setup/hosted state, operate Railway preview forwarding, and maintain the knowledge service. |
+| `use-vessica-cloud` | Use OAuth-protected MCP for knowledge, cited briefings, conversations, agents, Outlook ingestion, and newsletter subscriptions. |
 
 ## Confirmation and authority boundaries
 
@@ -134,7 +141,7 @@ budgets, attempts, child runs, and critic results remain control-plane state.
 
 - Parse `vessica.cli/v1` JSON and `vessica.stream/v1` JSONL; never scrape human output.
 - Keep provider credentials in Codex/Vessica auth storage, Keychain, environment variables, or Railway secrets. Never echo key values into commands.
-- Codex is the production runner. Claude, Cursor, Pi, and MCP setup targets install guidance but are not production execution adapters.
+- Codex remains the production coding runner. Remote MCP is a control-plane interaction surface, not a replacement execution runtime.
 - Engine-managed Codex runs disable configured MCP servers by default and enable only `VES_CODEX_MCP_ALLOWLIST` entries.
 - The plugin is a guidance/bootstrap package. It does not broaden the user's authorization to mutate Vessica, GitHub, Linear, or Railway.
 

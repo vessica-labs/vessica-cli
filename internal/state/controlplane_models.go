@@ -88,8 +88,8 @@ type ActionExecutionClaim struct {
 	Acquired   bool
 	Replay     bool
 }
-type ConversationInput struct{ ActorID, Title string }
-type Conversation struct{ ID, WorkspaceID, ActorID, Title, Status, CreatedAt, UpdatedAt string }
+type ConversationInput struct{ ActorID, AgentID, Title string }
+type Conversation struct{ ID, WorkspaceID, ActorID, AgentID, Title, Status, CreatedAt, UpdatedAt string }
 type ConversationMessageInput struct{ Role, ContentJSON, MetadataJSON string }
 type ConversationMessage struct {
 	ID, ConversationID, WorkspaceID            string

@@ -7,7 +7,10 @@ import {
   Bot,
   Cloud,
   LayoutDashboard,
+  MessageSquare,
   Moon,
+  Newspaper,
+  Gauge,
   ShieldCheck,
   Sun,
 } from "lucide-react";
@@ -19,11 +22,14 @@ const nav = [
   ["/", "Overview", LayoutDashboard],
   ["/runs", "Runs", Activity],
   ["/agents", "Agents", Bot],
+  ["/conversations", "Conversations", MessageSquare],
+  ["/briefings", "Briefings", Newspaper],
   ["/sandboxes", "Sandboxes", Box],
   ["/knowledge", "Knowledge", Brain],
   ["/docs", "Documentation", BookOpen],
   ["/workspace", "Workspace", Cloud],
   ["/access", "Access", ShieldCheck],
+  ["/operator", "Operations", Gauge],
 ] as const;
 
 function ThemeToggle() {

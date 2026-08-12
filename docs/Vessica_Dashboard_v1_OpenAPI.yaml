@@ -94,6 +94,17 @@ paths:
     post: {$ref: '#/components/pathItems/ResourceMutation'}
   /api/v1/agent-tools:
     get: {operationId: listAgentTools, responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/conversations:
+    get: {operationId: listConversations, responses: {'200': {$ref: '#/components/responses/Success'}, '401': {$ref: '#/components/responses/Error'}}}
+    post: {$ref: '#/components/pathItems/Mutation'}
+  /api/v1/conversations/{id}:
+    get: {operationId: getConversation, parameters: [{$ref: '#/components/parameters/ID'}], responses: {'200': {$ref: '#/components/responses/Success'}, '404': {$ref: '#/components/responses/Error'}}}
+  /api/v1/conversations/{id}/messages:
+    post: {$ref: '#/components/pathItems/ResourceMutation'}
+  /api/v1/briefings:
+    get: {operationId: listBriefings, responses: {'200': {$ref: '#/components/responses/Success'}}}
+  /api/v1/operator:
+    get: {operationId: getCloudAgentOperations, description: Owner-only workspace operational signals and action ledger, responses: {'200': {$ref: '#/components/responses/Success'}, '403': {$ref: '#/components/responses/Error'}}}
   /api/v1/sandboxes:
     get: {operationId: listSandboxes, parameters: [{$ref: '#/components/parameters/Cursor'}, {$ref: '#/components/parameters/Limit'}], responses: {'200': {$ref: '#/components/responses/Success'}}}
   /api/v1/sandboxes/{id}/retain:

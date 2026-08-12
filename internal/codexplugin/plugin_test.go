@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +32,9 @@ func TestInstallWritesPluginAndMarketplaceEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(result.Path, "skills", "use-knowledge", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(result.Path, "skills", "use-vessica-cloud", "SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(result.Path, "skills", "operate-vessica", "references", "operator-guide.md")); err != nil {
@@ -61,13 +65,24 @@ func TestInstallWritesPluginAndMarketplaceEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	var manifest struct {
-		Version string `json:"version"`
+		Version    string `json:"version"`
+		MCPServers string `json:"mcpServers"`
 	}
 	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(manifest.Version, version.Version+"+codex.") {
 		t.Fatalf("plugin version=%q does not track CLI version %q", manifest.Version, version.Version)
+	}
+	if manifest.MCPServers != "./.mcp.json" {
+		t.Fatalf("remote MCP config missing from manifest: %s", manifestRaw)
+	}
+	mcpRaw, err := os.ReadFile(filepath.Join(result.Path, ".mcp.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(mcpRaw), `"type": "http"`) || !strings.Contains(string(mcpRaw), `"url": "${VES_MCP_PUBLIC_URL}/mcp"`) {
+		t.Fatalf("remote MCP config is invalid: %s", mcpRaw)
 	}
 	raw, err := os.ReadFile(result.Marketplace)
 	if err != nil {
@@ -91,6 +106,41 @@ func TestInstallWritesPluginAndMarketplaceEntry(t *testing.T) {
 	_ = json.Unmarshal(raw, &marketplace)
 	if len(marketplace.Plugins) != 1 {
 		t.Fatalf("duplicate entries: %s", raw)
+	}
+}
+
+func TestBundledPluginPassesCodexPluginValidator(t *testing.T) {
+	root := t.TempDir()
+	if err := fs.WalkDir(BundleFS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == "." {
+			return nil
+		}
+		target := filepath.Join(root, filepath.FromSlash(path))
+		if entry.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		body, err := fs.ReadFile(BundleFS(), path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, body, 0o644)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	validator := filepath.Join(os.Getenv("HOME"), ".codex", "skills", ".system", "plugin-creator", "scripts", "validate_plugin.py")
+	if _, err := os.Stat(validator); err != nil {
+		t.Skip("Codex plugin validator is not available")
+	}
+	probe := exec.Command("python3", "-c", "import yaml")
+	if err := probe.Run(); err != nil {
+		t.Skip("Codex plugin validator dependency PyYAML is not available")
+	}
+	cmd := exec.Command("python3", validator, root)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("plugin validation failed: %v\n%s", err, output)
 	}
 }
 

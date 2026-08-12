@@ -10,6 +10,9 @@ import { Docs, Doc } from "@/pages/docs";
 import { Workspace } from "@/pages/hosting";
 import { Access } from "@/pages/access";
 import { Agents, AgentDetail, AgentRun } from "@/pages/agents";
+import { Conversations } from "@/pages/conversations";
+import { Briefings } from "@/pages/briefings";
+import { Operator } from "@/pages/operator";
 const client = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 3000 } },
 });
@@ -25,6 +28,10 @@ export function App() {
             <Route path="agents" element={<Agents />} />
             <Route path="agents/:id" element={<AgentDetail />} />
             <Route path="agent-runs/:id" element={<AgentRun />} />
+            <Route path="conversations" element={<Conversations />} />
+            <Route path="conversations/:id" element={<Conversations />} />
+            <Route path="briefings" element={<Briefings />} />
+            <Route path="operator" element={<Operator />} />
             <Route path="sandboxes" element={<Sandboxes />} />
             <Route path="knowledge" element={<Knowledge />} />
             <Route path="knowledge/:type/:id" element={<KnowledgeDetail />} />

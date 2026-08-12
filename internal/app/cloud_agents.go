@@ -55,6 +55,15 @@ func (s *Service) FailAction(ctx context.Context, ledgerID, claimToken, resultJS
 func (s *Service) StartConversation(ctx context.Context, in state.ConversationInput) (*state.Conversation, error) {
 	return s.DB.CreateConversation(ctx, in)
 }
+func (s *Service) Conversation(ctx context.Context, conversationID string) (*state.Conversation, error) {
+	return s.DB.GetConversation(ctx, conversationID)
+}
+func (s *Service) Conversations(ctx context.Context) ([]state.Conversation, error) {
+	return s.DB.ListConversations(ctx)
+}
+func (s *Service) SelectConversationAgent(ctx context.Context, conversationID, agentID string) (*state.Conversation, error) {
+	return s.DB.SetConversationAgent(ctx, conversationID, agentID)
+}
 func (s *Service) AddConversationMessage(ctx context.Context, conversationID string, in state.ConversationMessageInput) (*state.ConversationMessage, error) {
 	return s.DB.AppendConversationMessage(ctx, conversationID, in)
 }
@@ -63,6 +72,9 @@ func (s *Service) SendConversationMessageIdempotent(ctx context.Context, actionK
 }
 func (s *Service) ConversationMessages(ctx context.Context, conversationID string, after int64) ([]state.ConversationMessage, error) {
 	return s.DB.ListConversationMessages(ctx, conversationID, after)
+}
+func (s *Service) OperatorSnapshot(ctx context.Context, now time.Time) (state.OperatorSnapshot, error) {
+	return s.DB.OperatorSnapshot(ctx, now)
 }
 func (s *Service) UpsertNewsletterSubscription(ctx context.Context, in state.NewsletterSubscriptionInput) (*state.NewsletterSubscription, error) {
 	return s.DB.UpsertNewsletterSubscription(ctx, in)

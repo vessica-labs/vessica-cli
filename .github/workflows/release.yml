@@ -105,6 +105,9 @@ jobs:
           (cd dist && sha256sum ./*.tar.gz ./*.zip > checksums.txt)
           test "$(tar -xOf "dist/vessica-codex-plugin_${version}.tar.gz" ./scripts/cli-version.txt)" = "$version"
           test "$(tar -xOf "dist/vessica-codex-plugin_${version}.tar.gz" ./.codex-plugin/plugin.json | jq -r .version)" = "$version+codex.${GITHUB_RUN_ID}"
+          test "$(tar -xOf "dist/vessica-codex-plugin_${version}.tar.gz" ./.codex-plugin/plugin.json | jq -r .mcpServers)" = "./.mcp.json"
+          tar -xOf "dist/vessica-codex-plugin_${version}.tar.gz" ./.mcp.json | jq -e '.mcpServers.vessica.type == "http" and .mcpServers.vessica.url == "${VES_MCP_PUBLIC_URL}/mcp"'
+          tar -tzf "dist/vessica-codex-plugin_${version}.tar.gz" | grep -Fx './skills/use-vessica-cloud/SKILL.md'
           tar -xOf "dist/vessica-codex-plugin_${version}.tar.gz" ./scripts/ensure-ves.sh | grep -F '$base/checksums.txt'
           tar -tvf "dist/vessica-codex-plugin_${version}.tar.gz" ./scripts/ensure-ves.sh | grep -E '^-rwxr-xr-x'
           test "$(tar -xOf "dist/vessica-claude-plugin_${version}.tar.gz" ./plugins/vessica/scripts/cli-version.txt)" = "$version"

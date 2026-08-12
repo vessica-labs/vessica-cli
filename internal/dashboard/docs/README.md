@@ -22,6 +22,9 @@ and architecture records.
   boundary, and troubleshooting.
 - [`Hosted_Railway.md`](Hosted_Railway.md): hosted topology, provisioning,
   OAuth, operations, previews, and secrets.
+- [`Cloud_Agents_Operator_Runbook.md`](Cloud_Agents_Operator_Runbook.md): Work
+  project setup, weekday schedules, rotation, recovery, source suspension, and
+  cloud-agent operations.
 - [`Vessica_stream_v1.md`](Vessica_stream_v1.md): stable JSONL streaming
   protocol and resume semantics.
 - [`Knowledge_Layer_Followups.md`](Knowledge_Layer_Followups.md): current shipped
