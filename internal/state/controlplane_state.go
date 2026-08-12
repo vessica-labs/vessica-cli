@@ -179,6 +179,9 @@ func (db *DB) UpsertNewsletterItem(ctx context.Context, in NewsletterItemInput) 
 	if in.SubscriptionID == "" || in.SourceItemID == "" || in.NormalizedJSON == "" {
 		return nil, fmt.Errorf("newsletter item subscription, source id, and normalized content are required")
 	}
+	if e = db.requireWorkspaceRecord(ctx, "newsletter_subscriptions", in.SubscriptionID); e != nil {
+		return nil, e
+	}
 	now := Now()
 	_, e = db.Exec(ctx, `INSERT INTO newsletter_items(id,workspace_id,subscription_id,source_item_id,normalized_json,published_at,retain_until,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(subscription_id,source_item_id) DO UPDATE SET normalized_json=excluded.normalized_json,published_at=excluded.published_at,retain_until=excluded.retain_until,updated_at=excluded.updated_at`, id.New("nitem"), ws.ID, in.SubscriptionID, in.SourceItemID, in.NormalizedJSON, nullStr(in.PublishedAt), nullStr(in.RetainUntil), now, now)
 	if e != nil {
@@ -236,6 +239,9 @@ func (db *DB) UpsertOutlookIngestionItem(ctx context.Context, in OutlookIngestio
 	if in.BatchID == "" || in.SourceID == "" || in.NormalizedJSON == "" {
 		return nil, false, fmt.Errorf("outlook item batch, source id, and normalized content are required")
 	}
+	if e = db.requireWorkspaceRecord(ctx, "outlook_ingestion_batches", in.BatchID); e != nil {
+		return nil, false, e
+	}
 	now := Now()
 	res, e := db.Exec(ctx, `INSERT INTO outlook_ingestion_items(id,workspace_id,batch_id,source_id,internet_message_id,conversation_id,message_at,normalized_json,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(workspace_id,source_id) DO NOTHING`, id.New("oitem"), ws.ID, in.BatchID, in.SourceID, nullStr(in.InternetMessageID), nullStr(in.ConversationID), nullStr(in.MessageAt), in.NormalizedJSON, "received", now, now)
 	if e != nil {
@@ -258,6 +264,12 @@ func (db *DB) EnqueueOutlookOutbox(ctx context.Context, batchID, itemID, key str
 	}
 	if batchID == "" || itemID == "" || key == "" {
 		return nil, fmt.Errorf("outlook outbox batch, item, and processing key are required")
+	}
+	if e = db.requireWorkspaceRecord(ctx, "outlook_ingestion_batches", batchID); e != nil {
+		return nil, e
+	}
+	if e = db.requireOutlookItemForBatch(ctx, batchID, itemID); e != nil {
+		return nil, e
 	}
 	now := Now()
 	_, e = db.Exec(ctx, `INSERT INTO outlook_outbox(id,workspace_id,batch_id,item_id,processing_key,state,created_at,updated_at) VALUES(?,?,?,?,?,'pending',?,?) ON CONFLICT(workspace_id,processing_key) DO NOTHING`, id.New("outbox"), ws.ID, batchID, itemID, key, now, now)
@@ -317,17 +329,43 @@ func (db *DB) ClaimOutlookOutbox(ctx context.Context, owner string, lease time.D
 }
 
 func (db *DB) CompleteOutlookOutbox(ctx context.Context, outboxID, owner, resultJSON string) error {
+	return db.CompleteOutlookOutboxAtomically(ctx, outboxID, owner, "accepted", resultJSON)
+}
+
+// CompleteOutlookOutboxAtomically makes the external processing outcome,
+// receipt, item state, and batch terminal state one durable transition.
+func (db *DB) CompleteOutlookOutboxAtomically(ctx context.Context, outboxID, owner, receiptState, resultJSON string) error {
 	ws, err := db.GetWorkspace(ctx)
 	if err != nil {
 		return err
 	}
-	if outboxID == "" || owner == "" {
-		return fmt.Errorf("outlook outbox id and worker are required")
+	if outboxID == "" || owner == "" || receiptState == "" {
+		return fmt.Errorf("outlook completion fields are required")
 	}
 	if resultJSON == "" {
 		resultJSON = "{}"
 	}
-	result, err := db.Exec(ctx, `UPDATE outlook_outbox SET state='completed',processed_at=?,lease_owner=NULL,lease_until=NULL,last_error=NULL,updated_at=? WHERE id=? AND workspace_id=? AND state='processing' AND lease_owner=?`, Now(), Now(), outboxID, ws.ID, owner)
+	tx, err := db.SQL.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var batchID, itemID string
+	err = tx.QueryRowContext(ctx, db.Rebind(`SELECT batch_id,item_id FROM outlook_outbox WHERE id=? AND workspace_id=? AND state='processing' AND lease_owner=?`), outboxID, ws.ID, owner).Scan(&batchID, &itemID)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("outlook outbox fence lost")
+	}
+	if err != nil {
+		return err
+	}
+	now := Now()
+	if _, err = tx.ExecContext(ctx, db.Rebind(`INSERT INTO outlook_ingestion_receipts(id,workspace_id,batch_id,item_id,state,result_json,error,created_at) VALUES(?,?,?,?,?,?,NULL,?) ON CONFLICT(batch_id,item_id) DO UPDATE SET state=excluded.state,result_json=excluded.result_json,error=NULL`), id.New("oreceipt"), ws.ID, batchID, itemID, receiptState, redaction.Redact(resultJSON), now); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, db.Rebind(`UPDATE outlook_ingestion_items SET state='completed',error=NULL,updated_at=? WHERE id=? AND batch_id=? AND workspace_id=?`), now, itemID, batchID, ws.ID); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, db.Rebind(`UPDATE outlook_outbox SET state='completed',processed_at=?,lease_owner=NULL,lease_until=NULL,last_error=NULL,updated_at=? WHERE id=? AND workspace_id=? AND state='processing' AND lease_owner=?`), now, now, outboxID, ws.ID, owner)
 	if err != nil {
 		return err
 	}
@@ -335,7 +373,18 @@ func (db *DB) CompleteOutlookOutbox(ctx context.Context, outboxID, owner, result
 	if changed != 1 {
 		return fmt.Errorf("outlook outbox fence lost")
 	}
-	return nil
+	var remaining int
+	if err = tx.QueryRowContext(ctx, db.Rebind(`SELECT COUNT(*) FROM outlook_outbox WHERE batch_id=? AND workspace_id=? AND state!='completed'`), batchID, ws.ID).Scan(&remaining); err != nil {
+		return err
+	}
+	batchState, completedAt := "processing", ""
+	if remaining == 0 {
+		batchState, completedAt = "completed", now
+	}
+	if _, err = tx.ExecContext(ctx, db.Rebind(`UPDATE outlook_ingestion_batches SET state=?,completed_at=?,error=NULL,updated_at=? WHERE id=? AND workspace_id=?`), batchState, nullStr(completedAt), now, batchID, ws.ID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (db *DB) RecordOutlookIngestionReceipt(ctx context.Context, batchID, itemID, receiptState, resultJSON, errorText string) (*OutlookIngestionReceipt, error) {
@@ -345,6 +394,12 @@ func (db *DB) RecordOutlookIngestionReceipt(ctx context.Context, batchID, itemID
 	}
 	if batchID == "" || itemID == "" || receiptState == "" {
 		return nil, fmt.Errorf("outlook receipt batch, item, and state are required")
+	}
+	if err = db.requireWorkspaceRecord(ctx, "outlook_ingestion_batches", batchID); err != nil {
+		return nil, err
+	}
+	if err = db.requireOutlookItemForBatch(ctx, batchID, itemID); err != nil {
+		return nil, err
 	}
 	if resultJSON == "" {
 		resultJSON = "{}"
@@ -356,9 +411,51 @@ func (db *DB) RecordOutlookIngestionReceipt(ctx context.Context, batchID, itemID
 	}
 	var v OutlookIngestionReceipt
 	var storedError sql.NullString
-	err = db.QueryRow(ctx, `SELECT id,workspace_id,batch_id,item_id,state,result_json,error,created_at FROM outlook_ingestion_receipts WHERE batch_id=? AND item_id=?`, batchID, itemID).Scan(&v.ID, &v.WorkspaceID, &v.BatchID, &v.ItemID, &v.State, &v.ResultJSON, &storedError, &v.CreatedAt)
+	err = db.QueryRow(ctx, `SELECT id,workspace_id,batch_id,item_id,state,result_json,error,created_at FROM outlook_ingestion_receipts WHERE workspace_id=? AND batch_id=? AND item_id=?`, ws.ID, batchID, itemID).Scan(&v.ID, &v.WorkspaceID, &v.BatchID, &v.ItemID, &v.State, &v.ResultJSON, &storedError, &v.CreatedAt)
 	v.Error = storedError.String
 	return &v, err
+}
+
+func (db *DB) SetOutlookIngestionItemState(ctx context.Context, itemID, itemState, errorText string) error {
+	ws, err := db.GetWorkspace(ctx)
+	if err != nil {
+		return err
+	}
+	if itemState == "" {
+		return fmt.Errorf("outlook item state is required")
+	}
+	result, err := db.Exec(ctx, `UPDATE outlook_ingestion_items SET state=?,error=?,updated_at=? WHERE id=? AND workspace_id=?`, itemState, nullStr(errorText), Now(), itemID, ws.ID)
+	if err != nil {
+		return err
+	}
+	changed, _ := result.RowsAffected()
+	if changed != 1 {
+		return fmt.Errorf("outlook item not found in workspace")
+	}
+	return nil
+}
+
+func (db *DB) SetOutlookIngestionBatchState(ctx context.Context, batchID, batchState, errorText string) error {
+	ws, err := db.GetWorkspace(ctx)
+	if err != nil {
+		return err
+	}
+	if batchState == "" {
+		return fmt.Errorf("outlook batch state is required")
+	}
+	completedAt := ""
+	if batchState == "completed" {
+		completedAt = Now()
+	}
+	result, err := db.Exec(ctx, `UPDATE outlook_ingestion_batches SET state=?,error=?,completed_at=?,updated_at=? WHERE id=? AND workspace_id=?`, batchState, nullStr(errorText), nullStr(completedAt), Now(), batchID, ws.ID)
+	if err != nil {
+		return err
+	}
+	changed, _ := result.RowsAffected()
+	if changed != 1 {
+		return fmt.Errorf("outlook batch not found in workspace")
+	}
+	return nil
 }
 
 func (db *DB) UpsertAgentTaskCheckpoint(ctx context.Context, in AgentTaskCheckpointInput) (*AgentTaskCheckpoint, error) {
@@ -368,6 +465,12 @@ func (db *DB) UpsertAgentTaskCheckpoint(ctx context.Context, in AgentTaskCheckpo
 	}
 	if in.AgentID == "" || in.AgentRunID == "" || in.CheckpointKey == "" || in.StateJSON == "" {
 		return nil, fmt.Errorf("agent checkpoint fields are required")
+	}
+	if e = db.requireWorkspaceRecord(ctx, "agents", in.AgentID); e != nil {
+		return nil, e
+	}
+	if e = db.requireAgentRunForAgent(ctx, in.AgentID, in.AgentRunID); e != nil {
+		return nil, e
 	}
 	if in.Status == "" {
 		in.Status = "saved"
@@ -396,6 +499,9 @@ func (db *DB) TriggerAgentRun(ctx context.Context, in AgentRunTriggerInput) (*Ag
 	if in.InputJSON == "" {
 		in.InputJSON = "{}"
 	}
+	if err = db.requireWorkspaceRecord(ctx, "agents", in.AgentID); err != nil {
+		return nil, err
+	}
 	now := Now()
 	trigger := &AgentRunTrigger{ID: id.New("atrigger"), WorkspaceID: ws.ID, AgentID: in.AgentID, IdempotencyKey: in.IdempotencyKey, Trigger: in.Trigger, InputJSON: in.InputJSON, RepositoryID: in.RepositoryID, ParentRunID: in.ParentRunID, State: "accepted", CreatedAt: now, UpdatedAt: now}
 	_, err = db.Exec(ctx, `INSERT INTO agent_run_triggers(id,workspace_id,agent_id,idempotency_key,trigger,input_json,repository_id,parent_run_id,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(workspace_id,agent_id,idempotency_key) DO NOTHING`, trigger.ID, trigger.WorkspaceID, trigger.AgentID, trigger.IdempotencyKey, trigger.Trigger, trigger.InputJSON, nullStr(trigger.RepositoryID), nullStr(trigger.ParentRunID), trigger.State, now, now)
@@ -409,7 +515,16 @@ func (db *DB) TriggerAgentRun(ctx context.Context, in AgentRunTriggerInput) (*Ag
 	if existing.AgentRunID != "" {
 		return existing, nil
 	}
-	claim, err := db.Exec(ctx, `UPDATE agent_run_triggers SET state='creating',updated_at=? WHERE id=? AND state='accepted' AND agent_run_id IS NULL`, Now(), existing.ID)
+	if run, findErr := db.findAgentRunForTrigger(ctx, existing.ID); findErr == nil {
+		_, err = db.Exec(ctx, `UPDATE agent_run_triggers SET agent_run_id=?,state='created',claim_token=NULL,lease_until=NULL,updated_at=? WHERE id=? AND workspace_id=? AND agent_run_id IS NULL`, run.ID, Now(), existing.ID, ws.ID)
+		if err != nil {
+			return nil, err
+		}
+		return db.getAgentRunTrigger(ctx, in.AgentID, in.IdempotencyKey)
+	}
+	claimToken := id.New("triggerclaim")
+	leaseUntil := FormatTime(time.Now().Add(time.Minute))
+	claim, err := db.Exec(ctx, `UPDATE agent_run_triggers SET state='creating',claim_token=?,lease_until=?,updated_at=? WHERE id=? AND workspace_id=? AND agent_run_id IS NULL AND (state='accepted' OR (state='creating' AND lease_until<?))`, claimToken, leaseUntil, Now(), existing.ID, ws.ID, Now())
 	if err != nil {
 		return nil, err
 	}
@@ -417,12 +532,16 @@ func (db *DB) TriggerAgentRun(ctx context.Context, in AgentRunTriggerInput) (*Ag
 	if claimed == 0 {
 		return db.getAgentRunTrigger(ctx, in.AgentID, in.IdempotencyKey)
 	}
-	runRecord, err := db.CreateAgentRun(ctx, in.AgentID, in.Trigger, in.InputJSON, in.RepositoryID, in.ParentRunID, in.RateSnapshot)
+	runRecord, err := db.CreateAgentRunForTrigger(ctx, in.AgentID, in.Trigger, in.InputJSON, in.RepositoryID, in.ParentRunID, in.RateSnapshot, existing.ID)
 	if err != nil {
-		_, _ = db.Exec(ctx, `UPDATE agent_run_triggers SET state='accepted',updated_at=? WHERE id=? AND state='creating'`, Now(), existing.ID)
-		return nil, err
+		if recovered, recoverErr := db.findAgentRunForTrigger(ctx, existing.ID); recoverErr == nil {
+			runRecord = recovered
+		} else {
+			_, _ = db.Exec(ctx, `UPDATE agent_run_triggers SET state='accepted',claim_token=NULL,lease_until=NULL,updated_at=? WHERE id=? AND claim_token=?`, Now(), existing.ID, claimToken)
+			return nil, err
+		}
 	}
-	result, err := db.Exec(ctx, `UPDATE agent_run_triggers SET agent_run_id=?,state='created',updated_at=? WHERE id=? AND state='creating' AND agent_run_id IS NULL`, runRecord.ID, Now(), existing.ID)
+	result, err := db.Exec(ctx, `UPDATE agent_run_triggers SET agent_run_id=?,state='created',claim_token=NULL,lease_until=NULL,updated_at=? WHERE id=? AND workspace_id=? AND claim_token=? AND agent_run_id IS NULL`, runRecord.ID, Now(), existing.ID, ws.ID, claimToken)
 	if err != nil {
 		return nil, err
 	}
@@ -439,13 +558,28 @@ func (db *DB) getAgentRunTrigger(ctx context.Context, agentID, key string) (*Age
 		return nil, err
 	}
 	var v AgentRunTrigger
-	var repo, parent, run sql.NullString
-	err = db.QueryRow(ctx, `SELECT id,workspace_id,agent_id,idempotency_key,trigger,input_json,repository_id,parent_run_id,agent_run_id,state,created_at,updated_at FROM agent_run_triggers WHERE workspace_id=? AND agent_id=? AND idempotency_key=?`, ws.ID, agentID, key).Scan(&v.ID, &v.WorkspaceID, &v.AgentID, &v.IdempotencyKey, &v.Trigger, &v.InputJSON, &repo, &parent, &run, &v.State, &v.CreatedAt, &v.UpdatedAt)
+	var repo, parent, run, claim, lease sql.NullString
+	err = db.QueryRow(ctx, `SELECT id,workspace_id,agent_id,idempotency_key,trigger,input_json,repository_id,parent_run_id,agent_run_id,state,claim_token,lease_until,created_at,updated_at FROM agent_run_triggers WHERE workspace_id=? AND agent_id=? AND idempotency_key=?`, ws.ID, agentID, key).Scan(&v.ID, &v.WorkspaceID, &v.AgentID, &v.IdempotencyKey, &v.Trigger, &v.InputJSON, &repo, &parent, &run, &v.State, &claim, &lease, &v.CreatedAt, &v.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("agent trigger not found")
 	}
 	v.RepositoryID = repo.String
 	v.ParentRunID = parent.String
 	v.AgentRunID = run.String
+	v.ClaimToken = claim.String
+	v.LeaseUntil = lease.String
 	return &v, err
+}
+
+func (db *DB) findAgentRunForTrigger(ctx context.Context, triggerID string) (*AgentRun, error) {
+	ws, err := db.GetWorkspace(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var runID string
+	err = db.QueryRow(ctx, `SELECT id FROM agent_runs WHERE workspace_id=? AND trigger_id=?`, ws.ID, triggerID).Scan(&runID)
+	if err != nil {
+		return nil, err
+	}
+	return db.GetAgentRun(ctx, runID)
 }

@@ -260,6 +260,17 @@ func (db *DB) reservationEstimate(ctx context.Context, agentID string, limit int
 }
 
 func (db *DB) CreateAgentRun(ctx context.Context, agentID, trigger, inputJSON, repositoryID, parentRunID string, rateSnapshot any) (*AgentRun, error) {
+	return db.createAgentRun(ctx, agentID, trigger, inputJSON, repositoryID, parentRunID, rateSnapshot, "")
+}
+
+func (db *DB) CreateAgentRunForTrigger(ctx context.Context, agentID, trigger, inputJSON, repositoryID, parentRunID string, rateSnapshot any, triggerID string) (*AgentRun, error) {
+	if err := db.requireWorkspaceRecord(ctx, "agents", agentID); err != nil {
+		return nil, err
+	}
+	return db.createAgentRun(ctx, agentID, trigger, inputJSON, repositoryID, parentRunID, rateSnapshot, triggerID)
+}
+
+func (db *DB) createAgentRun(ctx context.Context, agentID, trigger, inputJSON, repositoryID, parentRunID string, rateSnapshot any, triggerID string) (*AgentRun, error) {
 	a, err := db.GetAgent(ctx, agentID)
 	if err != nil {
 		return nil, err
@@ -277,12 +288,18 @@ func (db *DB) CreateAgentRun(ctx context.Context, agentID, trigger, inputJSON, r
 	root := rid
 	depth := 0
 	if parentRunID != "" {
+		if err = db.requireWorkspaceRecord(ctx, "agent_runs", parentRunID); err != nil {
+			return nil, err
+		}
 		parent, pe := db.GetAgentRun(ctx, parentRunID)
 		if pe != nil {
 			return nil, pe
 		}
 		if parent.NestingDepth >= 3 {
 			return nil, fmt.Errorf("agent nesting limit exceeded")
+		}
+		if parent.AgentID != a.ID {
+			return nil, fmt.Errorf("parent run belongs to another agent")
 		}
 		root = parent.RootRunID
 		depth = parent.NestingDepth + 1
@@ -309,8 +326,8 @@ func (db *DB) CreateAgentRun(ctx context.Context, agentID, trigger, inputJSON, r
 		status = "budget_blocked"
 		reserve = 0
 	}
-	r := &AgentRun{ID: rid, WorkspaceID: a.WorkspaceID, AgentID: a.ID, DefinitionVersion: a.CurrentVersion, Trigger: trigger, InputJSON: inputJSON, OriginatingRepositoryID: repositoryID, ParentRunID: parentRunID, RootRunID: root, NestingDepth: depth, Status: status, BudgetPeriodStart: periodStart, ReservationMicroUSD: reserve, RateSnapshotJSON: string(rates), ResolvedKnowledgeJSON: "[]", CreatedAt: now, UpdatedAt: now}
-	_, err = tx.ExecContext(ctx, db.Rebind(`INSERT INTO agent_runs(id,workspace_id,agent_id,definition_version,trigger,input_json,originating_repository_id,parent_run_id,root_run_id,nesting_depth,status,budget_period_start,reservation_microusd,rate_snapshot_json,resolved_knowledge_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`), r.ID, r.WorkspaceID, r.AgentID, r.DefinitionVersion, r.Trigger, r.InputJSON, nullStr(repositoryID), nullStr(parentRunID), r.RootRunID, r.NestingDepth, r.Status, r.BudgetPeriodStart, r.ReservationMicroUSD, r.RateSnapshotJSON, r.ResolvedKnowledgeJSON, now, now)
+	r := &AgentRun{ID: rid, WorkspaceID: a.WorkspaceID, AgentID: a.ID, DefinitionVersion: a.CurrentVersion, Trigger: trigger, InputJSON: inputJSON, OriginatingRepositoryID: repositoryID, ParentRunID: parentRunID, TriggerID: triggerID, RootRunID: root, NestingDepth: depth, Status: status, BudgetPeriodStart: periodStart, ReservationMicroUSD: reserve, RateSnapshotJSON: string(rates), ResolvedKnowledgeJSON: "[]", CreatedAt: now, UpdatedAt: now}
+	_, err = tx.ExecContext(ctx, db.Rebind(`INSERT INTO agent_runs(id,workspace_id,agent_id,definition_version,trigger,input_json,originating_repository_id,parent_run_id,trigger_id,root_run_id,nesting_depth,status,budget_period_start,reservation_microusd,rate_snapshot_json,resolved_knowledge_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`), r.ID, r.WorkspaceID, r.AgentID, r.DefinitionVersion, r.Trigger, r.InputJSON, nullStr(repositoryID), nullStr(parentRunID), nullStr(triggerID), r.RootRunID, r.NestingDepth, r.Status, r.BudgetPeriodStart, r.ReservationMicroUSD, r.RateSnapshotJSON, r.ResolvedKnowledgeJSON, now, now)
 	if err != nil {
 		return nil, err
 	}
@@ -339,12 +356,14 @@ func insertAgentTask(ctx context.Context, db *DB, tx *sql.Tx, workspaceID, kind,
 func (db *DB) GetAgentRun(ctx context.Context, runID string) (*AgentRun, error) {
 	var r AgentRun
 	var repo, parent, out, terminal, cancel, started, finished sql.NullString
-	err := db.QueryRow(ctx, `SELECT id,workspace_id,agent_id,definition_version,trigger,input_json,originating_repository_id,parent_run_id,root_run_id,nesting_depth,status,budget_period_start,reservation_microusd,rate_snapshot_json,resolved_knowledge_json,output_json,terminal_error,cancel_requested_at,created_at,updated_at,started_at,finished_at FROM agent_runs WHERE id=?`, runID).Scan(&r.ID, &r.WorkspaceID, &r.AgentID, &r.DefinitionVersion, &r.Trigger, &r.InputJSON, &repo, &parent, &r.RootRunID, &r.NestingDepth, &r.Status, &r.BudgetPeriodStart, &r.ReservationMicroUSD, &r.RateSnapshotJSON, &r.ResolvedKnowledgeJSON, &out, &terminal, &cancel, &r.CreatedAt, &r.UpdatedAt, &started, &finished)
+	var triggerID sql.NullString
+	err := db.QueryRow(ctx, `SELECT id,workspace_id,agent_id,definition_version,trigger,input_json,originating_repository_id,parent_run_id,trigger_id,root_run_id,nesting_depth,status,budget_period_start,reservation_microusd,rate_snapshot_json,resolved_knowledge_json,output_json,terminal_error,cancel_requested_at,created_at,updated_at,started_at,finished_at FROM agent_runs WHERE id=?`, runID).Scan(&r.ID, &r.WorkspaceID, &r.AgentID, &r.DefinitionVersion, &r.Trigger, &r.InputJSON, &repo, &parent, &triggerID, &r.RootRunID, &r.NestingDepth, &r.Status, &r.BudgetPeriodStart, &r.ReservationMicroUSD, &r.RateSnapshotJSON, &r.ResolvedKnowledgeJSON, &out, &terminal, &cancel, &r.CreatedAt, &r.UpdatedAt, &started, &finished)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("agent run not found: %s", runID)
 	}
 	r.OriginatingRepositoryID = repo.String
 	r.ParentRunID = parent.String
+	r.TriggerID = triggerID.String
 	r.OutputJSON = out.String
 	r.TerminalError = terminal.String
 	r.CancelRequestedAt = cancel.String

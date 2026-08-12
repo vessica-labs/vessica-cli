@@ -52,6 +52,7 @@ type AgentRun struct {
 	InputJSON               string `json:"input_json"`
 	OriginatingRepositoryID string `json:"originating_repository_id,omitempty"`
 	ParentRunID             string `json:"parent_run_id,omitempty"`
+	TriggerID               string `json:"trigger_id,omitempty"`
 	RootRunID               string `json:"root_run_id"`
 	NestingDepth            int    `json:"nesting_depth"`
 	Status                  string `json:"status"`

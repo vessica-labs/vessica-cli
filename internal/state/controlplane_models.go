@@ -101,4 +101,4 @@ type AgentRunTriggerInput struct {
 	AgentID, IdempotencyKey, Trigger, InputJSON, RepositoryID, ParentRunID string
 	RateSnapshot                                                           any
 }
-type AgentRunTrigger struct{ ID, WorkspaceID, AgentID, IdempotencyKey, Trigger, InputJSON, RepositoryID, ParentRunID, AgentRunID, State, CreatedAt, UpdatedAt string }
+type AgentRunTrigger struct{ ID, WorkspaceID, AgentID, IdempotencyKey, Trigger, InputJSON, RepositoryID, ParentRunID, AgentRunID, State, ClaimToken, LeaseUntil, CreatedAt, UpdatedAt string }

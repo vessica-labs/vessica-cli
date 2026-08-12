@@ -28,7 +28,7 @@ func TestOAuthCredentialsUseHashedLookupAndRedactedJSON(t *testing.T) {
 		t.Fatalf("client=%#v", client)
 	}
 	if _, err = db.CreateOAuthAuthorizationCode(ctx, OAuthAuthorizationCodeInput{
-		ClientID:   client.ID,
+		ClientID:   client.ClientID,
 		ActorID:    "user_1",
 		CodeHash:   "authorization-code-hash",
 		ScopesJSON: `["agents.read"]`,
@@ -37,7 +37,7 @@ func TestOAuthCredentialsUseHashedLookupAndRedactedJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err = db.IssueOAuthAccessToken(ctx, OAuthAccessTokenInput{
-		ClientID:   client.ID,
+		ClientID:   client.ClientID,
 		ActorID:    "user_1",
 		TokenHash:  "access-token-hash",
 		ScopesJSON: `["agents.read"]`,
@@ -49,7 +49,7 @@ func TestOAuthCredentialsUseHashedLookupAndRedactedJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if access.ActorID != "user_1" || access.TokenHash != "access-token-hash" {
+	if access.ActorID != "user_1" || access.ClientID != client.ClientID || access.TokenHash != "access-token-hash" {
 		t.Fatalf("access=%#v", access)
 	}
 	raw, err := json.Marshal(access)
@@ -70,7 +70,7 @@ func TestOAuthRefreshTokenRevocationUsesHashOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refresh, err := db.IssueOAuthRefreshToken(ctx, OAuthRefreshTokenInput{ClientID: client.ID, ActorID: "user_1", MaterialHash: "refresh-hash", FamilyID: "family-1", ExpiresAt: FormatTime(time.Now().Add(time.Hour))})
+	refresh, err := db.IssueOAuthRefreshToken(ctx, OAuthRefreshTokenInput{ClientID: client.ClientID, ActorID: "user_1", MaterialHash: "refresh-hash", FamilyID: "family-1", ExpiresAt: FormatTime(time.Now().Add(time.Hour))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestOAuthTokenCannotCrossWorkspaceBoundary(t *testing.T) {
 	if _, err = second.EnsureWorkspace(ctx, "workspace-two", "hosted"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = second.IssueOAuthAccessToken(ctx, OAuthAccessTokenInput{ClientID: client.ID, ActorID: "user_2", TokenHash: "other-workspace-token-hash", ExpiresAt: FormatTime(time.Now().Add(time.Hour))}); err == nil {
+	if _, err = second.IssueOAuthAccessToken(ctx, OAuthAccessTokenInput{ClientID: client.ClientID, ActorID: "user_2", TokenHash: "other-workspace-token-hash", ExpiresAt: FormatTime(time.Now().Add(time.Hour))}); err == nil {
 		t.Fatal("cross-workspace OAuth client was accepted")
 	}
 }

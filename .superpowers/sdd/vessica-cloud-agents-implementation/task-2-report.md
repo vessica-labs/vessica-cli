@@ -68,3 +68,31 @@ rotation/revocation but cannot return an existing refresh credential. A future
 route that must issue a replacement should generate the new plaintext outside
 state, hash it before calling state, and return plaintext only once from its
 authorized transport boundary. No route currently exists in this task.
+
+## Review remediation
+
+- Added migration v7 trigger recovery metadata and a unique durable
+  `(workspace_id, trigger_id)` agent-run identity.
+- Added workspace ownership gates for newsletter, Outlook, conversation,
+  task-checkpoint, and trigger parent-child boundaries. Public OAuth client IDs
+  are now the consistent application contract; state resolves the internal ID
+  only for storage.
+- Changed authorization-code consumption to a conditional update with a
+  required affected-row result, so concurrent consumers have exactly one
+  winner on SQLite and Postgres.
+- Added leased trigger claiming and recovery of a run that committed before its
+  trigger link, avoiding a duplicate run after a crash/retry.
+- Replaced standalone Outlook completion with one transaction that writes the
+  receipt, item state, outbox marker, and terminal batch state together.
+- Expanded the application service across the Task 2 OAuth, source, Outlook,
+  and task-checkpoint operations.
+
+### Review TDD evidence
+
+1. RED: `go test ./internal/state -run '^(TestControlPlaneChildrenRejectForeignWorkspaceParents|TestOAuthAuthorizationCodeCanBeConsumedOnceConcurrently|TestAgentRunTriggerRecoversCreatedButUnlinkedRun|TestCompleteOutlookOutboxAtomicallyWritesReceiptAndLifecycle)$' -count=1`
+   initially failed because recovery and atomic Outlook interfaces were absent.
+2. GREEN: the same review-focused suite passed after the ownership, conditional
+   OAuth consumption, trigger recovery, and atomic Outlook transition changes.
+3. GREEN: `go test ./internal/state ./internal/app -count=1`, `go test ./...`,
+   `go vet ./...`, `go build ./cmd/ves`, `./scripts/lint-arch.sh`, and
+   `git diff --check` passed.

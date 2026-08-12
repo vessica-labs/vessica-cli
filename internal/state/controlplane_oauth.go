@@ -54,11 +54,12 @@ func (db *DB) CreateOAuthAuthorizationCode(ctx context.Context, in OAuthAuthoriz
 	if in.ScopesJSON == "" {
 		in.ScopesJSON = "[]"
 	}
-	if err = db.requireOAuthClient(ctx, in.ClientID); err != nil {
+	client, err := db.requireOAuthClient(ctx, in.ClientID)
+	if err != nil {
 		return nil, err
 	}
-	v := &OAuthAuthorizationCode{ID: id.New("oauthcode"), WorkspaceID: ws.ID, ClientID: in.ClientID, ActorID: in.ActorID, CodeHash: in.CodeHash, RedirectURI: in.RedirectURI, ScopesJSON: in.ScopesJSON, ExpiresAt: in.ExpiresAt, CreatedAt: Now()}
-	_, err = db.Exec(ctx, `INSERT INTO oauth_authorization_codes(id,workspace_id,client_id,actor_id,code_hash,redirect_uri,scopes_json,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, v.ID, v.WorkspaceID, v.ClientID, v.ActorID, v.CodeHash, v.RedirectURI, v.ScopesJSON, v.ExpiresAt, v.CreatedAt)
+	v := &OAuthAuthorizationCode{ID: id.New("oauthcode"), WorkspaceID: ws.ID, ClientID: client.ClientID, ActorID: in.ActorID, CodeHash: in.CodeHash, RedirectURI: in.RedirectURI, ScopesJSON: in.ScopesJSON, ExpiresAt: in.ExpiresAt, CreatedAt: Now()}
+	_, err = db.Exec(ctx, `INSERT INTO oauth_authorization_codes(id,workspace_id,client_id,actor_id,code_hash,redirect_uri,scopes_json,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, v.ID, v.WorkspaceID, client.ID, v.ActorID, v.CodeHash, v.RedirectURI, v.ScopesJSON, v.ExpiresAt, v.CreatedAt)
 	return v, err
 }
 func (db *DB) ConsumeOAuthAuthorizationCode(ctx context.Context, codeHash string) (*OAuthAuthorizationCode, error) {
@@ -66,25 +67,23 @@ func (db *DB) ConsumeOAuthAuthorizationCode(ctx context.Context, codeHash string
 	if err != nil {
 		return nil, err
 	}
-	tx, err := db.SQL.BeginTx(ctx, nil)
+	now := Now()
+	result, err := db.Exec(ctx, `UPDATE oauth_authorization_codes SET consumed_at=? WHERE workspace_id=? AND code_hash=? AND expires_at>? AND consumed_at IS NULL AND revoked_at IS NULL`, now, ws.ID, codeHash, now)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
-	var v OAuthAuthorizationCode
-	var consumed, revoked sql.NullString
-	err = tx.QueryRowContext(ctx, db.Rebind(`SELECT id,workspace_id,client_id,actor_id,code_hash,redirect_uri,scopes_json,expires_at,consumed_at,revoked_at,created_at FROM oauth_authorization_codes WHERE workspace_id=? AND code_hash=? AND expires_at>? AND consumed_at IS NULL AND revoked_at IS NULL`), ws.ID, codeHash, Now()).Scan(&v.ID, &v.WorkspaceID, &v.ClientID, &v.ActorID, &v.CodeHash, &v.RedirectURI, &v.ScopesJSON, &v.ExpiresAt, &consumed, &revoked, &v.CreatedAt)
-	if err == sql.ErrNoRows {
+	changed, _ := result.RowsAffected()
+	if changed != 1 {
 		return nil, fmt.Errorf("oauth authorization code expired, revoked, or invalid")
 	}
+	var v OAuthAuthorizationCode
+	var revoked sql.NullString
+	err = db.QueryRow(ctx, `SELECT oc.id,oc.workspace_id,c.client_id,oc.actor_id,oc.code_hash,oc.redirect_uri,oc.scopes_json,oc.expires_at,oc.consumed_at,oc.revoked_at,oc.created_at FROM oauth_authorization_codes oc JOIN oauth_clients c ON c.id=oc.client_id WHERE oc.workspace_id=? AND oc.code_hash=?`, ws.ID, codeHash).Scan(&v.ID, &v.WorkspaceID, &v.ClientID, &v.ActorID, &v.CodeHash, &v.RedirectURI, &v.ScopesJSON, &v.ExpiresAt, &v.ConsumedAt, &revoked, &v.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
-	v.ConsumedAt = Now()
-	if _, err = tx.ExecContext(ctx, db.Rebind(`UPDATE oauth_authorization_codes SET consumed_at=? WHERE id=? AND consumed_at IS NULL`), v.ConsumedAt, v.ID); err != nil {
-		return nil, err
-	}
-	return &v, tx.Commit()
+	v.RevokedAt = revoked.String
+	return &v, nil
 }
 func (db *DB) IssueOAuthAccessToken(ctx context.Context, in OAuthAccessTokenInput) (*OAuthAccessToken, error) {
 	ws, err := db.GetWorkspace(ctx)
@@ -97,11 +96,12 @@ func (db *DB) IssueOAuthAccessToken(ctx context.Context, in OAuthAccessTokenInpu
 	if in.ScopesJSON == "" {
 		in.ScopesJSON = "[]"
 	}
-	if err = db.requireOAuthClient(ctx, in.ClientID); err != nil {
+	client, err := db.requireOAuthClient(ctx, in.ClientID)
+	if err != nil {
 		return nil, err
 	}
-	v := &OAuthAccessToken{ID: id.New("oauthaccess"), WorkspaceID: ws.ID, ClientID: in.ClientID, ActorID: in.ActorID, TokenHash: in.TokenHash, ScopesJSON: in.ScopesJSON, ExpiresAt: in.ExpiresAt, CreatedAt: Now()}
-	_, err = db.Exec(ctx, `INSERT INTO oauth_access_tokens(id,workspace_id,client_id,actor_id,token_hash,scopes_json,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?)`, v.ID, v.WorkspaceID, v.ClientID, v.ActorID, v.TokenHash, v.ScopesJSON, v.ExpiresAt, v.CreatedAt)
+	v := &OAuthAccessToken{ID: id.New("oauthaccess"), WorkspaceID: ws.ID, ClientID: client.ClientID, ActorID: in.ActorID, TokenHash: in.TokenHash, ScopesJSON: in.ScopesJSON, ExpiresAt: in.ExpiresAt, CreatedAt: Now()}
+	_, err = db.Exec(ctx, `INSERT INTO oauth_access_tokens(id,workspace_id,client_id,actor_id,token_hash,scopes_json,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?)`, v.ID, v.WorkspaceID, client.ID, v.ActorID, v.TokenHash, v.ScopesJSON, v.ExpiresAt, v.CreatedAt)
 	return v, err
 }
 func (db *DB) GetOAuthAccessToken(ctx context.Context, tokenHash string) (*OAuthAccessToken, error) {
@@ -111,7 +111,7 @@ func (db *DB) GetOAuthAccessToken(ctx context.Context, tokenHash string) (*OAuth
 	}
 	var v OAuthAccessToken
 	var revoked sql.NullString
-	err = db.QueryRow(ctx, `SELECT id,workspace_id,client_id,actor_id,token_hash,scopes_json,expires_at,revoked_at,created_at FROM oauth_access_tokens WHERE workspace_id=? AND token_hash=? AND expires_at>? AND revoked_at IS NULL`, ws.ID, tokenHash, Now()).Scan(&v.ID, &v.WorkspaceID, &v.ClientID, &v.ActorID, &v.TokenHash, &v.ScopesJSON, &v.ExpiresAt, &revoked, &v.CreatedAt)
+	err = db.QueryRow(ctx, `SELECT oat.id,oat.workspace_id,oc.client_id,oat.actor_id,oat.token_hash,oat.scopes_json,oat.expires_at,oat.revoked_at,oat.created_at FROM oauth_access_tokens oat JOIN oauth_clients oc ON oc.id=oat.client_id WHERE oat.workspace_id=? AND oat.token_hash=? AND oat.expires_at>? AND oat.revoked_at IS NULL`, ws.ID, tokenHash, Now()).Scan(&v.ID, &v.WorkspaceID, &v.ClientID, &v.ActorID, &v.TokenHash, &v.ScopesJSON, &v.ExpiresAt, &revoked, &v.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("oauth access token expired, revoked, or invalid")
 	}
@@ -130,11 +130,12 @@ func (db *DB) IssueOAuthRefreshToken(ctx context.Context, in OAuthRefreshTokenIn
 	if in.ScopesJSON == "" {
 		in.ScopesJSON = "[]"
 	}
-	if err = db.requireOAuthClient(ctx, in.ClientID); err != nil {
+	client, err := db.requireOAuthClient(ctx, in.ClientID)
+	if err != nil {
 		return nil, err
 	}
-	v := &OAuthRefreshToken{ID: id.New("oauthrefresh"), WorkspaceID: ws.ID, ClientID: in.ClientID, ActorID: in.ActorID, MaterialHash: in.MaterialHash, FamilyID: in.FamilyID, ScopesJSON: in.ScopesJSON, ExpiresAt: in.ExpiresAt, CreatedAt: Now()}
-	_, err = db.Exec(ctx, `INSERT INTO oauth_refresh_tokens(id,workspace_id,client_id,actor_id,material_hash,family_id,scopes_json,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, v.ID, v.WorkspaceID, v.ClientID, v.ActorID, v.MaterialHash, v.FamilyID, v.ScopesJSON, v.ExpiresAt, v.CreatedAt)
+	v := &OAuthRefreshToken{ID: id.New("oauthrefresh"), WorkspaceID: ws.ID, ClientID: client.ClientID, ActorID: in.ActorID, MaterialHash: in.MaterialHash, FamilyID: in.FamilyID, ScopesJSON: in.ScopesJSON, ExpiresAt: in.ExpiresAt, CreatedAt: Now()}
+	_, err = db.Exec(ctx, `INSERT INTO oauth_refresh_tokens(id,workspace_id,client_id,actor_id,material_hash,family_id,scopes_json,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, v.ID, v.WorkspaceID, client.ID, v.ActorID, v.MaterialHash, v.FamilyID, v.ScopesJSON, v.ExpiresAt, v.CreatedAt)
 	return v, err
 }
 
@@ -145,7 +146,7 @@ func (db *DB) GetOAuthRefreshToken(ctx context.Context, materialHash string) (*O
 	}
 	var v OAuthRefreshToken
 	var replaced, revoked sql.NullString
-	err = db.QueryRow(ctx, `SELECT id,workspace_id,client_id,actor_id,material_hash,family_id,scopes_json,expires_at,replaced_at,revoked_at,created_at FROM oauth_refresh_tokens WHERE workspace_id=? AND material_hash=? AND expires_at>? AND replaced_at IS NULL AND revoked_at IS NULL`, ws.ID, materialHash, Now()).Scan(&v.ID, &v.WorkspaceID, &v.ClientID, &v.ActorID, &v.MaterialHash, &v.FamilyID, &v.ScopesJSON, &v.ExpiresAt, &replaced, &revoked, &v.CreatedAt)
+	err = db.QueryRow(ctx, `SELECT ort.id,ort.workspace_id,oc.client_id,ort.actor_id,ort.material_hash,ort.family_id,ort.scopes_json,ort.expires_at,ort.replaced_at,ort.revoked_at,ort.created_at FROM oauth_refresh_tokens ort JOIN oauth_clients oc ON oc.id=ort.client_id WHERE ort.workspace_id=? AND ort.material_hash=? AND ort.expires_at>? AND ort.replaced_at IS NULL AND ort.revoked_at IS NULL`, ws.ID, materialHash, Now()).Scan(&v.ID, &v.WorkspaceID, &v.ClientID, &v.ActorID, &v.MaterialHash, &v.FamilyID, &v.ScopesJSON, &v.ExpiresAt, &replaced, &revoked, &v.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("oauth refresh token expired, rotated, revoked, or invalid")
 	}
@@ -186,13 +187,13 @@ func (db *DB) RevokeOAuthAccessToken(ctx context.Context, tokenHash string) erro
 	return nil
 }
 
-func (db *DB) requireOAuthClient(ctx context.Context, clientID string) error {
+func (db *DB) requireOAuthClient(ctx context.Context, clientID string) (*OAuthClient, error) {
 	client, err := db.GetOAuthClient(ctx, clientID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if client.RevokedAt != "" {
-		return fmt.Errorf("oauth client is revoked")
+		return nil, fmt.Errorf("oauth client is revoked")
 	}
-	return nil
+	return client, nil
 }
