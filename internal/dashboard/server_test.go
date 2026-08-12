@@ -85,6 +85,19 @@ func TestLocalSessionCSRFAndIdempotentMutation(t *testing.T) {
 	if systemRec.Code != 200 || systemRec.Header().Get("Content-Security-Policy") == "" {
 		t.Fatalf("system=%d headers=%v body=%s", systemRec.Code, systemRec.Header(), systemRec.Body.String())
 	}
+
+	consent := httptest.NewRequest(http.MethodPost, "/oauth/authorize", nil)
+	consent.AddCookie(cookies[0])
+	consent.Header.Set("X-CSRF-Token", exchangeBody.Data.CSRF)
+	consent.Header.Set("Origin", server.Origin)
+	identity, err := server.AuthorizeExternalRequest(consent, true)
+	if err != nil || identity.UserID == "" || identity.Role != "owner" {
+		t.Fatalf("external consent identity=%#v err=%v", identity, err)
+	}
+	consent.Header.Del("X-CSRF-Token")
+	if _, err = server.AuthorizeExternalRequest(consent, true); err == nil {
+		t.Fatal("external consent accepted a mutation without CSRF")
+	}
 }
 
 func TestRunStreamResumesAfterLastEventAndTerminates(t *testing.T) {

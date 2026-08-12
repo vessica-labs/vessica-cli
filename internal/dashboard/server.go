@@ -64,6 +64,13 @@ type actor struct {
 	UserID, Role, SessionID string
 	Service                 bool
 }
+
+// ExternalIdentity is the dashboard principal exposed to sibling protocol
+// handlers without exposing dashboard session material.
+type ExternalIdentity struct {
+	UserID string
+	Role   string
+}
 type contextKey string
 
 const actorKey contextKey = "dashboard-actor"
@@ -277,6 +284,32 @@ func (s *Server) authenticate(r *http.Request) (actor, error) {
 		return actor{}, err
 	}
 	return actor{UserID: v.UserID, Role: v.Role, SessionID: v.ID}, nil
+}
+
+// AuthorizeExternalRequest reuses dashboard session identity for sibling
+// handlers. Mutation-grade requests must also prove CSRF and same origin.
+func (s *Server) AuthorizeExternalRequest(r *http.Request, mutation bool) (ExternalIdentity, error) {
+	a, err := s.authenticate(r)
+	if err != nil {
+		return ExternalIdentity{}, err
+	}
+	if a.Service {
+		return ExternalIdentity{}, errors.New("interactive dashboard session required")
+	}
+	if mutation {
+		session, sessionErr := s.DB.GetDashboardSession(r.Context(), digest(cookieValue(r, sessionCookie)))
+		if sessionErr != nil || !same(session.CSRFHash, digest(r.Header.Get("X-CSRF-Token"))) {
+			return ExternalIdentity{}, errors.New("valid CSRF token required")
+		}
+		if s.Origin != "" {
+			got := strings.TrimRight(strings.TrimSpace(r.Header.Get("Origin")), "/")
+			want := strings.TrimRight(s.Origin, "/")
+			if got == "" || got != want {
+				return ExternalIdentity{}, errors.New("request origin is not allowed")
+			}
+		}
+	}
+	return ExternalIdentity{UserID: a.UserID, Role: a.Role}, nil
 }
 
 func (s *Server) handleLocalExchange(w http.ResponseWriter, r *http.Request) {

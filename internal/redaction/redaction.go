@@ -6,10 +6,13 @@ import (
 )
 
 var patterns = []*regexp.Regexp{
+	// Match bearer credentials before generic authorization keys. Otherwise the
+	// generic matcher can consume only "Authorization: Bearer" and leave the
+	// credential suffix visible.
+	regexp.MustCompile(`(?i)bearer\s+[a-z0-9._\-]+`),
 	regexp.MustCompile(`(?i)["']?[a-z0-9_-]*(?:api[_-]?key|token|secret|password|authorization|oauth[_-]?json|codex[_-]?auth[_-]?b64|credential[_-]?encryption[_-]?key)["']?\s*:\s*["'][^"']*["']`),
 	regexp.MustCompile(`(?i)([a-z0-9_-]*(?:oauth[_-]?json|codex[_-]?auth[_-]?b64|credential[_-]?encryption[_-]?key))\s*[:=]\s*['"]?[^\s'"]+`),
 	regexp.MustCompile(`(?i)(api[_-]?key|token|secret|password|authorization)\s*[:=]\s*['"]?[^\s'"]+`),
-	regexp.MustCompile(`(?i)bearer\s+[a-z0-9._\-]+`),
 	regexp.MustCompile(`ghp_[A-Za-z0-9]{20,}`),
 	regexp.MustCompile(`gho_[A-Za-z0-9]{20,}`),
 	regexp.MustCompile(`github_pat_[A-Za-z0-9_]{20,}`),

@@ -13,19 +13,24 @@ type OAuthClient struct {
 	CreatedAt        string `json:"created_at"`
 	UpdatedAt        string `json:"updated_at"`
 }
-type OAuthAuthorizationCodeInput struct{ ClientID, ActorID, CodeHash, RedirectURI, ScopesJSON, ExpiresAt string }
+type OAuthAuthorizationCodeInput struct {
+	ClientID, ActorID, CodeHash, RedirectURI, ScopesJSON, ExpiresAt string
+	CodeChallenge, CodeChallengeMethod                              string
+}
 type OAuthAuthorizationCode struct {
-	ID          string `json:"id"`
-	WorkspaceID string `json:"workspace_id"`
-	ClientID    string `json:"client_id"`
-	ActorID     string `json:"actor_id"`
-	CodeHash    string `json:"-"`
-	RedirectURI string `json:"redirect_uri"`
-	ScopesJSON  string `json:"scopes_json"`
-	ExpiresAt   string `json:"expires_at"`
-	ConsumedAt  string `json:"consumed_at,omitempty"`
-	RevokedAt   string `json:"revoked_at,omitempty"`
-	CreatedAt   string `json:"created_at"`
+	ID                  string `json:"id"`
+	WorkspaceID         string `json:"workspace_id"`
+	ClientID            string `json:"client_id"`
+	ActorID             string `json:"actor_id"`
+	CodeHash            string `json:"-"`
+	RedirectURI         string `json:"redirect_uri"`
+	ScopesJSON          string `json:"scopes_json"`
+	CodeChallenge       string `json:"-"`
+	CodeChallengeMethod string `json:"code_challenge_method"`
+	ExpiresAt           string `json:"expires_at"`
+	ConsumedAt          string `json:"consumed_at,omitempty"`
+	RevokedAt           string `json:"revoked_at,omitempty"`
+	CreatedAt           string `json:"created_at"`
 }
 type OAuthAccessTokenInput struct{ ClientID, ActorID, TokenHash, ScopesJSON, ExpiresAt string }
 type OAuthAccessToken struct {

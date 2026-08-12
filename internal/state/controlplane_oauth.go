@@ -58,9 +58,36 @@ func (db *DB) CreateOAuthAuthorizationCode(ctx context.Context, in OAuthAuthoriz
 	if err != nil {
 		return nil, err
 	}
-	v := &OAuthAuthorizationCode{ID: id.New("oauthcode"), WorkspaceID: ws.ID, ClientID: client.ClientID, ActorID: in.ActorID, CodeHash: in.CodeHash, RedirectURI: in.RedirectURI, ScopesJSON: in.ScopesJSON, ExpiresAt: in.ExpiresAt, CreatedAt: Now()}
-	_, err = db.Exec(ctx, `INSERT INTO oauth_authorization_codes(id,workspace_id,client_id,actor_id,code_hash,redirect_uri,scopes_json,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,?)`, v.ID, v.WorkspaceID, client.ID, v.ActorID, v.CodeHash, v.RedirectURI, v.ScopesJSON, v.ExpiresAt, v.CreatedAt)
+	v := &OAuthAuthorizationCode{ID: id.New("oauthcode"), WorkspaceID: ws.ID, ClientID: client.ClientID, ActorID: in.ActorID, CodeHash: in.CodeHash, RedirectURI: in.RedirectURI, ScopesJSON: in.ScopesJSON, ExpiresAt: in.ExpiresAt, CodeChallenge: in.CodeChallenge, CodeChallengeMethod: in.CodeChallengeMethod, CreatedAt: Now()}
+	_, err = db.Exec(ctx, `INSERT INTO oauth_authorization_codes(id,workspace_id,client_id,actor_id,code_hash,redirect_uri,scopes_json,expires_at,code_challenge,code_challenge_method,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, v.ID, v.WorkspaceID, client.ID, v.ActorID, v.CodeHash, v.RedirectURI, v.ScopesJSON, v.ExpiresAt, v.CodeChallenge, v.CodeChallengeMethod, v.CreatedAt)
 	return v, err
+}
+
+// ExchangeOAuthAuthorizationCode consumes one authorization code only when all
+// redirect, client, and PKCE bindings match. A bad verifier therefore cannot
+// burn a valid code, and concurrent exchanges still have one winner.
+func (db *DB) ExchangeOAuthAuthorizationCode(ctx context.Context, codeHash, clientID, redirectURI, codeChallenge string) (*OAuthAuthorizationCode, error) {
+	ws, err := db.GetWorkspace(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := Now()
+	result, err := db.Exec(ctx, `UPDATE oauth_authorization_codes SET consumed_at=? WHERE workspace_id=? AND code_hash=? AND client_id=(SELECT id FROM oauth_clients WHERE workspace_id=? AND client_id=?) AND redirect_uri=? AND code_challenge=? AND code_challenge_method='S256' AND expires_at>? AND consumed_at IS NULL AND revoked_at IS NULL`, now, ws.ID, codeHash, ws.ID, clientID, redirectURI, codeChallenge, now)
+	if err != nil {
+		return nil, err
+	}
+	changed, _ := result.RowsAffected()
+	if changed != 1 {
+		return nil, fmt.Errorf("oauth authorization code expired, revoked, invalid, or PKCE verification failed")
+	}
+	var v OAuthAuthorizationCode
+	var revoked sql.NullString
+	err = db.QueryRow(ctx, `SELECT oc.id,oc.workspace_id,c.client_id,oc.actor_id,oc.code_hash,oc.redirect_uri,oc.scopes_json,oc.expires_at,oc.code_challenge,oc.code_challenge_method,oc.consumed_at,oc.revoked_at,oc.created_at FROM oauth_authorization_codes oc JOIN oauth_clients c ON c.id=oc.client_id WHERE oc.workspace_id=? AND oc.code_hash=?`, ws.ID, codeHash).Scan(&v.ID, &v.WorkspaceID, &v.ClientID, &v.ActorID, &v.CodeHash, &v.RedirectURI, &v.ScopesJSON, &v.ExpiresAt, &v.CodeChallenge, &v.CodeChallengeMethod, &v.ConsumedAt, &revoked, &v.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	v.RevokedAt = revoked.String
+	return &v, nil
 }
 func (db *DB) ConsumeOAuthAuthorizationCode(ctx context.Context, codeHash string) (*OAuthAuthorizationCode, error) {
 	ws, err := db.GetWorkspace(ctx)
@@ -153,6 +180,33 @@ func (db *DB) GetOAuthRefreshToken(ctx context.Context, materialHash string) (*O
 	v.ReplacedAt = replaced.String
 	v.RevokedAt = revoked.String
 	return &v, err
+}
+
+// ConsumeOAuthRefreshToken atomically rotates a refresh credential. Token
+// issuance happens after this one-time state transition and never stores raw
+// credential material.
+func (db *DB) ConsumeOAuthRefreshToken(ctx context.Context, materialHash, clientID string) (*OAuthRefreshToken, error) {
+	ws, err := db.GetWorkspace(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := Now()
+	result, err := db.Exec(ctx, `UPDATE oauth_refresh_tokens SET replaced_at=? WHERE workspace_id=? AND material_hash=? AND client_id=(SELECT id FROM oauth_clients WHERE workspace_id=? AND client_id=?) AND expires_at>? AND replaced_at IS NULL AND revoked_at IS NULL`, now, ws.ID, materialHash, ws.ID, clientID, now)
+	if err != nil {
+		return nil, err
+	}
+	changed, _ := result.RowsAffected()
+	if changed != 1 {
+		return nil, fmt.Errorf("oauth refresh token expired, rotated, revoked, invalid, or belongs to another client")
+	}
+	var v OAuthRefreshToken
+	var replaced, revoked sql.NullString
+	err = db.QueryRow(ctx, `SELECT ort.id,ort.workspace_id,oc.client_id,ort.actor_id,ort.material_hash,ort.family_id,ort.scopes_json,ort.expires_at,ort.replaced_at,ort.revoked_at,ort.created_at FROM oauth_refresh_tokens ort JOIN oauth_clients oc ON oc.id=ort.client_id WHERE ort.workspace_id=? AND ort.material_hash=?`, ws.ID, materialHash).Scan(&v.ID, &v.WorkspaceID, &v.ClientID, &v.ActorID, &v.MaterialHash, &v.FamilyID, &v.ScopesJSON, &v.ExpiresAt, &replaced, &revoked, &v.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	v.ReplacedAt, v.RevokedAt = replaced.String, revoked.String
+	return &v, nil
 }
 
 func (db *DB) RevokeOAuthRefreshToken(ctx context.Context, materialHash string) error {

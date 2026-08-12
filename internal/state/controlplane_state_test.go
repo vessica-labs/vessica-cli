@@ -118,3 +118,29 @@ func TestOutlookBatchDeduplicatesSourceItemsAndOutbox(t *testing.T) {
 		t.Fatalf("receipt=%#v err=%v", receipt, err)
 	}
 }
+
+// Break caught: a crash between independent checkpoint writes can advance one
+// Outlook source even though the batch lifecycle was not durably finalized.
+func TestFinalizeOutlookBatchCommitsCheckpointsAndLifecycleTogether(t *testing.T) {
+	db := agentTestDB(t)
+	ctx := context.Background()
+	batch, err := db.CreateOutlookIngestionBatch(ctx, OutlookIngestionBatchInput{IdempotencyKey: "finalize", SubmittedBy: "connector"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.FinalizeOutlookIngestionBatch(ctx, batch.ID, `{"candidate":"email"}`, `{"candidate":"calendar"}`); err != nil {
+		t.Fatal(err)
+	}
+	email, err := db.GetSourceCheckpoint(ctx, "outlook_email", "outlook")
+	if err != nil || email.CheckpointJSON != `{"candidate":"email"}` {
+		t.Fatalf("email checkpoint=%#v err=%v", email, err)
+	}
+	calendar, err := db.GetSourceCheckpoint(ctx, "outlook_calendar", "outlook")
+	if err != nil || calendar.CheckpointJSON != `{"candidate":"calendar"}` {
+		t.Fatalf("calendar checkpoint=%#v err=%v", calendar, err)
+	}
+	finalized, err := db.getOutlookBatch(ctx, "finalize")
+	if err != nil || finalized.State != "queued" {
+		t.Fatalf("finalized batch=%#v err=%v", finalized, err)
+	}
+}

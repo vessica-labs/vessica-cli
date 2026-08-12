@@ -3,12 +3,12 @@ package redaction
 import "testing"
 
 func TestRedact(t *testing.T) {
-	in := "token: ghp_abcdefghijklmnopqrstuvwxyz123456 password=supersecret VES_CODEX_AUTH_B64=opaque-login VES_RAILWAY_OAUTH_JSON=oauth-json VES_CREDENTIAL_ENCRYPTION_KEY=encrypt-key"
+	in := "token: ghp_abcdefghijklmnopqrstuvwxyz123456 password=supersecret VES_CODEX_AUTH_B64=opaque-login VES_RAILWAY_OAUTH_JSON=oauth-json VES_CREDENTIAL_ENCRYPTION_KEY=encrypt-key Authorization: Bearer secret-value"
 	out := Redact(in)
 	if out == in {
 		t.Fatal("expected redaction")
 	}
-	if contains(out, "ghp_") || contains(out, "supersecret") || contains(out, "opaque-login") || contains(out, "oauth-json") || contains(out, "encrypt-key") {
+	if contains(out, "ghp_") || contains(out, "supersecret") || contains(out, "opaque-login") || contains(out, "oauth-json") || contains(out, "encrypt-key") || contains(out, "secret-value") {
 		t.Fatalf("leaked secret: %s", out)
 	}
 }

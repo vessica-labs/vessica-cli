@@ -34,8 +34,14 @@ func (s *Service) ValidateOAuthRefreshToken(ctx context.Context, materialHash st
 func (s *Service) ConsumeOAuthAuthorizationCode(ctx context.Context, codeHash string) (*state.OAuthAuthorizationCode, error) {
 	return s.DB.ConsumeOAuthAuthorizationCode(ctx, codeHash)
 }
+func (s *Service) ExchangeOAuthAuthorizationCode(ctx context.Context, codeHash, clientID, redirectURI, codeChallenge string) (*state.OAuthAuthorizationCode, error) {
+	return s.DB.ExchangeOAuthAuthorizationCode(ctx, codeHash, clientID, redirectURI, codeChallenge)
+}
 func (s *Service) ValidateOAuthAccessToken(ctx context.Context, tokenHash string) (*state.OAuthAccessToken, error) {
 	return s.DB.GetOAuthAccessToken(ctx, tokenHash)
+}
+func (s *Service) ConsumeOAuthRefreshToken(ctx context.Context, tokenHash, clientID string) (*state.OAuthRefreshToken, error) {
+	return s.DB.ConsumeOAuthRefreshToken(ctx, tokenHash, clientID)
 }
 func (s *Service) RecordAction(ctx context.Context, in state.ActionLedgerInput) (*state.ActionLedger, error) {
 	return s.DB.AppendActionLedger(ctx, in)
@@ -51,6 +57,12 @@ func (s *Service) ConversationMessages(ctx context.Context, conversationID strin
 }
 func (s *Service) UpsertNewsletterSubscription(ctx context.Context, in state.NewsletterSubscriptionInput) (*state.NewsletterSubscription, error) {
 	return s.DB.UpsertNewsletterSubscription(ctx, in)
+}
+func (s *Service) NewsletterSubscriptions(ctx context.Context) ([]state.NewsletterSubscription, error) {
+	return s.DB.ListNewsletterSubscriptions(ctx)
+}
+func (s *Service) DisableNewsletterSubscription(ctx context.Context, ref string) (*state.NewsletterSubscription, error) {
+	return s.DB.DisableNewsletterSubscription(ctx, ref)
 }
 func (s *Service) UpsertNewsletterItem(ctx context.Context, in state.NewsletterItemInput) (*state.NewsletterItem, error) {
 	return s.DB.UpsertNewsletterItem(ctx, in)
@@ -88,8 +100,17 @@ func (s *Service) SetOutlookItemState(ctx context.Context, itemID, itemState, er
 func (s *Service) SetOutlookBatchState(ctx context.Context, batchID, batchState, errText string) error {
 	return s.DB.SetOutlookIngestionBatchState(ctx, batchID, batchState, errText)
 }
+func (s *Service) FinalizeOutlookIngestion(ctx context.Context, batchID, emailCheckpoint, calendarCheckpoint string) error {
+	return s.DB.FinalizeOutlookIngestionBatch(ctx, batchID, emailCheckpoint, calendarCheckpoint)
+}
 func (s *Service) TriggerCloudAgentRun(ctx context.Context, in state.AgentRunTriggerInput) (*state.AgentRunTrigger, error) {
 	return s.DB.TriggerAgentRun(ctx, in)
+}
+func (s *Service) AgentRuns(ctx context.Context, agentID string) ([]state.AgentRun, error) {
+	return s.DB.ListAgentRuns(ctx, agentID)
+}
+func (s *Service) AgentRun(ctx context.Context, runID string) (*state.AgentRun, error) {
+	return s.DB.GetAgentRun(ctx, runID)
 }
 func (s *Service) UpsertAgentTaskCheckpoint(ctx context.Context, in state.AgentTaskCheckpointInput) (*state.AgentTaskCheckpoint, error) {
 	return s.DB.UpsertAgentTaskCheckpoint(ctx, in)

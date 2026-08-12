@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -154,6 +155,8 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 				WorkerDownloadToken: os.Getenv("VES_WORKER_DOWNLOAD_TOKEN"),
 				Logger:              log.New(os.Stdout, "control-plane ", log.LstdFlags|log.LUTC),
 				PreviewPublicURL:    os.Getenv("VES_PREVIEW_ORIGIN"),
+				MCPEnabled:          strings.EqualFold(strings.TrimSpace(os.Getenv("VES_MCP_ENABLED")), "true"),
+				MCPPublicURL:        firstNonEmpty(os.Getenv("VES_MCP_PUBLIC_URL"), cfg.Hosted.ControlPlaneURL),
 			}
 			if !strings.EqualFold(strings.TrimSpace(os.Getenv("VES_DASHBOARD_ENABLED")), "false") {
 				dash := dashboard.New(appservice.New(db, root, cfg), "hosted")
@@ -179,6 +182,10 @@ func newControlPlaneCmd(app *App) *cobra.Command {
 				dash.RetainAction = server.DashboardRetain
 				dash.DestroyAction = server.DashboardDestroy
 				dash.RuntimeStatus = server.AgentRuntimeStatus
+				server.MCPDashboardIdentity = func(r *http.Request, mutation bool) (controlplane.MCPDashboardActor, error) {
+					identity, identityErr := dash.AuthorizeExternalRequest(r, mutation)
+					return controlplane.MCPDashboardActor{UserID: identity.UserID, Role: identity.Role}, identityErr
+				}
 				server.Dashboard = dash.Handler()
 			}
 			go server.RestoreHostedPreviews(cmd.Context())

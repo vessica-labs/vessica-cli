@@ -43,7 +43,7 @@ func (s *Server) registerAgentRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /internal/agent-runtime/v1/runs/{id}/children", s.requireAgentRuntimeAuth(s.handleAgentRuntimeChild))
 }
 
-func (s *Server) agentApp() *appservice.Service { return appservice.New(s.DB, "", s.Config) }
+func (s *Server) agentApp() *appservice.Service { return appservice.New(s.DB, s.DB.Root, s.Config) }
 
 func (s *Server) agentScheduleLoop(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
