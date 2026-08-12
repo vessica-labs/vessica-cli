@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -157,6 +158,32 @@ func TestAgentRunTriggerRecoveryUsesOriginalDurableRequest(t *testing.T) {
 	}
 	if run.Trigger != "mcp" || run.InputJSON != `{"prompt":"original"}` || run.RateSnapshotJSON != `{"rate":"original"}` {
 		t.Fatalf("run=%#v", run)
+	}
+}
+
+// Break caught: a trigger without explicit rates persists an empty snapshot,
+// unlike direct agent-run creation, and later replays with different pricing.
+func TestAgentRunTriggerDefaultsRateSnapshot(t *testing.T) {
+	db := agentTestDB(t)
+	ctx := context.Background()
+	agent, err := db.CreateAgent(ctx, "DEFAULT-RATES", "test", testDefinition, "{}", 5_000_000, "UTC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trigger, err := db.TriggerAgentRun(ctx, AgentRunTriggerInput{AgentID: agent.ID, IdempotencyKey: "default-rates", Trigger: "mcp", InputJSON: `{}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := db.GetAgentRun(ctx, trigger.AgentRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := json.Marshal(DefaultAgentRateSnapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.RateSnapshotJSON != string(want) {
+		t.Fatalf("rate snapshot=%s want=%s", run.RateSnapshotJSON, want)
 	}
 }
 

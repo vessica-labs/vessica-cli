@@ -64,15 +64,28 @@ func TestCloudAgentServiceOutlookFailureReschedulesWork(t *testing.T) {
 	if err != nil || claimed == nil {
 		t.Fatalf("claim=%#v err=%v", claimed, err)
 	}
-	if err = s.FailOutlookOutbox(ctx, outbox.ID, "worker", "temporary", time.Now().Add(time.Minute)); err != nil {
+	retryAt := time.Now().UTC().Add(time.Minute).Round(0)
+	if err = s.FailOutlookOutbox(ctx, outbox.ID, "wrong-worker", "temporary", retryAt); err == nil {
+		t.Fatal("wrong worker completed fenced failure")
+	}
+	if err = s.FailOutlookOutbox(ctx, outbox.ID, "worker", "temporary", retryAt); err != nil {
 		t.Fatal(err)
 	}
-	var stateText, lastError string
-	if err = s.DB.QueryRow(ctx, `SELECT state,last_error FROM outlook_outbox WHERE id=?`, outbox.ID).Scan(&stateText, &lastError); err != nil {
+	if err = s.FailOutlookOutbox(ctx, outbox.ID, "worker", "stale", retryAt); err == nil {
+		t.Fatal("stale worker completed fenced failure")
+	}
+	var stateText, lastError, availableAt, itemState, itemError, batchState, batchError string
+	if err = s.DB.QueryRow(ctx, `SELECT state,last_error,available_at FROM outlook_outbox WHERE id=?`, outbox.ID).Scan(&stateText, &lastError, &availableAt); err != nil {
 		t.Fatal(err)
 	}
-	if stateText != "pending" || lastError != "temporary" {
-		t.Fatalf("state=%s error=%s", stateText, lastError)
+	if err = s.DB.QueryRow(ctx, `SELECT state,error FROM outlook_ingestion_items WHERE id=?`, item.ID).Scan(&itemState, &itemError); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.DB.QueryRow(ctx, `SELECT state,error FROM outlook_ingestion_batches WHERE id=?`, batch.ID).Scan(&batchState, &batchError); err != nil {
+		t.Fatal(err)
+	}
+	if stateText != "pending" || lastError != "temporary" || availableAt != state.FormatTime(retryAt) || itemState != "retrying" || itemError != "temporary" || batchState != "processing" || batchError != "temporary" {
+		t.Fatalf("outbox=(%s,%s,%s) item=(%s,%s) batch=(%s,%s)", stateText, lastError, availableAt, itemState, itemError, batchState, batchError)
 	}
 }
 

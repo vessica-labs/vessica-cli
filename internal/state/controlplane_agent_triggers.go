@@ -51,9 +51,12 @@ func (db *DB) TriggerAgentRun(ctx context.Context, in AgentRunTriggerInput) (*Ag
 	if err = db.requireWorkspaceRecord(ctx, "agents", in.AgentID); err != nil {
 		return nil, err
 	}
+	if in.RateSnapshot == nil {
+		in.RateSnapshot = DefaultAgentRateSnapshot()
+	}
 	rates, _ := json.Marshal(in.RateSnapshot)
 	if len(rates) == 0 || string(rates) == "null" {
-		rates = []byte("{}")
+		rates, _ = json.Marshal(DefaultAgentRateSnapshot())
 	}
 	now := Now()
 	trigger := &AgentRunTrigger{ID: id.New("atrigger"), WorkspaceID: ws.ID, AgentID: in.AgentID, IdempotencyKey: in.IdempotencyKey, Trigger: in.Trigger, InputJSON: in.InputJSON, RepositoryID: in.RepositoryID, ParentRunID: in.ParentRunID, RateSnapshotJSON: string(rates), State: "accepted", CreatedAt: now, UpdatedAt: now}

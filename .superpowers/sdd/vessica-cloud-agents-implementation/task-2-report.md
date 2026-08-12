@@ -54,8 +54,9 @@ runtime behavior, dashboard UI, deployment wiring, or plugin packaging.
 ## Verification
 
 - `go test ./internal/state ./internal/app -count=1` — passed.
-- `./scripts/lint-arch.sh` — passed; one pre-existing soft-limit warning in
-  `internal/controlplane/agent_runtime_api.go` (517 lines).
+- `./scripts/lint-arch.sh` — passed with two current soft-limit warnings:
+  `internal/state/agent.go` (511 lines, trigger-aware run additions) and the
+  pre-existing `internal/controlplane/agent_runtime_api.go` (517 lines).
 - `git diff --check` — passed.
 - `go test ./...` — passed.
 - `go vet ./...` — passed.
@@ -117,3 +118,17 @@ authorized transport boundary. No route currently exists in this task.
 1. RED: `go test ./internal/state ./internal/app -run '^(TestAgentRunTriggerRecoveryUsesOriginalDurableRequest|TestCloudAgentServiceOAuthLifecycle|TestCloudAgentServiceOutlookFailureReschedulesWork|TestCloudAgentServiceSourcesAndCheckpoints)$' -count=1` failed because the durable rate snapshot, refresh lookup, and Outlook claim/failure service methods did not exist.
 2. GREEN: the same focused suite passed after persisting/reusing the original
    trigger request and adding the application and fenced retry methods.
+
+## Round 3 remediation
+
+- Made a nil trigger rate snapshot persist the same `DefaultAgentRateSnapshot`
+  used by direct run creation, so retries replay a stable default rather than
+  `{}`.
+- Strengthened the Outlook application failure coverage for retry scheduling,
+  stale/wrong worker fencing, and item/batch retry lifecycle state.
+
+### Round 3 TDD evidence
+
+1. RED: `go test ./internal/state ./internal/app -run '^(TestAgentRunTriggerDefaultsRateSnapshot|TestCloudAgentServiceOutlookFailureReschedulesWork)$' -count=1` failed because trigger persistence stored `{}` for nil snapshots.
+2. GREEN: the same focused suite passed after defaulting the durable trigger
+   snapshot before persistence.
