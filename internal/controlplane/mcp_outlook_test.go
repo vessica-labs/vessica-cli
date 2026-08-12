@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/vessica-labs/vessica-cli/internal/state"
 )
 
 func TestOutlookIngestionValidationRejectsContractViolations(t *testing.T) {
@@ -64,8 +66,39 @@ func TestOutlookV2ParityAndContactPersistence(t *testing.T) {
 		t.Fatalf("receipt did not exactly partition message/event IDs: %s", encoded)
 	}
 	var count int
-	if err := db.QueryRow(context.Background(), `SELECT COUNT(*) FROM outlook_ingestion_items WHERE source_id='contact:person@example.com'`).Scan(&count); err != nil || count != 1 {
+	if err := db.QueryRow(context.Background(), `SELECT COUNT(*) FROM outlook_ingestion_items WHERE source_id LIKE 'contact:person@example.com:%'`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("contact item count=%d err=%v", count, err)
+	}
+}
+
+func TestOutlookContactObservationIdentityDedupesIdenticalAndVersionsChanges(t *testing.T) {
+	base := map[string]any{"email": "Person@Example.com", "display_name": "Person", "rationale": "first", "evidence_ids": []any{"m1"}}
+	identical := map[string]any{"display_name": "Person", "email": "person@example.com", "evidence_ids": []any{"m1"}, "rationale": "first"}
+	changed := map[string]any{"email": "person@example.com", "display_name": "Person", "rationale": "changed", "evidence_ids": []any{"m2"}}
+	firstID, identicalID, changedID := outlookContactObservationSourceID(base), outlookContactObservationSourceID(identical), outlookContactObservationSourceID(changed)
+	if firstID != identicalID || changedID == firstID {
+		t.Fatalf("first=%q identical=%q changed=%q", firstID, identicalID, changedID)
+	}
+	_, db := mcpTestServer(t)
+	ctx := context.Background()
+	batch, err := db.CreateOutlookIngestionBatch(ctx, state.OutlookIngestionBatchInput{IdempotencyKey: "contacts-v3", SubmittedBy: "user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, observation := range []struct {
+		id   string
+		data map[string]any
+	}{{firstID, base}, {identicalID, identical}, {changedID, changed}} {
+		raw, _ := json.Marshal(observation.data)
+		if _, _, _, err = db.UpsertOutlookIngestionItemAndEnqueue(ctx, state.OutlookIngestionItemInput{BatchID: batch.ID, SourceID: observation.id, NormalizedJSON: string(raw)}, "outlook:"+observation.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var items, outbox int
+	_ = db.QueryRow(ctx, `SELECT COUNT(*) FROM outlook_ingestion_items WHERE source_id LIKE 'contact:person@example.com:%'`).Scan(&items)
+	_ = db.QueryRow(ctx, `SELECT COUNT(*) FROM outlook_outbox`).Scan(&outbox)
+	if items != 2 || outbox != 2 {
+		t.Fatalf("items=%d outbox=%d", items, outbox)
 	}
 }
 

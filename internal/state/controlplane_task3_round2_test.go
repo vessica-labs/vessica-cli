@@ -85,7 +85,7 @@ func TestOutlookReservationRejectsStaleBatchBeforeAnyItems(t *testing.T) {
 	ctx := context.Background()
 	current, next := "2026-08-11T08:00:00-07:00", "2026-08-11T09:00:00-07:00"
 	seed, _ := db.CreateOutlookIngestionBatchWithCheckpoints(ctx, OutlookIngestionBatchInput{IdempotencyKey: "seed", SubmittedBy: "user"}, "", current, "", current)
-	if err := db.FinalizeOutlookIngestionBatch(ctx, seed.ID, "", current, `{}`, "", current, `{}`); err != nil {
+	if err := db.FinalizeOutlookIngestionBatch(ctx, seed.ID, "", current, `{}`, "", current, `{}`, seed.ReservationToken); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.CreateOutlookIngestionBatchWithCheckpoints(ctx, OutlookIngestionBatchInput{IdempotencyKey: "stale", SubmittedBy: "user"}, "", next, current, next); err == nil {
@@ -153,7 +153,7 @@ func TestOtherMCPWritePrimitivesAreDurablyIdempotent(t *testing.T) {
 		t.Fatalf("outbox replay=%#v err=%v", replayedOutbox, err)
 	}
 	checkpoint := "2026-08-11T08:00:00-07:00"
-	if err = db.FinalizeOutlookIngestionBatch(ctx, batch.ID, "", checkpoint, `{}`, "", checkpoint, `{}`); err != nil {
+	if err = db.FinalizeOutlookIngestionBatch(ctx, batch.ID, "", checkpoint, `{}`, "", checkpoint, `{}`, replayedBatch.ReservationToken); err != nil {
 		t.Fatal(err)
 	}
 	recoveredBatch, err := db.CreateOutlookIngestionBatchWithCheckpoints(ctx, batchInput, "", checkpoint, "", checkpoint)

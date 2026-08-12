@@ -48,7 +48,7 @@ func (db *DB) DisableNewsletterSubscription(ctx context.Context, ref string) (*N
 
 // FinalizeOutlookIngestionBatch advances both independent source checkpoints
 // and the batch lifecycle in one transaction after every item is durable.
-func (db *DB) FinalizeOutlookIngestionBatch(ctx context.Context, batchID, emailExpected, emailCandidate, emailCheckpointJSON, calendarExpected, calendarCandidate, calendarCheckpointJSON string) error {
+func (db *DB) FinalizeOutlookIngestionBatch(ctx context.Context, batchID, emailExpected, emailCandidate, emailCheckpointJSON, calendarExpected, calendarCandidate, calendarCheckpointJSON string, reservationToken ...string) error {
 	ws, err := db.GetWorkspace(ctx)
 	if err != nil {
 		return err
@@ -59,6 +59,10 @@ func (db *DB) FinalizeOutlookIngestionBatch(ctx context.Context, batchID, emailE
 	}
 	defer tx.Rollback()
 	now := Now()
+	reservationHash := ""
+	if len(reservationToken) > 0 && reservationToken[0] != "" {
+		reservationHash = actionClaimHash(reservationToken[0])
+	}
 	var batchState string
 	if err = tx.QueryRowContext(ctx, db.Rebind(`SELECT state FROM outlook_ingestion_batches WHERE id=? AND workspace_id=?`), batchID, ws.ID).Scan(&batchState); err != nil {
 		return fmt.Errorf("outlook batch not found")
@@ -80,10 +84,13 @@ func (db *DB) FinalizeOutlookIngestionBatch(ctx context.Context, batchID, emailE
 		if checkpoint.value == "" {
 			checkpoint.value = "{}"
 		}
-		var reservedExpected, reservedCandidate string
-		reservationErr := tx.QueryRowContext(ctx, db.Rebind(`SELECT expected_value,candidate_value FROM source_checkpoint_reservations WHERE workspace_id=? AND source_type=? AND source_id='outlook' AND batch_id=?`), ws.ID, checkpoint.sourceType, batchID).Scan(&reservedExpected, &reservedCandidate)
+		var reservedExpected, reservedCandidate, reservedHash, leaseUntil string
+		reservationErr := tx.QueryRowContext(ctx, db.Rebind(`SELECT expected_value,candidate_value,claim_token_hash,lease_until FROM source_checkpoint_reservations WHERE workspace_id=? AND source_type=? AND source_id='outlook' AND batch_id=?`), ws.ID, checkpoint.sourceType, batchID).Scan(&reservedExpected, &reservedCandidate, &reservedHash, &leaseUntil)
 		if reservationErr == nil && (reservedExpected != checkpoint.expected || reservedCandidate != checkpoint.candidate) {
 			return fmt.Errorf("%s checkpoint does not match its reservation", checkpoint.sourceType)
+		}
+		if reservationErr == nil && (reservationHash == "" || reservedHash != reservationHash || leaseUntil < now) {
+			return fmt.Errorf("%s checkpoint reservation fence is stale or invalid", checkpoint.sourceType)
 		}
 		if reservationErr != nil && reservationErr != sql.ErrNoRows {
 			return reservationErr
@@ -131,8 +138,23 @@ func (db *DB) FinalizeOutlookIngestionBatch(ctx context.Context, batchID, emailE
 	if changed != 1 {
 		return fmt.Errorf("outlook batch not found")
 	}
-	if _, err = tx.ExecContext(ctx, db.Rebind(`DELETE FROM source_checkpoint_reservations WHERE workspace_id=? AND batch_id=?`), ws.ID, batchID); err != nil {
-		return err
+	if reservationHash != "" {
+		result, err = tx.ExecContext(ctx, db.Rebind(`DELETE FROM source_checkpoint_reservations WHERE workspace_id=? AND batch_id=? AND claim_token_hash=?`), ws.ID, batchID, reservationHash)
+		if err != nil {
+			return err
+		}
+		deleted, _ := result.RowsAffected()
+		if deleted != 2 {
+			return fmt.Errorf("outlook reservation fence lost")
+		}
+	} else {
+		var reservations int
+		if err = tx.QueryRowContext(ctx, db.Rebind(`SELECT COUNT(*) FROM source_checkpoint_reservations WHERE workspace_id=? AND batch_id=?`), ws.ID, batchID).Scan(&reservations); err != nil {
+			return err
+		}
+		if reservations != 0 {
+			return fmt.Errorf("outlook reservation fence is required")
+		}
 	}
 	return tx.Commit()
 }

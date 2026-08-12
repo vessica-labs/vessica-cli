@@ -5,12 +5,15 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/vessica-labs/vessica-cli/internal/id"
 	"github.com/vessica-labs/vessica-cli/internal/redaction"
 )
+
+var ErrActionIdempotencyConflict = errors.New("action idempotency key was already used with different arguments")
 
 func actionClaimHash(raw string) string {
 	sum := sha256.Sum256([]byte(raw))
@@ -33,9 +36,17 @@ func (db *DB) ClaimActionExecution(ctx context.Context, in ActionLedgerInput, le
 	}
 	claimToken := id.New("mcpclaim")
 	claimHash := actionClaimHash(claimToken)
+	redactedArguments := redaction.Redact(defaultJSON(in.RedactedArgumentsJSON, "{}"))
+	argumentsHash := in.ArgumentsHash
+	if argumentsHash == "" {
+		argumentsHash = actionClaimHash(redactedArguments)
+	}
+	if len(argumentsHash) != 64 {
+		return nil, fmt.Errorf("action arguments hash is invalid")
+	}
 	now := Now()
 	leaseUntil := FormatTime(time.Now().Add(lease))
-	result, err := db.Exec(ctx, `INSERT INTO action_ledger(id,workspace_id,actor_id,agent_id,agent_run_id,tool,policy_decision,redacted_arguments_json,result_json,latency_ms,idempotency_key,external_ids_json,created_at,execution_state,claim_token_hash,lease_until,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'claimed',?,?,?) ON CONFLICT(workspace_id,idempotency_key) DO NOTHING`, id.New("act"), ws.ID, in.ActorID, nullStr(in.AgentID), nullStr(in.AgentRunID), in.Tool, "allowed", redaction.Redact(defaultJSON(in.RedactedArgumentsJSON, "{}")), "{}", 0, in.IdempotencyKey, defaultJSON(in.ExternalIDsJSON, "[]"), now, claimHash, leaseUntil, now)
+	result, err := db.Exec(ctx, `INSERT INTO action_ledger(id,workspace_id,actor_id,agent_id,agent_run_id,tool,policy_decision,redacted_arguments_json,result_json,latency_ms,idempotency_key,external_ids_json,created_at,execution_state,claim_token_hash,lease_until,updated_at,arguments_hash) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'claimed',?,?,?,?) ON CONFLICT(workspace_id,idempotency_key) DO NOTHING`, id.New("act"), ws.ID, in.ActorID, nullStr(in.AgentID), nullStr(in.AgentRunID), in.Tool, "allowed", redactedArguments, "{}", 0, in.IdempotencyKey, defaultJSON(in.ExternalIDsJSON, "[]"), now, claimHash, leaseUntil, now, argumentsHash)
 	if err != nil {
 		return nil, err
 	}
@@ -48,10 +59,17 @@ func (db *DB) ClaimActionExecution(ctx context.Context, in ActionLedgerInput, le
 	if err != nil {
 		return nil, err
 	}
+	existingArgumentsHash := ledger.ArgumentsHash
+	if existingArgumentsHash == "" {
+		existingArgumentsHash = actionClaimHash(ledger.RedactedArgumentsJSON)
+	}
+	if ledger.ActorID != in.ActorID || ledger.Tool != in.Tool || existingArgumentsHash != argumentsHash {
+		return nil, ErrActionIdempotencyConflict
+	}
 	if ledger.ExecutionState == "completed" {
 		return &ActionExecutionClaim{Ledger: ledger, Replay: true}, nil
 	}
-	result, err = db.Exec(ctx, `UPDATE action_ledger SET execution_state='claimed',claim_token_hash=?,lease_until=?,updated_at=?,result_json='{}' WHERE id=? AND workspace_id=? AND (execution_state='failed' OR (execution_state='claimed' AND lease_until<?))`, claimHash, leaseUntil, now, ledger.ID, ws.ID, now)
+	result, err = db.Exec(ctx, `UPDATE action_ledger SET execution_state='claimed',claim_token_hash=?,lease_until=?,updated_at=?,result_json='{}' WHERE id=? AND workspace_id=? AND actor_id=? AND tool=? AND arguments_hash=? AND (execution_state='failed' OR (execution_state='claimed' AND lease_until<?))`, claimHash, leaseUntil, now, ledger.ID, ws.ID, in.ActorID, in.Tool, argumentsHash, now)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +116,7 @@ func defaultJSON(value, fallback string) string {
 func scanActionLedger(row interface{ Scan(...any) error }) (*ActionLedger, error) {
 	var v ActionLedger
 	var agent, run sql.NullString
-	err := row.Scan(&v.ID, &v.WorkspaceID, &v.ActorID, &agent, &run, &v.Tool, &v.PolicyDecision, &v.RedactedArgumentsJSON, &v.ResultJSON, &v.LatencyMS, &v.IdempotencyKey, &v.ExternalIDsJSON, &v.CreatedAt, &v.ExecutionState, &v.ClaimTokenHash, &v.LeaseUntil, &v.UpdatedAt)
+	err := row.Scan(&v.ID, &v.WorkspaceID, &v.ActorID, &agent, &run, &v.Tool, &v.PolicyDecision, &v.RedactedArgumentsJSON, &v.ResultJSON, &v.LatencyMS, &v.IdempotencyKey, &v.ExternalIDsJSON, &v.CreatedAt, &v.ExecutionState, &v.ClaimTokenHash, &v.LeaseUntil, &v.UpdatedAt, &v.ArgumentsHash)
 	v.AgentID, v.AgentRunID = agent.String, run.String
 	return &v, err
 }

@@ -91,6 +91,9 @@ func (s *Service) ReserveOutlookIngestion(ctx context.Context, in state.OutlookI
 func (s *Service) UpsertOutlookIngestionItem(ctx context.Context, in state.OutlookIngestionItemInput) (*state.OutlookIngestionItem, bool, error) {
 	return s.DB.UpsertOutlookIngestionItem(ctx, in)
 }
+func (s *Service) AcceptOutlookIngestionItem(ctx context.Context, in state.OutlookIngestionItemInput, processingKey string) (*state.OutlookIngestionItem, *state.OutlookOutbox, bool, error) {
+	return s.DB.UpsertOutlookIngestionItemAndEnqueue(ctx, in, processingKey)
+}
 func (s *Service) EnqueueOutlookOutbox(ctx context.Context, batchID, itemID, key string) (*state.OutlookOutbox, error) {
 	return s.DB.EnqueueOutlookOutbox(ctx, batchID, itemID, key)
 }
@@ -112,8 +115,8 @@ func (s *Service) SetOutlookItemState(ctx context.Context, itemID, itemState, er
 func (s *Service) SetOutlookBatchState(ctx context.Context, batchID, batchState, errText string) error {
 	return s.DB.SetOutlookIngestionBatchState(ctx, batchID, batchState, errText)
 }
-func (s *Service) FinalizeOutlookIngestion(ctx context.Context, batchID, emailExpected, emailCandidate, emailCheckpoint, calendarExpected, calendarCandidate, calendarCheckpoint string) error {
-	return s.DB.FinalizeOutlookIngestionBatch(ctx, batchID, emailExpected, emailCandidate, emailCheckpoint, calendarExpected, calendarCandidate, calendarCheckpoint)
+func (s *Service) FinalizeOutlookIngestion(ctx context.Context, batchID, emailExpected, emailCandidate, emailCheckpoint, calendarExpected, calendarCandidate, calendarCheckpoint string, reservationToken ...string) error {
+	return s.DB.FinalizeOutlookIngestionBatch(ctx, batchID, emailExpected, emailCandidate, emailCheckpoint, calendarExpected, calendarCandidate, calendarCheckpoint, reservationToken...)
 }
 func (s *Service) TriggerCloudAgentRun(ctx context.Context, in state.AgentRunTriggerInput) (*state.AgentRunTrigger, error) {
 	return s.DB.TriggerAgentRun(ctx, in)

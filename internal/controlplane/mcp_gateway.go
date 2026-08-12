@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -321,9 +322,13 @@ func addMCPTool[In any, Out mcpToolOutput](s *Server, server *mcp.Server, tool *
 			var claimErr error
 			claim, claimErr = s.agentApp().ClaimAction(ctx, state.ActionLedgerInput{
 				ActorID: principal.ActorID, Tool: tool.Name, PolicyDecision: "allowed",
-				RedactedArgumentsJSON: auditArguments, IdempotencyKey: auditKey, ExternalIDsJSON: "[]",
+				RedactedArgumentsJSON: auditArguments, ArgumentsHash: actionClaimHash(auditArguments), IdempotencyKey: auditKey, ExternalIDsJSON: "[]",
 			}, time.Minute)
 			if claimErr != nil {
+				if errors.Is(claimErr, state.ErrActionIdempotencyConflict) {
+					auditKey = hashedAuditKey(principal, tool.Name, auditKey+"\x00"+actionClaimHash(auditArguments))
+					return deny(&MCPToolError{Code: "idempotency_conflict", Message: "the idempotency key was already used with different arguments", Retryable: false})
+				}
 				out := newOutput()
 				out.setMCPError(&MCPToolError{Code: "audit_failed", Message: "the invocation could not be claimed", Retryable: true})
 				return &mcp.CallToolResult{IsError: true}, out, nil
@@ -408,6 +413,11 @@ func mcpIdempotencyKey(arguments []byte) (string, string, error) {
 func hashedAuditKey(principal mcpPrincipal, tool, durableKey string) string {
 	sum := sha256.Sum256([]byte(principal.WorkspaceID + "\x00" + principal.ActorID + "\x00" + principal.ClientID + "\x00" + tool + "\x00" + durableKey))
 	return "mcp_" + hex.EncodeToString(sum[:])
+}
+
+func actionClaimHash(arguments string) string {
+	sum := sha256.Sum256([]byte(arguments))
+	return hex.EncodeToString(sum[:])
 }
 
 func durableMCPIdempotency(raw string) (string, error) {

@@ -2,6 +2,8 @@ package controlplane
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -105,19 +107,16 @@ func (s *Server) registerOutlookIngestionTool(server *mcp.Server) {
 			sourceID := stringField(record, "source_id")
 			record["source_id"] = sourceID
 			raw, _ := json.Marshal(record)
-			item, duplicate, itemErr := s.agentApp().UpsertOutlookIngestionItem(ctx, state.OutlookIngestionItemInput{
+			_, _, duplicate, itemErr := s.agentApp().AcceptOutlookIngestionItem(ctx, state.OutlookIngestionItemInput{
 				BatchID: batch.ID, SourceID: sourceID, InternetMessageID: stringField(record, "internet_message_id"),
 				ConversationID: stringField(record, "conversation_id"), MessageAt: firstStringField(record, "message_at", "event_at", "generated_at"), NormalizedJSON: string(raw),
-			})
+			}, in.Batch.BatchID+":"+sourceID)
 			if itemErr != nil {
 				return &outlookIngestionOutput{}, itemErr
 			}
 			if duplicate {
 				out.DeduplicatedIDs = append(out.DeduplicatedIDs, sourceID)
 				continue
-			}
-			if _, itemErr = s.agentApp().EnqueueOutlookOutbox(ctx, batch.ID, item.ID, in.Batch.BatchID+":"+sourceID); itemErr != nil {
-				return &outlookIngestionOutput{}, itemErr
 			}
 			out.AcceptedIDs = append(out.AcceptedIDs, sourceID)
 		}
@@ -126,21 +125,18 @@ func (s *Server) registerOutlookIngestionTool(server *mcp.Server) {
 		for _, contact := range in.Batch.ContactUpdates {
 			email := strings.ToLower(stringField(contact, "email"))
 			contact["email"] = email
-			contact["source_id"] = "contact:" + email
+			contactSourceID := outlookContactObservationSourceID(contact)
+			contact["source_id"] = contactSourceID
+			contact["contact_identity"] = "contact:" + email
 			raw, _ := json.Marshal(contact)
-			item, duplicate, itemErr := s.agentApp().UpsertOutlookIngestionItem(ctx, state.OutlookIngestionItemInput{BatchID: batch.ID, SourceID: "contact:" + email, NormalizedJSON: string(raw)})
+			_, _, _, itemErr := s.agentApp().AcceptOutlookIngestionItem(ctx, state.OutlookIngestionItemInput{BatchID: batch.ID, SourceID: contactSourceID, NormalizedJSON: string(raw)}, in.Batch.BatchID+":"+contactSourceID)
 			if itemErr != nil {
 				return &outlookIngestionOutput{}, itemErr
-			}
-			if !duplicate {
-				if _, itemErr = s.agentApp().EnqueueOutlookOutbox(ctx, batch.ID, item.ID, in.Batch.BatchID+":contact:"+email); itemErr != nil {
-					return &outlookIngestionOutput{}, itemErr
-				}
 			}
 		}
 		if err = s.agentApp().FinalizeOutlookIngestion(ctx, batch.ID,
 			outlookPrevious(in.Batch.Watermarks.Email), in.Batch.Watermarks.Email.Candidate, mustMarshalJSON(in.Batch.Watermarks.Email),
-			outlookPrevious(in.Batch.Watermarks.Calendar), in.Batch.Watermarks.Calendar.Candidate, mustMarshalJSON(in.Batch.Watermarks.Calendar)); err != nil {
+			outlookPrevious(in.Batch.Watermarks.Calendar), in.Batch.Watermarks.Calendar.Candidate, mustMarshalJSON(in.Batch.Watermarks.Calendar), batch.ReservationToken); err != nil {
 			return &outlookIngestionOutput{}, err
 		}
 		if err = validateOutlookReceipt(*out, in.Batch); err != nil {
@@ -148,6 +144,20 @@ func (s *Server) registerOutlookIngestionTool(server *mcp.Server) {
 		}
 		return out, nil
 	})
+}
+
+func outlookContactObservationSourceID(contact map[string]any) string {
+	canonical := make(map[string]any, len(contact))
+	for key, value := range contact {
+		if key != "source_id" && key != "contact_identity" {
+			canonical[key] = value
+		}
+	}
+	email := strings.ToLower(strings.TrimSpace(stringField(canonical, "email")))
+	canonical["email"] = email
+	raw, _ := json.Marshal(canonical)
+	sum := sha256.Sum256(raw)
+	return "contact:" + email + ":" + hex.EncodeToString(sum[:16])
 }
 
 func validateOutlookBatch(batch outlookBatchV2) error {

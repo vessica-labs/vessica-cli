@@ -66,6 +66,11 @@ CREATE TABLE IF NOT EXISTS source_checkpoint_reservations(
   FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
   FOREIGN KEY(batch_id) REFERENCES outlook_ingestion_batches(id) ON DELETE CASCADE
 );
+`}, {version: 12, sql: `
+ALTER TABLE action_ledger ADD COLUMN arguments_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE source_checkpoint_reservations ADD COLUMN claim_token_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE source_checkpoint_reservations ADD COLUMN lease_until TEXT NOT NULL DEFAULT '';
+ALTER TABLE source_checkpoint_reservations ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
 `}}
 
 func latestMigrationVersion() int {

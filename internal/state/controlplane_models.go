@@ -67,6 +67,7 @@ type OAuthRefreshToken struct {
 type ActionLedgerInput struct {
 	ActorID, AgentID, AgentRunID, Tool, PolicyDecision string
 	RedactedArgumentsJSON, ResultJSON                  string
+	ArgumentsHash                                      string
 	LatencyMS                                          int64
 	IdempotencyKey, ExternalIDsJSON                    string
 }
@@ -77,6 +78,7 @@ type ActionLedger struct {
 	IdempotencyKey, ExternalIDsJSON, CreatedAt                          string
 	ExecutionState                                                      string
 	ClaimTokenHash                                                      string `json:"-"`
+	ArgumentsHash                                                       string `json:"-"`
 	LeaseUntil                                                          string `json:"-"`
 	UpdatedAt                                                           string
 }
@@ -107,7 +109,10 @@ type NewsletterSubscription struct {
 type NewsletterItemInput struct{ SubscriptionID, SourceItemID, NormalizedJSON, PublishedAt, RetainUntil string }
 type NewsletterItem struct{ ID, WorkspaceID, SubscriptionID, SourceItemID, NormalizedJSON, PublishedAt, RetainUntil, CreatedAt, UpdatedAt string }
 type OutlookIngestionBatchInput struct{ IdempotencyKey, SubmittedBy, CheckpointJSON, WarningsJSON string }
-type OutlookIngestionBatch struct{ ID, WorkspaceID, IdempotencyKey, SubmittedBy, State, CheckpointJSON, WarningsJSON, Error, CreatedAt, UpdatedAt, CompletedAt string }
+type OutlookIngestionBatch struct {
+	ID, WorkspaceID, IdempotencyKey, SubmittedBy, State, CheckpointJSON, WarningsJSON, Error, CreatedAt, UpdatedAt, CompletedAt string
+	ReservationToken                                                                                                            string `json:"-"`
+}
 type OutlookIngestionItemInput struct{ BatchID, SourceID, InternetMessageID, ConversationID, MessageAt, NormalizedJSON string }
 type OutlookIngestionItem struct{ ID, WorkspaceID, BatchID, SourceID, InternetMessageID, ConversationID, MessageAt, NormalizedJSON, State, Error, CreatedAt, UpdatedAt string }
 type OutlookIngestionReceipt struct{ ID, WorkspaceID, BatchID, ItemID, State, ResultJSON, Error, CreatedAt string }

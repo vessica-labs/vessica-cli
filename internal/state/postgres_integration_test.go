@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"os"
 	"sort"
@@ -225,5 +226,98 @@ func TestPostgresHostedSchema(t *testing.T) {
 	conversationReplay, messageReplay, replay, err := db.SendConversationMessageIdempotent(ctx, mcpActionKey, "postgres-user", "", "Postgres", ConversationMessageInput{Role: "user", ContentJSON: `{"text":"once"}`})
 	if err != nil || !replay || conversationReplay.ID != conversation.ID || messageReplay.ID != message.ID {
 		t.Fatalf("Postgres domain replay conversation=%#v message=%#v replay=%v err=%v", conversationReplay, messageReplay, replay, err)
+	}
+
+	boundAgent, err := db.CreateAgent(ctx, unique+"-BOUND", "Postgres bound agent", testDefinition, `{}`, 1_000_000, "UTC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentActionKey, agentArgs := unique+"-agent-action", `{"agent":"`+boundAgent.ID+`","mode":"one"}`
+	agentClaim, err := db.ClaimActionExecution(ctx, ActionLedgerInput{ActorID: "postgres-user", Tool: "agent_run", IdempotencyKey: agentActionKey, RedactedArgumentsJSON: agentArgs}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstAgentTrigger, err := db.TriggerAgentRun(ctx, AgentRunTriggerInput{AgentID: boundAgent.ID, IdempotencyKey: agentActionKey, Trigger: "mcp", InputJSON: `{"mode":"one"}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.CompleteActionExecution(ctx, agentClaim.Ledger.ID, "bad-fence", `{}`, 0); err == nil {
+		t.Fatal("Postgres simulated agent finalize failure succeeded")
+	}
+	if _, err = db.Exec(ctx, `UPDATE action_ledger SET lease_until=? WHERE id=?`, FormatTime(time.Now().Add(-time.Minute)), agentClaim.Ledger.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ClaimActionExecution(ctx, ActionLedgerInput{ActorID: "postgres-user", Tool: "agent_run", IdempotencyKey: agentActionKey, RedactedArgumentsJSON: `{"agent":"` + boundAgent.ID + `","mode":"changed"}`}, time.Minute); !stderrors.Is(err, ErrActionIdempotencyConflict) {
+		t.Fatalf("Postgres changed agent args err=%v", err)
+	}
+	if reclaimed, reclaimErr := db.ClaimActionExecution(ctx, ActionLedgerInput{ActorID: "postgres-user", Tool: "agent_run", IdempotencyKey: agentActionKey, RedactedArgumentsJSON: agentArgs}, time.Minute); reclaimErr != nil || !reclaimed.Acquired {
+		t.Fatalf("Postgres agent reclaim=%#v err=%v", reclaimed, reclaimErr)
+	}
+	secondAgentTrigger, err := db.TriggerAgentRun(ctx, AgentRunTriggerInput{AgentID: boundAgent.ID, IdempotencyKey: agentActionKey, Trigger: "mcp", InputJSON: `{"mode":"one"}`})
+	if err != nil || secondAgentTrigger.AgentRunID != firstAgentTrigger.AgentRunID {
+		t.Fatalf("Postgres agent replay=%#v err=%v", secondAgentTrigger, err)
+	}
+
+	subscriptionActionKey, subscriptionArgs := unique+"-subscription-action", `{"source_key":"postgres-source","source_url":"https://one.test"}`
+	subscriptionClaim, err := db.ClaimActionExecution(ctx, ActionLedgerInput{ActorID: "postgres-user", Tool: "subscription_upsert", IdempotencyKey: subscriptionActionKey, RedactedArgumentsJSON: subscriptionArgs}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstSubscription, err := db.UpsertNewsletterSubscription(ctx, NewsletterSubscriptionInput{SourceKey: unique + "-source", SourceURL: "https://one.test", Status: "active"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.CompleteActionExecution(ctx, subscriptionClaim.Ledger.ID, "bad-fence", `{}`, 0); err == nil {
+		t.Fatal("Postgres simulated subscription finalize failure succeeded")
+	}
+	if _, err = db.Exec(ctx, `UPDATE action_ledger SET lease_until=? WHERE id=?`, FormatTime(time.Now().Add(-time.Minute)), subscriptionClaim.Ledger.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.ClaimActionExecution(ctx, ActionLedgerInput{ActorID: "postgres-user", Tool: "subscription_upsert", IdempotencyKey: subscriptionActionKey, RedactedArgumentsJSON: `{"source_key":"postgres-source","source_url":"https://changed.test"}`}, time.Minute); !stderrors.Is(err, ErrActionIdempotencyConflict) {
+		t.Fatalf("Postgres changed subscription args err=%v", err)
+	}
+	if reclaimed, reclaimErr := db.ClaimActionExecution(ctx, ActionLedgerInput{ActorID: "postgres-user", Tool: "subscription_upsert", IdempotencyKey: subscriptionActionKey, RedactedArgumentsJSON: subscriptionArgs}, time.Minute); reclaimErr != nil || !reclaimed.Acquired {
+		t.Fatalf("Postgres subscription reclaim=%#v err=%v", reclaimed, reclaimErr)
+	}
+	secondSubscription, err := db.UpsertNewsletterSubscription(ctx, NewsletterSubscriptionInput{SourceKey: unique + "-source", SourceURL: "https://one.test", Status: "active"})
+	if err != nil || secondSubscription.ID != firstSubscription.ID || secondSubscription.SourceURL != "https://one.test" {
+		t.Fatalf("Postgres subscription replay=%#v err=%v", secondSubscription, err)
+	}
+
+	emailExpected, calendarExpected := "", ""
+	if checkpoint, checkpointErr := db.GetSourceCheckpoint(ctx, "outlook_email", "outlook"); checkpointErr == nil {
+		emailExpected = checkpoint.CheckpointValue
+	}
+	if checkpoint, checkpointErr := db.GetSourceCheckpoint(ctx, "outlook_calendar", "outlook"); checkpointErr == nil {
+		calendarExpected = checkpoint.CheckpointValue
+	}
+	candidate := FormatTime(time.Now().Add(time.Hour))
+	reservationInput := OutlookIngestionBatchInput{IdempotencyKey: unique + "-outlook", SubmittedBy: "postgres-user"}
+	reserved, err := db.CreateOutlookIngestionBatchWithCheckpoints(ctx, reservationInput, emailExpected, candidate, calendarExpected, candidate)
+	if err != nil || reserved.ReservationToken == "" {
+		t.Fatalf("Postgres reserve=%#v err=%v", reserved, err)
+	}
+	if _, _, _, err = db.UpsertOutlookIngestionItemAndEnqueue(ctx, OutlookIngestionItemInput{BatchID: reserved.ID, SourceID: unique + "-first", NormalizedJSON: `{}`}, unique+"-processing"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err = db.UpsertOutlookIngestionItemAndEnqueue(ctx, OutlookIngestionItemInput{BatchID: reserved.ID, SourceID: unique + "-rollback", NormalizedJSON: `{}`}, unique+"-processing"); err == nil {
+		t.Fatal("Postgres atomic outbox conflict succeeded")
+	}
+	var rolledBack int
+	if err = db.QueryRow(ctx, `SELECT COUNT(*) FROM outlook_ingestion_items WHERE source_id=?`, unique+"-rollback").Scan(&rolledBack); err != nil || rolledBack != 0 {
+		t.Fatalf("Postgres rollback residue=%d err=%v", rolledBack, err)
+	}
+	if _, err = db.Exec(ctx, `UPDATE source_checkpoint_reservations SET lease_until=? WHERE batch_id=?`, FormatTime(time.Now().Add(-time.Minute)), reserved.ID); err != nil {
+		t.Fatal(err)
+	}
+	reclaimedReservation, err := db.CreateOutlookIngestionBatchWithCheckpoints(ctx, reservationInput, emailExpected, candidate, calendarExpected, candidate)
+	if err != nil || reclaimedReservation.ReservationToken == "" || reclaimedReservation.ReservationToken == reserved.ReservationToken {
+		t.Fatalf("Postgres reservation reclaim=%#v err=%v", reclaimedReservation, err)
+	}
+	if err = db.ReleaseOutlookCheckpointReservation(ctx, reserved.ID, reserved.ReservationToken); err == nil {
+		t.Fatal("Postgres stale reservation fence released")
+	}
+	if err = db.ReleaseOutlookCheckpointReservation(ctx, reserved.ID, reclaimedReservation.ReservationToken); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -253,3 +253,72 @@ authoritative `./scripts/lint-arch.sh` gate above passed. No push was performed.
 
 Dashboard installation still reports the same 8 high-severity transitive npm
 audit findings described above. No push was performed.
+
+## Round 3 durability remediation
+
+- Action claims now persist a SHA-256 argument fingerprint independently from
+  their redacted audit payload. Claim identity is therefore bound to workspace,
+  actor, tool, hashed idempotency key, and canonical arguments. Completed,
+  failed, and expired claims reject changed arguments with the stable,
+  non-retryable `idempotency_conflict` envelope before any handler executes.
+  Conflict attempts also append a separate durable denied audit record.
+- Real agent-trigger and subscription-upsert/disable recovery tests commit the
+  domain mutation, simulate failed action-ledger finalization, expire and
+  reacquire the claim, and prove identical arguments replay one durable result
+  while changed arguments cannot mutate state. The agent and subscription
+  recovery paths also run against disposable PostgreSQL.
+- Outlook item insertion and outbox enqueue are now one state transaction and
+  one application operation. Processing-key collision tests inject the enqueue
+  failure and prove the preceding item insert rolls back, so committed accepted
+  items always have deliverable outbox work. Deduplication also verifies that a
+  previously committed item has its durable outbox record.
+- Contact updates retain the normalized `contact:<email>` identity while their
+  ingestion source ID adds a stable canonical content/evidence hash. Identical
+  observations deduplicate; changed evidence or content creates and enqueues a
+  new durable observation without adding contacts to receipt source-ID
+  partitions.
+- Outlook checkpoint reservations now store only a hashed claim token with a
+  bounded lease. Same-batch resume rotates the fence; competing batches remain
+  blocked. Finalize and release require the current unexpired fence, both
+  checkpoint rows are released transactionally, stale owners cannot advance or
+  release checkpoints, and a crashed batch can reclaim its reservation and
+  deduplicate already committed item/outbox work.
+
+### Round 3 RED/GREEN evidence
+
+1. RED: an expired or failed action claim compared only its idempotency key, so
+   changed arguments could reacquire and execute. GREEN: state and MCP tests now
+   receive `idempotency_conflict`, record the denial, and preserve exactly one
+   actual agent run or subscription mutation after finalize failure.
+2. RED: item persistence and outbox enqueue were separate commits. GREEN: an
+   injected processing-key conflict rolls back the new item on SQLite and
+   PostgreSQL; committed item and outbox counts remain equal.
+3. RED: every update for one contact used `contact:<email>` as the source ID, so
+   changed evidence was discarded as a duplicate. GREEN: canonical observation
+   hashing deduplicates identical maps regardless of key order/case while
+   persisting and enqueueing changed observations.
+4. RED: checkpoint reservations had no lease or fence, so an abandoned batch
+   could block ingestion indefinitely and any same-batch caller could finalize.
+   GREEN: crash/reclaim tests rotate the hashed fence, reject the stale owner,
+   replay existing item/outbox work once, and finalize only through the current
+   lease owner.
+
+### Round 3 verification
+
+- `go test ./... -count=1` — passed.
+- `go test -race ./... -count=1` — passed; after the final conflict-audit
+  adjustment, `go test -race ./internal/state ./internal/app ./internal/run
+  ./internal/controlplane -count=1` also passed.
+- Disposable PostgreSQL `TestPostgresHostedSchema` — passed with agent and
+  subscription finalize-failure/reacquire, atomic Outlook rollback, and
+  checkpoint fence-reclaim coverage.
+- `go vet ./...`, `go build ./cmd/ves`, `./scripts/lint-arch.sh`, and
+  `git diff --check` — passed. Architecture lint reports one pre-existing soft
+  file-length warning for `internal/controlplane/agent_runtime_api.go`.
+- Dashboard clean install/API generation, 4 Vitest files / 6 tests, production
+  build, 2 Playwright E2E tests, and the 148157-byte compressed asset budget —
+  passed.
+
+The dashboard clean install still reports the same 8 high-severity transitive
+npm audit findings. This task did not modify dashboard dependencies. No push
+was performed.

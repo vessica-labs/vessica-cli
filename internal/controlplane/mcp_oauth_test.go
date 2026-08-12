@@ -72,6 +72,21 @@ func TestMCPToolCallsDelegateAndWriteIdempotently(t *testing.T) {
 	if firstRunBody.Trigger.AgentRunID == "" || secondRunBody.Trigger.AgentRunID != firstRunBody.Trigger.AgentRunID {
 		t.Fatalf("run replay first=%#v second=%#v", firstRunBody, secondRunBody)
 	}
+	conflict, callErr := session.CallTool(ctx, &mcp.CallToolParams{Name: "agent_run", Arguments: map[string]any{"agent_id": agent.ID, "prompt": "changed", "idempotency_key": "run-once"}})
+	var conflictBody struct {
+		Error MCPToolError `json:"error"`
+	}
+	if callErr != nil || conflict == nil || !conflict.IsError {
+		t.Fatalf("changed-argument conflict=%#v err=%v", conflict, callErr)
+	}
+	decodeStructured(t, conflict.StructuredContent, &conflictBody)
+	if conflictBody.Error.Code != "idempotency_conflict" || conflictBody.Error.Retryable {
+		t.Fatalf("conflict body=%#v", conflictBody)
+	}
+	var conflictAudits int
+	if err = db.QueryRow(ctx, `SELECT COUNT(*) FROM action_ledger WHERE tool='agent_run' AND policy_decision='denied'`).Scan(&conflictAudits); err != nil || conflictAudits != 1 {
+		t.Fatalf("idempotency conflict audits=%d err=%v", conflictAudits, err)
+	}
 	runs, err := db.ListAgentRuns(ctx, agent.ID)
 	if err != nil || len(runs) != 1 {
 		t.Fatalf("agent runs=%#v err=%v", runs, err)

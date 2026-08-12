@@ -39,7 +39,7 @@ func (db *DB) GetActionLedgerByKey(ctx context.Context, key string) (*ActionLedg
 	if e != nil {
 		return nil, e
 	}
-	v, e := scanActionLedger(db.QueryRow(ctx, `SELECT id,workspace_id,actor_id,agent_id,agent_run_id,tool,policy_decision,redacted_arguments_json,result_json,latency_ms,idempotency_key,external_ids_json,created_at,execution_state,claim_token_hash,lease_until,updated_at FROM action_ledger WHERE workspace_id=? AND idempotency_key=?`, ws.ID, key))
+	v, e := scanActionLedger(db.QueryRow(ctx, `SELECT id,workspace_id,actor_id,agent_id,agent_run_id,tool,policy_decision,redacted_arguments_json,result_json,latency_ms,idempotency_key,external_ids_json,created_at,execution_state,claim_token_hash,lease_until,updated_at,arguments_hash FROM action_ledger WHERE workspace_id=? AND idempotency_key=?`, ws.ID, key))
 	if e == sql.ErrNoRows {
 		return nil, fmt.Errorf("action ledger entry not found")
 	}
