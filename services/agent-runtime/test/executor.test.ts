@@ -21,6 +21,7 @@ vi.mock("@openai/agents", () => ({
 }));
 
 import { OpenAIAgentsExecutor } from "../src/executor.js";
+import { AgentAdmission } from "../src/admission.js";
 import type { AgentDefinition, ClaimedTask } from "../src/contracts.js";
 import type { ControlPlaneClient } from "../src/control-plane.js";
 
@@ -282,5 +283,59 @@ describe("OpenAIAgentsExecutor", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     await rejection;
     expect(client.fail).toHaveBeenCalledWith("child_run", "child_fence", "run exceeded 2 second limit", expect.any(Object), 0);
+  });
+
+  it("serializes two concurrent parents invoking the same v2 concurrency-one child", async () => {
+    let finishFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => { finishFirst = resolve; });
+    const stream = (gate = Promise.resolve()) => ({
+      async *[Symbol.asyncIterator]() { await gate; }, completed: gate, error: null, finalOutput: "done",
+      runContext: { usage: { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, inputTokensDetails: [], outputTokensDetails: [] } },
+    });
+    sdk.run.mockResolvedValueOnce(stream(firstGate)).mockResolvedValueOnce(stream());
+    const childDefinition = {
+      ...definition, kind: "vessica.agent/v2" as const, runtime: { kind: "typescript_agents_sdk" as const },
+      action_policy: { default: "deny" as const, allowed_actions: [], approval_required: [] }, writable_knowledge_namespaces: [],
+      sources: { network: "none" as const, allowed_domains: [], allowed_source_types: [] }, concurrency: 1, timeout_seconds: 30,
+      conversations: { enabled: false, max_turns: 25 }, checkpoints: { enabled: false, interval_seconds: 0 },
+    };
+    const executions = ["child_1", "child_2"].map((id) => ({
+      protocol: "vessica.agent-runtime/v1" as const, fence_token: `fence_${id}`,
+      task: { id: `task_${id}`, kind: "run" as const, subject_id: id, attempts: 1 },
+      run: { id, agent_id: "shared_child", input_json: '{"prompt":"child"}', trigger: "child", rate_snapshot_json: "{}", resolved_knowledge_json: "[]" },
+      definition: childDefinition,
+    }));
+    const client = {
+      child: vi.fn().mockResolvedValueOnce({ child: { id: "child_1" }, execution: executions[0] }).mockResolvedValueOnce({ child: { id: "child_2" }, execution: executions[1] }),
+      events: vi.fn().mockResolvedValue({}), complete: vi.fn().mockResolvedValue({}), fail: vi.fn().mockResolvedValue({}),
+    } as unknown as ControlPlaneClient;
+    const executor = new OpenAIAgentsExecutor(client, () => ({ stop() {} }), new AgentAdmission());
+    const invoke = (runID: string) => {
+      const context = { client, runID, fence: `fence_${runID}`, toolOrdinal: 0, batcher: { append: vi.fn().mockResolvedValue(undefined) }, failedToolCallIDs: new Set<string>() };
+      return ((executor as unknown as { mapTools(d: AgentDefinition, c: typeof context): Array<Record<string, unknown>> }).mapTools({ ...definition, tools: [{ id: "agent.invoke", config: {} }] }, context)[0] as { execute(args: { agent: string; prompt: string }): Promise<unknown> }).execute({ agent: "CHILD", prompt: "run" });
+    };
+    const first = invoke("parent_1");
+    const second = invoke("parent_2");
+    await vi.waitFor(() => expect(sdk.run).toHaveBeenCalledTimes(1));
+    finishFirst();
+    await Promise.all([first, second]);
+    expect(sdk.run).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps v1 inline children compatible without v2 admission", async () => {
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    const stream = { async *[Symbol.asyncIterator]() { await gate; }, completed: gate, error: null, finalOutput: "done", runContext: { usage: { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, inputTokensDetails: [], outputTokensDetails: [] } } };
+    sdk.run.mockResolvedValue(stream);
+    const child = (id: string) => ({ protocol: "vessica.agent-runtime/v1" as const, fence_token: `fence_${id}`, task: { id: `task_${id}`, kind: "run" as const, subject_id: id, attempts: 1 }, run: { id, agent_id: "legacy", input_json: "{}", trigger: "child", rate_snapshot_json: "{}", resolved_knowledge_json: "[]" }, definition });
+    const client = { child: vi.fn().mockResolvedValueOnce({ child: { id: "v1_1" }, execution: child("v1_1") }).mockResolvedValueOnce({ child: { id: "v1_2" }, execution: child("v1_2") }), events: vi.fn().mockResolvedValue({}), complete: vi.fn().mockResolvedValue({}), fail: vi.fn() } as unknown as ControlPlaneClient;
+    const executor = new OpenAIAgentsExecutor(client, () => ({ stop() {} }), new AgentAdmission());
+    const context = { client, runID: "parent", fence: "parent_fence", toolOrdinal: 0, batcher: { append: vi.fn().mockResolvedValue(undefined) }, failedToolCallIDs: new Set<string>() };
+    const invoke = (executor as unknown as { mapTools(d: AgentDefinition, c: typeof context): Array<Record<string, unknown>> }).mapTools({ ...definition, tools: [{ id: "agent.invoke", config: {} }] }, context)[0] as { execute(args: { agent: string; prompt: string }): Promise<unknown> };
+    const first = invoke.execute({ agent: "LEGACY", prompt: "one" });
+    const second = invoke.execute({ agent: "LEGACY", prompt: "two" });
+    await vi.waitFor(() => expect(sdk.run).toHaveBeenCalledTimes(2));
+    finish();
+    await Promise.all([first, second]);
   });
 });

@@ -4,6 +4,7 @@ import { OpenAIAgentsExecutor } from "./executor.js";
 import { FakeExecutor } from "./fake-executor.js";
 import { workerLeaseFactory } from "./lease.js";
 import { Runtime } from "./runtime.js";
+import { AgentAdmission } from "./admission.js";
 
 const baseURL = process.env.VES_CONTROL_PLANE_INTERNAL_URL?.replace(/\/$/, "");
 const token = process.env.VES_AGENT_RUNTIME_TOKEN;
@@ -12,9 +13,10 @@ const fakeProvider = process.env.VES_AGENT_RUNTIME_FAKE_PROVIDER === "1";
 if (!baseURL || !token) throw new Error("VES_CONTROL_PLANE_INTERNAL_URL and VES_AGENT_RUNTIME_TOKEN are required");
 
 const client = new ControlPlaneClient(baseURL, token);
-const executor = fakeProvider ? new FakeExecutor(client) : new OpenAIAgentsExecutor(client, workerLeaseFactory);
+const admission = new AgentAdmission();
+const executor = fakeProvider ? new FakeExecutor(client) : new OpenAIAgentsExecutor(client, workerLeaseFactory, admission);
 const credentialsReady = fakeProvider || !!process.env.OPENAI_API_KEY;
-const runtime = new Runtime(client, executor, Number(process.env.VES_AGENT_RUNTIME_CONCURRENCY || 4), credentialsReady, workerLeaseFactory);
+const runtime = new Runtime(client, executor, Number(process.env.VES_AGENT_RUNTIME_CONCURRENCY || 4), credentialsReady, workerLeaseFactory, admission);
 let ready = false;
 const server = createServer((request, response) => {
   response.setHeader("content-type", "application/json");

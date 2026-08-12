@@ -3,6 +3,7 @@ import type { ControlPlaneClient } from "./control-plane.js";
 import { DEFAULT_MODEL, PROTOCOL, type ClaimedTask, type RuntimeCapabilities, type Usage } from "./contracts.js";
 import { ExecutionFailure, type Executor } from "./executor.js";
 import { intervalLeaseFactory, type LeaseFactory } from "./lease.js";
+import { AgentAdmission } from "./admission.js";
 
 const emptyUsage = (): Usage => ({ requests: 0, input_tokens: 0, cached_input_tokens: 0, output_tokens: 0, reasoning_tokens: 0, total_tokens: 0, response_ids: [] });
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -21,9 +22,7 @@ export class Runtime implements AgentRuntimeLifecycle {
   readonly capabilities: RuntimeCapabilities;
   private active = 0;
   private stopping = false;
-  private readonly agentActive = new Map<string, number>();
-  private readonly agentWaiters = new Map<string, Array<() => void>>();
-  constructor(private readonly client: ControlPlaneClient, private readonly executor: Executor, concurrency = 4, credentialsReady = !!process.env.OPENAI_API_KEY, private readonly leaseFactory: LeaseFactory = intervalLeaseFactory) {
+  constructor(private readonly client: ControlPlaneClient, private readonly executor: Executor, concurrency = 4, credentialsReady = !!process.env.OPENAI_API_KEY, private readonly leaseFactory: LeaseFactory = intervalLeaseFactory, private readonly admission = new AgentAdmission()) {
     this.capabilities = {
       runtime_version: process.env.RUNTIME_VERSION || "dev",
       protocol: PROTOCOL,
@@ -72,7 +71,7 @@ export class Runtime implements AgentRuntimeLifecycle {
     }
   }
   async execute(task: ClaimedTask) {
-    const release = await this.admit(task);
+    const release = await this.admission.admit(task);
     try {
       await this.executeClaimed(task);
     } finally {
@@ -105,27 +104,5 @@ export class Runtime implements AgentRuntimeLifecycle {
       clearTimeout(timeout);
       lease.stop();
     }
-  }
-
-  private async admit(task: ClaimedTask): Promise<() => void> {
-    if (task.definition?.kind !== "vessica.agent/v2" || !task.run) return () => undefined;
-    const key = task.run.agent_id || task.definition.name;
-    const limit = task.definition.concurrency;
-    while ((this.agentActive.get(key) ?? 0) >= limit) {
-      await new Promise<void>((resolve) => {
-        const waiters = this.agentWaiters.get(key) ?? [];
-        waiters.push(resolve);
-        this.agentWaiters.set(key, waiters);
-      });
-    }
-    this.agentActive.set(key, (this.agentActive.get(key) ?? 0) + 1);
-    return () => {
-      const remaining = (this.agentActive.get(key) ?? 1) - 1;
-      if (remaining > 0) this.agentActive.set(key, remaining);
-      else this.agentActive.delete(key);
-      const waiters = this.agentWaiters.get(key) ?? [];
-      this.agentWaiters.delete(key);
-      for (const resume of waiters) resume();
-    };
   }
 }

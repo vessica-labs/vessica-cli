@@ -13,6 +13,7 @@ import { DEFAULT_MODEL, definitionV2Schema, normalizeDefinition, parseToolConfig
 import { EventBatcher } from "./events.js";
 import { intervalLeaseFactory, type LeaseFactory } from "./lease.js";
 import { estimateCost, normalizeUsage } from "./usage.js";
+import { AgentAdmission } from "./admission.js";
 
 const builderDefinitionSchema = definitionV2Schema.omit({ tools: true }).extend({
   tools: z.array(z.object({ id: z.string(), config_json: z.string() })),
@@ -123,7 +124,7 @@ export interface Executor {
 
 export class OpenAIAgentsExecutor implements Executor {
   private readonly runner: Runner;
-  constructor(private readonly client: ControlPlaneClient, private readonly leaseFactory: LeaseFactory = intervalLeaseFactory) {
+  constructor(private readonly client: ControlPlaneClient, private readonly leaseFactory: LeaseFactory = intervalLeaseFactory, private readonly admission = new AgentAdmission()) {
     setTracingDisabled(true);
     this.runner = new Runner({ tracingDisabled: true, traceIncludeSensitiveData: false, reasoningItemIdPolicy: "preserve" });
   }
@@ -330,7 +331,7 @@ export class OpenAIAgentsExecutor implements Executor {
           await context.batcher.append("agent.child.started", { run_id: child.child.id, agent });
           if (!child.execution) return child.child;
           try {
-            const result = await this.runInlineChild(child.execution);
+            const result = await this.runInlineChild(child.execution, context.runID);
             await context.batcher.append("agent.child.completed", { run_id: child.child.id, status: "completed" });
             return { run_id: child.child.id, status: "completed", output: result.output };
           } catch (error) {
@@ -359,13 +360,15 @@ export class OpenAIAgentsExecutor implements Executor {
     }
   }
 
-  private async runInlineChild(task: ClaimedTask) {
+  private async runInlineChild(task: ClaimedTask, requesterRunID: string) {
     const abort = new AbortController();
     const definition = task.definition ? normalizeDefinition(task.definition) : undefined;
     const timeoutSeconds = definition?.timeout_seconds ?? 60 * 60;
     const timeout = setTimeout(() => abort.abort(new Error(`run exceeded ${timeoutSeconds} second limit`)), timeoutSeconds * 1000);
     const lease = this.leaseFactory(this.client, task, (reason) => abort.abort(reason));
+    let release: (() => void) | undefined;
     try {
+      release = await this.admission.admit(task, requesterRunID, abort.signal);
       const result = await this.run(task, abort.signal);
       await this.client.complete(task.task.subject_id, task.fence_token, result.output, result.usage, result.cost);
       return result;
@@ -374,6 +377,6 @@ export class OpenAIAgentsExecutor implements Executor {
       const cost = error instanceof ExecutionFailure ? error.cost : 0;
       await this.client.fail(task.task.subject_id, task.fence_token, error instanceof Error ? error.message : "child run failed", usage, cost).catch(()=>undefined);
       throw error;
-    } finally { clearTimeout(timeout); lease.stop(); }
+    } finally { release?.(); clearTimeout(timeout); lease.stop(); }
   }
 }
