@@ -33,7 +33,10 @@ metadata may name a credential environment variable but never its value.
 4. Enable ChatGPT developer mode if workspace policy permits it. In ChatGPT
    Plugins, create a remote MCP connection for
    `https://<canonical-control-plane-origin>/mcp`, complete interactive OAuth,
-   and grant only the scopes required by the task. See the
+   and grant only the scopes required by the task. Vessica advertises its
+   dynamic client-registration endpoint and accepts only public PKCE clients
+   whose callbacks are on `https://chatgpt.com`; it does not issue or store a
+   client secret. See the
    [official connection steps](https://developers.openai.com/plugins/deploy/connect-chatgpt).
 5. Copy the registered `plugin_asdk_app_...` technical ID. Use
    `render-chatgpt-plugin.sh` to create the separate app-backed plugin candidate,

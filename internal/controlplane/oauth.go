@@ -53,6 +53,7 @@ func (s *Server) registerOAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource", s.handleOAuthProtectedResource)
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource/mcp", s.handleOAuthProtectedResource)
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server", s.handleOAuthAuthorizationServer)
+	mux.HandleFunc("POST /oauth/register", s.handleOAuthRegister)
 	mux.HandleFunc("GET /oauth/authorize", s.handleOAuthAuthorize)
 	mux.HandleFunc("POST /oauth/authorize", s.handleOAuthAuthorize)
 	mux.HandleFunc("POST /oauth/token", s.handleOAuthToken)
@@ -105,6 +106,7 @@ func (s *Server) handleOAuthAuthorizationServer(w http.ResponseWriter, r *http.R
 	writeJSON(w, http.StatusOK, map[string]any{
 		"issuer": base, "authorization_endpoint": base + "/oauth/authorize",
 		"token_endpoint": base + "/oauth/token", "revocation_endpoint": base + "/oauth/revoke",
+		"registration_endpoint":                 base + "/oauth/register",
 		"response_types_supported":              []string{"code"},
 		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
 		"code_challenge_methods_supported":      []string{"S256"},

@@ -207,6 +207,11 @@ func TestMCPAndOAuthRoutesAreFeatureFlagged(t *testing.T) {
 			t.Fatalf("%s status=%d, want 404", path, rec.Code)
 		}
 	}
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/oauth/register", strings.NewReader(`{}`)))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("/oauth/register status=%d, want 404", rec.Code)
+	}
 }
 
 // Break caught: an authorization code without S256 PKCE, or one consumed by a
