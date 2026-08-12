@@ -42,15 +42,15 @@ const definitionCore = {
     id: z.string(),
     reasoning_effort: z.enum(["low", "medium", "high", "xhigh"]),
   }),
-  tools: z.array(z.object({ id: z.string(), config: z.record(z.string(), z.unknown()).default({}) })),
+  tools: z.array(z.object({ id: z.string(), config: z.record(z.string(), z.unknown()).default({}) })).default([]),
   knowledge: z.array(z.object({
     artifact_id: z.string(), description: z.string(), version: z.string(),
-  })),
+  })).default([]),
   heartbeat: z.object({
     enabled: z.boolean(), cron: z.string(), timezone: z.string(),
-  }).nullable(),
-  budget: z.object({ daily_usd: z.string(), timezone: z.string() }).nullable(),
-  eval_critic_agent_id: z.string().nullable(),
+  }).nullable().default(null),
+  budget: z.object({ daily_usd: z.string(), timezone: z.string() }).nullable().default(null),
+  eval_critic_agent_id: z.string().nullable().default(null),
 };
 
 export const definitionV1Schema = z.object({

@@ -2,6 +2,21 @@ import { describe, expect, it } from "vitest";
 import { normalizeDefinition } from "../src/contracts.js";
 
 describe("agent definition v2", () => {
+  it.each(["vessica.agent/v1", "vessica.agent/v2"] as const)("defaults Go-omitted optional fields for %s", (kind) => {
+    const definition = normalizeDefinition({
+      kind, name: "MINIMAL", purpose: "Contract parity", system_prompt: "Help",
+      model: { id: "gpt-5.6-terra", reasoning_effort: "medium" },
+      ...(kind === "vessica.agent/v2" ? {
+        action_policy: { default: "deny", allowed_actions: [] },
+      } : {}),
+    });
+    expect(definition.tools).toEqual([]);
+    expect(definition.knowledge).toEqual([]);
+    expect(definition.heartbeat).toBeNull();
+    expect(definition.budget).toBeNull();
+    expect(definition.eval_critic_agent_id).toBeNull();
+  });
+
   it("keeps v1 valid and selects the TypeScript Agents SDK runtime", () => {
     const definition = normalizeDefinition({
       kind: "vessica.agent/v1", name: "COS", purpose: "Chief of staff", system_prompt: "Help",
